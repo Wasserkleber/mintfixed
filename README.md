@@ -1,18 +1,3 @@
-Fixed the mod.io 403 issue. If you'd rather patch the original repository yourself, follow these steps:
-- Clone the MINT repository and open src\providers\modio.rs.
-- Replace:
-use modio::filter::{Eq, In};
-use modio::mods::filters::{NameId, Visible};
-with:
-use modio::filter::Eq;
-use modio::mods::filters::NameId;
-- Replace:
-let filter = NameId::eq(name_id).and(Visible::_in(vec![0, 1]));
-with:
-let filter = NameId::eq(name_id);
--Build MINT
-
-
 # mint
 
 3rd party mod integration tool for Deep Rock Galactic to download and integrate mods completely
