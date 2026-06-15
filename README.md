@@ -1,3 +1,10 @@
+This version of Mint fixes two issues:
+
+- Fixes the mod.io API 403 error.
+- Limits the mission selector/server browser mod list to 100 entries, preventing hosting/invites from breaking when the mission selector mod list string becomes too large.
+
+If you'd like to build it yourself from the original mint-repo, take a look at my commits to see the fixes I implemented.
+
 # mint
 
 3rd party mod integration tool for Deep Rock Galactic to download and integrate mods completely
