@@ -151,6 +151,7 @@ impl Meta {
                 self.mods
                     .iter()
                     .sorted_by_key(|m| (std::cmp::Reverse(m.approval), &m.name))
+                    .take(100)
                     .flat_map(|m| {
                         [
                             match m.approval {
