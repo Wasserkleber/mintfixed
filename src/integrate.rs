@@ -580,7 +580,7 @@ impl<W: Write + Seek> ModBundleWriter<W> {
 
     fn write_file(&mut self, data: &[u8], path: &str) -> Result<(), IntegrationError> {
         self.pak_writer
-            .write_file(self.normalize_path(path).as_str(), data)?;
+            .write_file(self.normalize_path(path).as_str(), false, data)?;
         Ok(())
     }
 

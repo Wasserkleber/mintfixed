@@ -16,7 +16,7 @@ edition = "2024"
 anyhow = { version = "1.0.99", features = ["backtrace"] }
 patternsleuth = { git = "https://github.com/trumank/patternsleuth" }
 steamlocate = "2.0.1"
-repak = { git = "https://github.com/trumank/repak" }
+repak = { git = "https://github.com/trumank/repak", features = ["oodle"] }
 serde = { version = "1.0.219", features = ["derive"] }
 serde_json = "1.0.143"
 itertools = "0.14.0"
