@@ -1,6 +1,6 @@
-This version of Mint fixes two issues:
-
-- Fixes the mod.io API 403 error.
+This version of Mint fixes these issues:
+- Fixed HTTP 403 errors (mod lookup) by removing the deprecated `visible` filter from mod.io API requests.
+- Fixed HTTP 403 errors by replacing direct mod file metadata requests (`GET /mods/{id}/files/{file_id}`) with filtered list queries, restoring mod downloads.
 - Limits the mission selector/server browser mod list to 100 entries, preventing hosting/invites from breaking when the mission selector mod list string becomes too large.
 - Updated Trumans Repaker to make mods that need oodle compression work again automatically without needing to manually add a DLL (for example: https://mod.io/g/drg/m/missions-hud)
 
