@@ -323,7 +323,7 @@ impl DrgModio for modio::Modio {
     }
 
     async fn fetch_mod(&self, url: String, id: u32) -> Result<ModioMod, DrgModioError> {
-        use modio::filter::NotEq;
+        use modio::filter::{In, NotEq};
         use modio::mods::filters::Id;
 
         let files = self
@@ -337,18 +337,24 @@ impl DrgModio for modio::Modio {
                 mod_id: id,
                 url: url.clone(),
             })?;
-        let r#mod = self
+
+        let mods = self
             .game(MODIO_DRG_ID)
-            .mod_(id)
-            .get()
+            .mods()
+            .search(Id::_in(vec![id]))
+            .collect()
             .await
             .context(FetchModFailedSnafu { mod_id: id, url })?;
+
+        let r#mod = mods.into_iter().next().ok_or(DrgModioError::GenericError {
+            msg: "mod.io returned no mod for the requested ID",
+        })?;
 
         Ok(ModioMod::new(r#mod, files))
     }
 
     async fn fetch_files(&self, url: String, mod_id: u32) -> Result<ModioMod, DrgModioError> {
-        use modio::filter::NotEq;
+        use modio::filter::{In, NotEq};
         use modio::mods::filters::Id;
 
         let files = self
@@ -362,12 +368,18 @@ impl DrgModio for modio::Modio {
                 mod_id,
                 url: url.clone(),
             })?;
-        let r#mod = self
+
+        let mods = self
             .game(MODIO_DRG_ID)
-            .mod_(mod_id)
-            .get()
+            .mods()
+            .search(Id::_in(vec![mod_id]))
+            .collect()
             .await
             .context(FetchModFailedSnafu { mod_id, url })?;
+
+        let r#mod = mods.into_iter().next().ok_or(DrgModioError::GenericError {
+            msg: "mod.io returned no mod for the requested ID",
+        })?;
 
         Ok(ModioMod::new(r#mod, files))
     }
@@ -378,18 +390,25 @@ impl DrgModio for modio::Modio {
         mod_id: u32,
         modfile_id: u32,
     ) -> Result<modio::files::File, DrgModioError> {
-        let file = self
+        use modio::files::filters::Id;
+        use modio::filter::Eq;
+
+        let files = self
             .game(MODIO_DRG_ID)
             .mod_(mod_id)
-            .file(modfile_id)
-            .get()
+            .files()
+            .search(Id::eq(modfile_id))
+            .collect()
             .await
             .with_context(|_| FetchModFileFailedSnafu {
-                url,
+                url: url.clone(),
                 mod_id,
                 modfile_id,
             })?;
-        Ok(file)
+
+        files.into_iter().next().ok_or(DrgModioError::GenericError {
+            msg: "mod.io returned no mod file for the requested ID",
+        })
     }
 
     async fn fetch_dependencies(
@@ -414,7 +433,7 @@ impl DrgModio for modio::Modio {
         name_id: &str,
     ) -> Result<Vec<ModioModResponse>, DrgModioError> {
         use modio::filter::Eq;
-use modio::mods::filters::NameId;
+        use modio::mods::filters::NameId;
 
         let filter = NameId::eq(name_id);
         Ok(self
