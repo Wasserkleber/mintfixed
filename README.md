@@ -96,6 +96,12 @@ in game:
 You can either drag and drop a local `.pak` file on to the tool window, or add the path to the
 local `.pak` in the same "Add mods..." field.
 
+### Sorting mods
+
+Sorting changes the displayed order only; selecting Manual restores the stored order.
+Groups stay in place. Mods are sorted within each group and within each contiguous
+run of individual mods between groups.
+
 ### Updating Cache
 
 The versioned mod.io mods are *cached*. If you want to update to the latest version of your mods,

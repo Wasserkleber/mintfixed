@@ -4,6 +4,9 @@ mod named_combobox;
 mod request_counter;
 mod toggle_switch;
 
+#[cfg(test)]
+mod tests;
+
 //#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")] // hide console window on Windows in release
 
 use std::cmp::Ordering;
@@ -24,7 +27,6 @@ use eframe::{
     epaint::{Color32, Stroke, text::LayoutJob},
 };
 use egui_commonmark::{CommonMarkCache, CommonMarkViewer};
-use itertools::Itertools as _;
 use mint_lib::error::ResultExt as _;
 use mint_lib::mod_info::{ModioTags, RequiredStatus};
 use mint_lib::update::GitHubRelease;
@@ -265,7 +267,7 @@ impl App {
         struct Ctx {
             needs_save: bool,
             scroll_to_match: bool,
-            btn_remove: Option<usize>,
+            btn_remove: Option<(Option<String>, usize)>,
             add_deps: Option<Vec<ModSpecification>>,
         }
         let mut ctx = Ctx {
@@ -275,16 +277,18 @@ impl App {
             add_deps: None,
         };
 
-        let ui_profile = |ui: &mut Ui, profile: &mut ModProfile| {
+        let mut ui_profile = |ui: &mut Ui, profile: &mut ModProfile| {
             let enabled_specs = profile
                 .mods
                 .iter()
                 .enumerate()
                 .flat_map(|(i, m)| -> Box<dyn Iterator<Item = _>> {
                     match m {
-                        ModOrGroup::Individual(mc) => {
-                            Box::new(mc.enabled.then_some((Some(i), mc.spec.clone())).into_iter())
-                        }
+                        ModOrGroup::Individual(mc) => Box::new(
+                            mc.enabled
+                                .then_some(((None, i), mc.spec.clone()))
+                                .into_iter(),
+                        ),
                         ModOrGroup::Group {
                             group_name,
                             enabled,
@@ -293,10 +297,13 @@ impl App {
                                 .then(|| groups.get(group_name))
                                 .flatten()
                                 .into_iter()
-                                .flat_map(|g| {
-                                    g.mods
-                                        .iter()
-                                        .filter_map(|m| m.enabled.then_some((None, m.spec.clone())))
+                                .flat_map(move |g| {
+                                    g.mods.iter().enumerate().filter_map(move |(index, mc)| {
+                                        mc.enabled.then_some((
+                                            (Some(group_name.clone()), index),
+                                            mc.spec.clone(),
+                                        ))
+                                    })
                                 }),
                         ),
                     }
@@ -426,7 +433,7 @@ impl App {
 
             let mut ui_mod = |ctx: &mut Ctx,
                               ui: &mut Ui,
-                              _group: Option<&str>,
+                              group: Option<&str>,
                               row_index: usize,
                               mc: &mut ModConfig| {
                 if !mc.enabled {
@@ -558,8 +565,9 @@ impl App {
                     }
 
                     if mc.enabled {
-                        let is_duplicate = enabled_specs.iter().any(|(i, spec)| {
-                            Some(row_index) != *i && info.spec.satisfies_dependency(spec)
+                        let is_duplicate = enabled_specs.iter().any(|((name, index), spec)| {
+                            (group, row_index) != (name.as_deref(), *index)
+                                && info.spec.satisfies_dependency(spec)
                         });
                         if is_duplicate
                             && ui
@@ -570,7 +578,7 @@ impl App {
                                 .on_hover_text_at_pointer("remove duplicate")
                                 .clicked()
                         {
-                            ctx.btn_remove = Some(row_index);
+                            ctx.btn_remove = Some((group.map(str::to_owned), row_index));
                         }
 
                         let missing_deps = info
@@ -682,13 +690,15 @@ impl App {
                             .on_hover_text_at_pointer("Delete mod")
                             .clicked()
                         {
-                            ctx.btn_remove = Some(row_index);
+                            ctx.btn_remove = Some((None, row_index));
                         };
                     });
 
                     match mc {
                         ModOrGroup::Individual(mc) => {
-                            ui_mod(ctx, ui, None, row_index, mc);
+                            ui.push_id(("mod", row_index), |ui| {
+                                ui_mod(ctx, ui, None, row_index, mc);
+                            });
                         }
                         ModOrGroup::Group {
                             group_name,
@@ -702,47 +712,50 @@ impl App {
                                 ctx.needs_save = true;
                             }
                             ui.collapsing(group_name.as_str(), |ui| {
-                                for (index, m) in groups
-                                    .get_mut(group_name)
-                                    .unwrap()
-                                    .mods
-                                    .iter_mut()
-                                    .enumerate()
-                                {
-                                    ui.horizontal(|ui| ui_mod(ctx, ui, Some(group_name), index, m));
+                                let group = groups.get_mut(group_name).unwrap();
+                                let order = sorted_mod_indices(
+                                    group.mods.iter().map(Some),
+                                    sorting_config.as_ref(),
+                                    |spec| self.state.store.get_mod_info(spec),
+                                );
+                                for index in order {
+                                    ui.push_id(("group", group_name.as_str(), index), |ui| {
+                                        ui.horizontal(|ui| {
+                                            ui_mod(
+                                                ctx,
+                                                ui,
+                                                Some(group_name),
+                                                index,
+                                                &mut group.mods[index],
+                                            );
+                                        });
+                                    });
                                 }
                             });
                         }
                     }
                 };
 
-            if let Some(sorting_config) = sorting_config {
-                let comp = sort_mods(sorting_config);
-                profile
-                    .mods
-                    .iter_mut()
-                    .map(|m| {
-                        // fetch ModInfo up front because doing it in the comparator is slow
-                        let ModOrGroup::Individual(mc) = m else {
-                            unimplemented!("Item is not Individual \n{:?}", m);
-                        };
-                        let info = self.state.store.get_mod_info(&mc.spec);
-                        (m, info)
-                    })
-                    .enumerate()
-                    .sorted_by(|a, b| comp((a.1.0, a.1.1.as_ref()), (b.1.0, b.1.1.as_ref())))
-                    .enumerate()
-                    .for_each(|(visual_index, (store_index, item))| {
-                        let mut frame = egui::Frame::NONE;
-                        if visual_index % 2 == 1 {
-                            frame.fill = ui.visuals().faint_bg_color
-                        }
-                        frame.show(ui, |ui| {
-                            ui.horizontal(|ui| {
-                                ui_item(&mut ctx, ui, item.0, store_index);
-                            });
+            if sorting_config.is_some() {
+                let order = sorted_mod_indices(
+                    profile.mods.iter().map(|item| match item {
+                        ModOrGroup::Individual(mc) => Some(mc),
+                        ModOrGroup::Group { .. } => None,
+                    }),
+                    sorting_config.as_ref(),
+                    |spec| self.state.store.get_mod_info(spec),
+                );
+                for (visual_index, store_index) in order.into_iter().enumerate() {
+                    let mut frame = egui::Frame::NONE;
+                    if visual_index % 2 == 1 {
+                        frame.fill = ui.visuals().faint_bg_color
+                    }
+                    frame.show(ui, |ui| {
+                        ui.horizontal(|ui| {
+                            ui_item(&mut ctx, ui, &mut profile.mods[store_index], store_index);
                         });
                     });
+                }
             } else {
                 let res = egui_dnd::dnd(ui, ui.id())
                     .with_mouse_config(egui_dnd::DragDropConfig::mouse())
@@ -772,8 +785,12 @@ impl App {
                     ctx.needs_save = true;
                 }
             }
-            if let Some(remove) = ctx.btn_remove {
-                profile.mods.remove(remove);
+            if let Some((group, index)) = ctx.btn_remove.take() {
+                if let Some(group) = group {
+                    groups.get_mut(&group).unwrap().mods.remove(index);
+                } else {
+                    profile.mods.remove(index);
+                }
                 ctx.needs_save = true;
             }
         };
@@ -1578,22 +1595,34 @@ impl App {
     }
 }
 
-type ModListEntry<'a> = (&'a ModOrGroup, Option<&'a ModInfo>);
-fn sort_mods(config: SortingConfig) -> impl Fn(ModListEntry, ModListEntry) -> Ordering {
-    move |(a, info_a), (b, info_b)| {
-        if matches!(a, ModOrGroup::Group { .. }) || matches!(b, ModOrGroup::Group { .. }) {
-            unimplemented!("Groups in sorting not implemented");
+fn sorted_mod_indices<'a>(
+    mods: impl IntoIterator<Item = Option<&'a ModConfig>>,
+    config: Option<&SortingConfig>,
+    get_info: impl Fn(&ModSpecification) -> Option<ModInfo>,
+) -> Vec<usize> {
+    let mut entries: Vec<_> = mods
+        .into_iter()
+        .enumerate()
+        .map(|(index, mc)| {
+            let info = config.and_then(|_| mc.and_then(|mc| get_info(&mc.spec)));
+            (index, mc, info)
+        })
+        .collect();
+    if let Some(config) = config {
+        let compare = sort_mods(config);
+        // Group entries separate independently sorted runs and retain their positions.
+        for run in entries.split_mut(|(_, mc, _)| mc.is_none()) {
+            run.sort_by(|(_, a, info_a), (_, b, info_b)| {
+                compare((a.unwrap(), info_a.as_ref()), (b.unwrap(), info_b.as_ref()))
+            });
         }
+    }
+    entries.into_iter().map(|(index, _, _)| index).collect()
+}
 
-        let ModOrGroup::Individual(mc_a) = a else {
-            debug!("Item is not Individual \n{:?}", a);
-            return Ordering::Equal;
-        };
-        let ModOrGroup::Individual(mc_b) = b else {
-            debug!("Item is not Individual \n{:?}", b);
-            return Ordering::Equal;
-        };
-
+type ModListEntry<'a> = (&'a ModConfig, Option<&'a ModInfo>);
+fn sort_mods(config: &SortingConfig) -> impl Fn(ModListEntry, ModListEntry) -> Ordering {
+    move |(mc_a, info_a), (mc_b, info_b)| {
         fn map_cmp<V, M, F>(a: &V, b: &V, map: F) -> Ordering
         where
             M: Ord,
