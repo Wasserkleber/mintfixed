@@ -1,4 +1,5 @@
 mod find_string;
+mod icons;
 mod message;
 mod named_combobox;
 mod request_counter;
@@ -19,7 +20,7 @@ use std::{
     path::PathBuf,
 };
 
-use eframe::egui::{Button, CollapsingHeader, RichText};
+use eframe::egui::{CollapsingHeader, RichText};
 use eframe::epaint::{Pos2, Vec2};
 use eframe::{
     egui::{FontSelection, Layout, TextFormat, Ui},
@@ -51,6 +52,7 @@ use crate::{
     },
     state::{ModConfig, ModData_v0_1_0 as ModData, ModOrGroup, ModProfile, State},
 };
+use icons::Icon;
 use message::MessageHandle;
 use request_counter::{RequestCounter, RequestID};
 
@@ -70,16 +72,6 @@ pub fn gui(dirs: Dirs, args: Option<Vec<String>>) -> Result<(), MintError> {
     )
     .with_generic(|e| format!("{e}"))?;
     Ok(())
-}
-
-pub mod colors {
-    use eframe::epaint::Color32;
-
-    pub const DARK_RED: Color32 = Color32::DARK_RED;
-    pub const DARKER_RED: Color32 = Color32::from_rgb(110, 0, 0);
-
-    pub const DARK_GREEN: Color32 = Color32::DARK_GREEN;
-    pub const DARKER_GREEN: Color32 = Color32::from_rgb(0, 80, 0);
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -465,9 +457,7 @@ impl App {
                     && let Some(modio_id) = info.modio_id
                     && self.problematic_mod_id.is_some_and(|id| id == modio_id)
                 {
-                    let icon = egui::Button::new(RichText::new("❌").color(Color32::WHITE))
-                        .fill(Color32::RED);
-                    ui.add_enabled(false, icon);
+                    icons::show(ui, Icon::Error).on_hover_text("This mod failed to install");
                 }
 
                 if mc.enabled
@@ -556,11 +546,7 @@ impl App {
                         );
                     });
 
-                    if ui
-                        .button("📋")
-                        .on_hover_text_at_pointer("copy URL")
-                        .clicked()
-                    {
+                    if icons::button(ui, Icon::Copy, "Copy URL").clicked() {
                         ui.ctx().copy_text(mc.spec.url.to_string());
                     }
 
@@ -570,13 +556,7 @@ impl App {
                                 && info.spec.satisfies_dependency(spec)
                         });
                         if is_duplicate
-                            && ui
-                                .button(
-                                    egui::RichText::new("\u{26A0}")
-                                        .color(ui.visuals().warn_fg_color),
-                                )
-                                .on_hover_text_at_pointer("remove duplicate")
-                                .clicked()
+                            && icons::button(ui, Icon::Warning, "Remove duplicate").clicked()
                         {
                             ctx.btn_remove = Some((group.map(str::to_owned), row_index));
                         }
@@ -595,14 +575,7 @@ impl App {
                                 msg.push('\n');
                                 msg.push_str(&dep.url);
                             }
-                            if ui
-                                .button(
-                                    egui::RichText::new("\u{26A0}")
-                                        .color(ui.visuals().warn_fg_color),
-                                )
-                                .on_hover_text(msg)
-                                .clicked()
-                            {
+                            if icons::button(ui, Icon::Warning, &msg).clicked() {
                                 ctx.add_deps = Some(missing_deps.into_iter().cloned().collect());
                             }
                         }
@@ -632,10 +605,10 @@ impl App {
                             ui.add(img);
                         }
                         "http" => {
-                            ui.label("🌐");
+                            icons::show(ui, Icon::Web).on_hover_text("Web download");
                         }
                         "file" => {
-                            ui.label("📁");
+                            icons::show(ui, Icon::Folder).on_hover_text("Local file");
                         }
                         _ => unimplemented!("unimplemented provider kind"),
                     }
@@ -657,11 +630,7 @@ impl App {
                         ui_mod_tags(ctx, ui, info);
                     });
                 } else {
-                    if ui
-                        .button("📋")
-                        .on_hover_text_at_pointer("Copy URL")
-                        .clicked()
-                    {
+                    if icons::button(ui, Icon::Copy, "Copy URL").clicked() {
                         ui.ctx().copy_text(mc.spec.url.to_string());
                     }
 
@@ -683,13 +652,7 @@ impl App {
             let mut ui_item =
                 |ctx: &mut Ctx, ui: &mut Ui, mc: &mut ModOrGroup, row_index: usize| {
                     ui.scope(|ui| {
-                        ui.visuals_mut().widgets.hovered.weak_bg_fill = colors::DARK_RED;
-                        ui.visuals_mut().widgets.active.weak_bg_fill = colors::DARKER_RED;
-                        if ui
-                            .add(Button::new(" 🗑 "))
-                            .on_hover_text_at_pointer("Delete mod")
-                            .clicked()
-                        {
+                        if icons::button(ui, Icon::Delete, "Delete mod").clicked() {
                             ctx.btn_remove = Some((None, row_index));
                         };
                     });
@@ -771,7 +734,10 @@ impl App {
                             frame.show(ui, |ui| {
                                 ui.horizontal(|ui| {
                                     handle.ui(ui, |ui| {
-                                        ui.label("   ☰  ");
+                                        ui.add_sized(
+                                            [26.0, 18.0],
+                                            Icon::Drag.image(ui, ui.visuals().text_color()),
+                                        );
                                     });
 
                                     ui_item(&mut ctx, ui, item, state.index);
@@ -1096,7 +1062,13 @@ impl App {
 
                                 let old_theme = GuiTheme::into_egui_theme(config.gui_theme);
                                 let mut theme = old_theme;
-                                theme.radio_buttons(ui);
+                                for (value, icon, label) in [
+                                    (egui::ThemePreference::Light, Icon::Light, "Light"),
+                                    (egui::ThemePreference::Dark, Icon::Dark, "Dark"),
+                                    (egui::ThemePreference::System, Icon::System, "System"),
+                                ] {
+                                    if icons::theme_button(ui, icon, label, theme == value).clicked() { theme = value; }
+                                }
                                 if theme != old_theme {
                                     ui.memory_mut(|m| m.options.theme_preference = theme);
                                     config.gui_theme = GuiTheme::from_egui_theme(theme);
@@ -1111,9 +1083,7 @@ impl App {
 
                         for provider_factory in ModStore::get_provider_factories() {
                             ui.label(provider_factory.id);
-                            if ui.add_enabled(!provider_factory.parameters.is_empty(), egui::Button::new("⚙"))
-                                    .on_hover_text(format!("Open \"{}\" settings", provider_factory.id))
-                                    .clicked() {
+                            if ui.add_enabled_ui(!provider_factory.parameters.is_empty(), |ui| icons::button(ui, Icon::Settings, &format!("Open \"{}\" settings", provider_factory.id))).inner.clicked() {
                                 self.window_provider_parameters = Some(
                                     WindowProviderParameters::new(provider_factory, &self.state),
                                 );
@@ -1130,7 +1100,14 @@ impl App {
                             ui.colored_label(ui.visuals().error_fg_color, error);
                         }
                     });
-
+                    ui.collapsing("Third-party notices", |ui| {
+                        egui::ScrollArea::vertical().max_height(240.0).show(ui, |ui| {
+                            ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Wrap);
+                            ui.label(include_str!("../../THIRD_PARTY_NOTICES.md"));
+                            ui.label(include_str!("../../assets/icons/LICENSE"));
+                            ui.label(include_str!("../../assets/icons/DEPENDENCY_LICENSES.txt"));
+                        });
+                    });
                 });
             if try_save {
                 if let Err(e) = is_drg_pak(&window.drg_pak_path) {
@@ -1756,7 +1733,9 @@ impl eframe::App for App {
         self.show_lint_report(ctx);
 
         egui::TopBottomPanel::bottom("bottom_panel").show(ctx, |ui| {
-            ui.with_layout(egui::Layout::right_to_left(Align::TOP), |ui| {
+            let size = egui::vec2(ui.available_width(), ui.spacing().interact_size.y);
+            let layout = egui::Layout::right_to_left(Align::Center);
+            ui.allocate_ui_with_layout(size, layout, |ui| {
                 ui.add_enabled_ui(
                     self.integrate_rid.is_none()
                         && self.update_rid.is_none()
@@ -1894,17 +1873,19 @@ impl eframe::App for App {
                 {
                     self.lints_toggle_window = Some(WindowLintsToggle);
                 }
-                if ui.button("⚙").on_hover_text("Open settings").clicked() {
+                if icons::button(ui, Icon::Settings, "Open settings").clicked() {
                     self.settings_window = Some(WindowSettings::new(&self.state));
                 }
                 if let Some(available_update) = &self.available_update
-                    && ui
-                        .button(egui::RichText::new("\u{26A0}").color(ui.visuals().warn_fg_color))
-                        .on_hover_text(format!(
+                    && icons::button(
+                        ui,
+                        Icon::Warning,
+                        &format!(
                             "Update available: {}\n{}",
                             available_update.tag_name, available_update.html_url
-                        ))
-                        .clicked()
+                        ),
+                    )
+                    .clicked()
                 {
                     ui.ctx()
                         .open_url(egui::OpenUrl::new_tab(&available_update.html_url));
@@ -1943,11 +1924,7 @@ impl eframe::App for App {
             // profile selection
 
             let buttons = |ui: &mut Ui, mod_data: &mut ModData| {
-                if ui
-                    .button("📋")
-                    .on_hover_text_at_pointer("Copy profile mods")
-                    .clicked()
-                {
+                if icons::button(ui, Icon::Copy, "Copy profile mods").clicked() {
                     let mut mods = Vec::new();
                     let active_profile = mod_data.active_profile.clone();
                     mod_data.for_each_enabled_mod(&active_profile, |mc| {

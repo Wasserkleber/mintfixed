@@ -51,6 +51,7 @@ dialoguer = "0.11.0"
 directories = "6.0.0"
 eframe = "0.31.1"
 egui = "0.31.1"
+resvg = { version = "0.48.1", default-features = false }
 egui_commonmark = "0.20.0"
 futures = "0.3.31"
 hex = "0.4.3"
