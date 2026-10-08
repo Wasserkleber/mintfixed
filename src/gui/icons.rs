@@ -89,13 +89,13 @@ pub fn button(ui: &mut Ui, icon: Icon, label: &str) -> Response {
         Icon::Add => {
             if dark {
                 (
-                    Color32::from_rgb(170, 235, 180),
+                    visuals.text_color(),
                     Color32::DARK_GREEN,
                     Color32::from_rgb(0, 80, 0),
                 )
             } else {
                 (
-                    Color32::from_rgb(25, 105, 55),
+                    visuals.text_color(),
                     Color32::from_rgb(201, 230, 210),
                     Color32::from_rgb(178, 213, 191),
                 )
@@ -104,13 +104,13 @@ pub fn button(ui: &mut Ui, icon: Icon, label: &str) -> Response {
         Icon::Delete => {
             if dark {
                 (
-                    Color32::from_rgb(255, 185, 185),
+                    visuals.text_color(),
                     Color32::DARK_RED,
                     Color32::from_rgb(110, 0, 0),
                 )
             } else {
                 (
-                    Color32::from_rgb(170, 40, 45),
+                    visuals.text_color(),
                     Color32::from_rgb(246, 208, 211),
                     Color32::from_rgb(235, 181, 186),
                 )
@@ -152,14 +152,8 @@ pub fn button(ui: &mut Ui, icon: Icon, label: &str) -> Response {
 pub fn theme_button(ui: &mut Ui, icon: Icon, label: &str, selected: bool) -> Response {
     let response = ui
         .scope(|ui| {
-            let dark = ui.visuals().dark_mode;
             ui.spacing_mut().button_padding = Vec2::new(4.0, 0.0);
             let visuals = ui.visuals_mut();
-            visuals.selection.bg_fill = if dark {
-                Color32::from_rgb(35, 65, 82)
-            } else {
-                Color32::from_rgb(198, 222, 240)
-            };
             visuals.widgets.inactive.weak_bg_fill = Color32::TRANSPARENT;
             visuals.widgets.hovered.expansion = 0.0;
             visuals.widgets.active.expansion = 0.0;
