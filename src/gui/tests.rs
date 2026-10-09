@@ -122,6 +122,105 @@ fn all_sort_categories_support_both_directions_and_missing_metadata() {
     }
 }
 
+#[test]
+fn adjacent_mods_sort_with_one_missing_metadata() {
+    let mut known = mod_config("alpha");
+    known.priority = 10;
+    let mut missing = mod_config("zulu");
+    missing.enabled = false;
+    missing.priority = 20;
+    let metadata = ModInfo {
+        provider: "modio",
+        name: "Alpha".to_owned(),
+        spec: known.spec.clone(),
+        versions: vec![],
+        resolution: ModResolution::resolvable(known.spec.url.clone().into()),
+        suggested_require: false,
+        suggested_dependencies: vec![],
+        modio_id: None,
+        modio_tags: Some(ModioTags {
+            qol: false,
+            gameplay: false,
+            audio: false,
+            visual: false,
+            framework: false,
+            versions: Default::default(),
+            required_status: RequiredStatus::Optional,
+            approval_status: ApprovalStatus::Verified,
+        }),
+    };
+    for (category, normal, reversed) in [
+        (SortBy::Enabled, ["alpha", "zulu"], ["zulu", "alpha"]),
+        (SortBy::Name, ["zulu", "alpha"], ["alpha", "zulu"]),
+        (SortBy::Priority, ["alpha", "zulu"], ["zulu", "alpha"]),
+        (SortBy::Provider, ["zulu", "alpha"], ["alpha", "zulu"]),
+        (SortBy::RequiredStatus, ["zulu", "alpha"], ["alpha", "zulu"]),
+        (
+            SortBy::ApprovalCategory,
+            ["zulu", "alpha"],
+            ["alpha", "zulu"],
+        ),
+    ] {
+        for (direction, expected) in [(false, normal), (true, reversed)] {
+            for mods in [[&known, &missing], [&missing, &known]] {
+                let order = sorted_mod_indices(
+                    mods.map(Some),
+                    Some(&sorting(category, direction)),
+                    |spec| (spec.url == known.spec.url).then(|| metadata.clone()),
+                );
+                let sorted_urls: Vec<_> = order
+                    .iter()
+                    .map(|&index| mods[index].spec.url.as_str())
+                    .collect();
+                assert_eq!(
+                    sorted_urls, expected,
+                    "{category:?}, direction={direction}, first={}",
+                    mods[0].spec.url
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn adjacent_mods_sort_with_both_missing_metadata() {
+    let mut alpha = mod_config("alpha");
+    alpha.priority = 10;
+    let mut zulu = mod_config("zulu");
+    zulu.enabled = false;
+    zulu.priority = 20;
+    for (category, normal, reversed) in [
+        (SortBy::Enabled, ["alpha", "zulu"], ["zulu", "alpha"]),
+        (SortBy::Name, ["alpha", "zulu"], ["zulu", "alpha"]),
+        (SortBy::Priority, ["alpha", "zulu"], ["zulu", "alpha"]),
+        (SortBy::Provider, ["alpha", "zulu"], ["alpha", "zulu"]),
+        (SortBy::RequiredStatus, ["alpha", "zulu"], ["alpha", "zulu"]),
+        (
+            SortBy::ApprovalCategory,
+            ["alpha", "zulu"],
+            ["alpha", "zulu"],
+        ),
+    ] {
+        for (direction, expected) in [(false, normal), (true, reversed)] {
+            for mods in [[&alpha, &zulu], [&zulu, &alpha]] {
+                let order =
+                    sorted_mod_indices(mods.map(Some), Some(&sorting(category, direction)), |_| {
+                        None
+                    });
+                let sorted_urls: Vec<_> = order
+                    .iter()
+                    .map(|&index| mods[index].spec.url.as_str())
+                    .collect();
+                assert_eq!(
+                    sorted_urls, expected,
+                    "{category:?}, direction={direction}, first={}",
+                    mods[0].spec.url
+                );
+            }
+        }
+    }
+}
+
 struct TestApp {
     app: App,
     context: egui::Context,
