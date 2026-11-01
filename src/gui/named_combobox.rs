@@ -1,8 +1,4 @@
-use super::{
-    custom_popup_above_or_below_widget,
-    icons::{self, Icon},
-    is_committed,
-};
+use super::{colors, custom_popup_above_or_below_widget, is_committed};
 
 use crate::state::{ModData_v0_1_0 as ModData, ModProfile_v0_1_0 as ModProfile};
 
@@ -107,7 +103,13 @@ where
 {
     ui.add_enabled_ui(entries.len() > 1, |ui| {
         ui.scope(|ui| {
-            if icons::button(ui, Icon::Delete, &format!("Delete {name}")).clicked() {
+            ui.visuals_mut().widgets.hovered.weak_bg_fill = colors::DARK_RED;
+            ui.visuals_mut().widgets.active.weak_bg_fill = colors::DARKER_RED;
+            if ui
+                .button(" 🗑 ")
+                .on_hover_text_at_pointer(format!("Delete {name}"))
+                .clicked()
+            {
                 entries.remove_selected();
                 *modified = true;
             }
@@ -120,7 +122,14 @@ where
     N: NamedEntries<E>,
 {
     ui.add_enabled_ui(true, |ui| {
-        let response = icons::button(ui, Icon::Add, &format!("Add new {name}"));
+        let response = ui
+            .scope(|ui| {
+                ui.visuals_mut().widgets.hovered.weak_bg_fill = colors::DARK_GREEN;
+                ui.visuals_mut().widgets.active.weak_bg_fill = colors::DARKER_GREEN;
+                ui.button(" ➕ ")
+                    .on_hover_text_at_pointer(format!("Add new {name}"))
+            })
+            .inner;
 
         let popup_id = ui.make_persistent_id(format!("add-{name}"));
         if response.clicked() {
@@ -172,7 +181,9 @@ fn mk_duplicate<E, N>(ui: &mut egui::Ui, name: &str, entries: &mut N, modified: 
 where
     N: NamedEntries<E>,
 {
-    let response = icons::button(ui, Icon::Duplicate, &format!("Duplicate {name}"));
+    let response = ui
+        .button("🗐")
+        .on_hover_text_at_pointer(format!("Duplicate {name}"));
     let popup_id = ui.make_persistent_id(format!("duplicate-{name}"));
     if response.clicked() {
         ui.memory_mut(|mem| mem.open_popup(popup_id));
