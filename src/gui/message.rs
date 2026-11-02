@@ -104,13 +104,38 @@ impl ResolveMods {
     fn receive(self, app: &mut App) {
         if Some(self.rid) == app.resolve_mod_rid.as_ref().map(|r| r.rid) {
             match self.result {
-                Ok(resolved_mods) => {
-                    let primary_mods = self
+                Ok(mut resolved_mods) => {
+                    // `resolve_mods` returns a HashMap, so its iteration order cannot
+                    // be used to reconstruct the order of pasted mods.
+                    // Insert explicit mods in reverse order at index 0.
+                    let mut ordered_mods = Vec::with_capacity(resolved_mods.len());
+                    // Remove duplicate entries while keeping their first position.
+                    let mut seen = HashSet::new();
+                    let specs = self
                         .specs
                         .into_iter()
-                        .collect::<HashSet<ModSpecification>>();
-                    for (resolved_spec, info) in resolved_mods {
-                        let is_dep = self.is_dependency || !primary_mods.contains(&resolved_spec);
+                        .filter(|spec| seen.insert((*spec).clone()))
+                        .collect::<Vec<_>>();
+                    for spec in specs.into_iter().rev() {
+                        // `remove` also prevents duplicated input URLs from being added twice.
+                        if let Some(info) = resolved_mods.remove(&spec) {
+                            ordered_mods.push((spec, info, false));
+                        }
+                    }
+
+                    // Keep automatically discovered dependencies, in a stable order.
+                    let mut dependencies = resolved_mods.into_iter().collect::<Vec<_>>();
+                    dependencies.sort_by(|a, b| a.0.url.cmp(&b.0.url));
+                    ordered_mods.extend(
+                        dependencies
+                            .into_iter()
+                            .map(|(spec, info)| (spec, info, true)),
+                    );
+
+                    let mut explicit_inserted = 0;
+                    let mut dependencies_inserted = 0;
+                    for (resolved_spec, info, auto_dependency) in ordered_mods {
+                        let is_dep = self.is_dependency || auto_dependency;
                         let add = if is_dep {
                             // if mod is a dependency then check if there is a disabled
                             // mod that satisfies the dependency and enable it. if it
@@ -136,6 +161,16 @@ impl ResolveMods {
                         };
 
                         if add {
+                            // Explicit mods stay in clipboard order at the top.
+                            // Dependencies follow them without displacing their order.
+                            let insertion_index = if auto_dependency {
+                                let index = explicit_inserted + dependencies_inserted;
+                                dependencies_inserted += 1;
+                                index
+                            } else {
+                                explicit_inserted += 1;
+                                0
+                            };
                             let ModData {
                                 active_profile,
                                 profiles,
@@ -143,7 +178,7 @@ impl ResolveMods {
                             } = app.state.mod_data.deref_mut().deref_mut();
 
                             profiles.get_mut(active_profile).unwrap().mods.insert(
-                                0,
+                                insertion_index,
                                 ModOrGroup::Individual(ModConfig {
                                     spec: info.spec.clone(),
                                     required: info.suggested_require,
