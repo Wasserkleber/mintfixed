@@ -51,6 +51,7 @@ dialoguer = "0.11.0"
 directories = "6.0.0"
 eframe = "0.31.1"
 egui = "0.31.1"
+egui_extras = { version = "0.31.1", features = ["svg"] }
 egui_commonmark = "0.20.0"
 futures = "0.3.31"
 hex = "0.4.3"
@@ -62,6 +63,7 @@ modio = { git = "https://github.com/trumank/modio-rs.git", branch = "dev", defau
 obake = { version = "1.0.5", features = ["serde"] }
 opener = "0.7.2"
 path-slash = "0.2.1"
+rand = "0.8.5"
 rayon = "1.11.0"
 regex = "1.11.2"
 reqwest.workspace = true

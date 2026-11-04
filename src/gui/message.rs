@@ -37,6 +37,12 @@ pub struct MessageHandle<S> {
 
 #[derive(Debug)]
 pub enum Message {
+    GroupFiles {
+        profile: String,
+        group: String,
+        prepend: bool,
+        files: Result<Vec<ModSpecification>, String>,
+    },
     ResolveMods(ResolveMods),
     Integrate(Integrate),
     FetchModProgress(FetchModProgress),
@@ -50,6 +56,7 @@ pub enum Message {
 impl Message {
     pub fn handle(self, app: &mut App) {
         match self {
+            Self::GroupFiles { profile, group, prepend, files } => super::group_controls::add_files(app, profile, group, prepend, files),
             Self::ResolveMods(msg) => msg.receive(app),
             Self::Integrate(msg) => msg.receive(app),
             Self::FetchModProgress(msg) => msg.receive(app),
@@ -142,20 +149,7 @@ impl ResolveMods {
                             // is not a dependency then assume the user explicitly
                             // wants to add a specific mod version.
                             let active_profile = app.state.mod_data.active_profile.clone();
-                            !app.state.mod_data.any_mod_mut(
-                                &active_profile,
-                                |mc, mod_group_enabled| {
-                                    if mc.spec.satisfies_dependency(&resolved_spec) {
-                                        mc.enabled = true;
-                                        if let Some(mod_group_enabled) = mod_group_enabled {
-                                            *mod_group_enabled = true;
-                                        }
-                                        true
-                                    } else {
-                                        false
-                                    }
-                                },
-                            )
+                            !app.state.mod_data.enable_dependency(&active_profile, &resolved_spec)
                         } else {
                             true
                         };
@@ -180,6 +174,7 @@ impl ResolveMods {
                             profiles.get_mut(active_profile).unwrap().mods.insert(
                                 insertion_index,
                                 ModOrGroup::Individual(ModConfig {
+                                    member_id: None,
                                     spec: info.spec.clone(),
                                     required: info.suggested_require,
                                     enabled: true,

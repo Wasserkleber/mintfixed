@@ -25,11 +25,42 @@ use mint_lib::{DRGInstallation, mod_info::MetaConfig};
 pub struct ModConfig {
     pub spec: ModSpecification,
     pub required: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub member_id: Option<String>,
 
     #[serde(default = "default_true")]
     pub enabled: bool,
     #[serde(default, skip_serializing_if = "is_zero")]
     pub priority: i32,
+}
+
+#[derive(Default, Debug, Clone, Hash, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct MemberOverrides(BTreeMap<String, bool>);
+
+impl MemberOverrides {
+    fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+
+    pub fn enabled(&self, member: &ModConfig) -> bool {
+        member.member_id.as_ref().and_then(|id| self.0.get(id)).copied().unwrap_or(member.enabled)
+    }
+
+    pub fn set(&mut self, member: &mut ModConfig, enabled: bool) {
+        if enabled == member.enabled {
+            if let Some(id) = &member.member_id {
+                self.0.remove(id);
+            }
+        } else {
+            let id = member.member_id.get_or_insert_with(|| format!("{:032x}", rand::random::<u128>()));
+            self.0.insert(id.clone(), enabled);
+        }
+    }
+
+    pub fn forget(&mut self, id: &str) {
+        self.0.remove(id);
+    }
 }
 
 fn default_true() -> bool {
@@ -61,7 +92,12 @@ pub struct ModProfile {
 #[derive(Debug, Clone, Hash, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum ModOrGroup {
-    Group { group_name: String, enabled: bool },
+    Group {
+        group_name: String,
+        enabled: bool,
+        #[serde(default, skip_serializing_if = "MemberOverrides::is_empty")]
+        member_overrides: MemberOverrides,
+    },
     Individual(ModConfig),
 }
 
@@ -103,6 +139,7 @@ impl ModData!["0.1.0"] {
                 ModOrGroup::Group {
                     group_name,
                     enabled,
+                    ..
                 } => {
                     if g(*enabled) {
                         for mc in &self.groups.get(group_name).unwrap().mods {
@@ -137,6 +174,7 @@ impl ModData!["0.1.0"] {
                 ModOrGroup::Group {
                     group_name,
                     enabled,
+                    ..
                 } => {
                     if g(*enabled) {
                         for mc in &mut self.groups.get_mut(group_name).unwrap().mods {
@@ -159,8 +197,20 @@ impl ModData!["0.1.0"] {
         self.for_each_mod_predicate(profile, f, |_| true, |_| true)
     }
 
-    pub fn for_each_enabled_mod<F: FnMut(&ModConfig)>(&self, profile: &str, f: F) {
-        self.for_each_mod_predicate(profile, f, std::convert::identity, |mc| mc.enabled)
+    pub fn for_each_enabled_mod(&self, profile: &str, mut f: impl FnMut(&ModConfig)) {
+        for item in &self.profiles[profile].mods {
+            match item {
+                ModOrGroup::Individual(mc) if mc.enabled => f(mc),
+                ModOrGroup::Group { group_name, enabled: true, member_overrides } => {
+                    for mc in &self.groups[group_name].mods {
+                        if member_overrides.enabled(mc) {
+                            f(mc);
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
     }
 
     pub fn for_each_mod_mut<F: FnMut(&mut ModConfig)>(&mut self, profile: &str, f: F) {
@@ -178,7 +228,7 @@ impl ModData!["0.1.0"] {
                 ModOrGroup::Individual(mc) => f(mc, None),
                 ModOrGroup::Group {
                     group_name,
-                    enabled,
+                    enabled, ..
                 } => self
                     .groups
                     .get(group_name)
@@ -209,6 +259,7 @@ impl ModData!["0.1.0"] {
                     ModOrGroup::Group {
                         group_name,
                         enabled,
+                        ..
                     } => self
                         .groups
                         .get_mut(group_name)
@@ -218,6 +269,27 @@ impl ModData!["0.1.0"] {
                         .any(|mc| f(mc, Some(enabled))),
                 }
             })
+    }
+
+    pub fn enable_dependency(&mut self, profile: &str, spec: &ModSpecification) -> bool {
+        for item in &mut self.profiles.get_mut(profile).unwrap().mods {
+            match item {
+                ModOrGroup::Individual(mc) if mc.spec.satisfies_dependency(spec) => {
+                    mc.enabled = true;
+                    return true;
+                }
+                ModOrGroup::Group { group_name, enabled, member_overrides } => {
+                    let group = self.groups.get_mut(group_name).unwrap();
+                    if let Some(mc) = group.mods.iter_mut().find(|mc| mc.spec.satisfies_dependency(spec)) {
+                        *enabled = true;
+                        member_overrides.set(mc, true);
+                        return true;
+                    }
+                }
+                _ => {}
+            }
+        }
+        false
     }
 }
 
@@ -556,8 +628,37 @@ mod mod_data_tests {
     use crate::providers::ModSpecification;
 
     #[test]
+    fn enabling_legacy_group_dependency_is_profile_local() {
+        let mut data: ModData = serde_json::from_value(serde_json::json!({
+            "active_profile": "A",
+            "profiles": {
+                "A": {"mods": [{"group_name": "tools", "enabled": false}]},
+                "B": {"mods": [{"group_name": "tools", "enabled": true}]}
+            },
+            "groups": {"tools": {"mods": [
+                {"spec": {"url": "a"}, "required": false, "enabled": false},
+                {"spec": {"url": "b"}, "required": false, "enabled": false}
+            ]}}
+        })).unwrap();
+
+        assert!(data.enable_dependency("A", &ModSpecification::new("a".into())));
+        data.groups.get_mut("tools").unwrap().mods.swap(0, 1);
+        let data: ModData = serde_json::from_value(serde_json::to_value(data).unwrap()).unwrap();
+        for profile in ["A", "B"] {
+            let mut mods = Vec::new();
+            data.for_each_enabled_mod(profile, |mc| mods.push(mc.spec.url.clone()));
+            if profile == "A" {
+                assert_eq!(mods, ["a"]);
+            } else {
+                assert!(mods.is_empty());
+            }
+        }
+    }
+
+    #[test]
     fn test_for_each_mod() {
         let mod_1 = ModConfig {
+            member_id: None,
             spec: ModSpecification::new("a".to_string()),
             required: false,
             enabled: false,
@@ -565,6 +666,7 @@ mod mod_data_tests {
         };
 
         let mod_2 = ModConfig {
+            member_id: None,
             spec: ModSpecification::new("b".to_string()),
             required: true,
             enabled: false,
@@ -572,6 +674,7 @@ mod mod_data_tests {
         };
 
         let mod_3 = ModConfig {
+            member_id: None,
             spec: ModSpecification::new("c".to_string()),
             required: false,
             enabled: true,
@@ -586,6 +689,7 @@ mod mod_data_tests {
                     mods: vec![
                         ModOrGroup::Individual(mod_1),
                         ModOrGroup::Group {
+                            member_overrides: Default::default(),
                             group_name: "mg1".to_string(),
                             enabled: false,
                         },
@@ -612,6 +716,7 @@ mod mod_data_tests {
     #[test]
     fn test_for_each_enabled_mod() {
         let mod_1 = ModConfig {
+            member_id: None,
             spec: ModSpecification::new("a".to_string()),
             required: false,
             enabled: false,
@@ -619,6 +724,7 @@ mod mod_data_tests {
         };
 
         let mod_2 = ModConfig {
+            member_id: None,
             spec: ModSpecification::new("b".to_string()),
             required: true,
             enabled: false,
@@ -626,6 +732,7 @@ mod mod_data_tests {
         };
 
         let mod_3 = ModConfig {
+            member_id: None,
             spec: ModSpecification::new("c".to_string()),
             required: false,
             enabled: true,
@@ -640,6 +747,7 @@ mod mod_data_tests {
                     mods: vec![
                         ModOrGroup::Individual(mod_1),
                         ModOrGroup::Group {
+                            member_overrides: Default::default(),
                             group_name: "mg1".to_string(),
                             enabled: true,
                         },
@@ -666,6 +774,7 @@ mod mod_data_tests {
     #[test]
     fn test_any_mod() {
         let mod_1 = ModConfig {
+            member_id: None,
             spec: ModSpecification::new("a".to_string()),
             required: false,
             enabled: false,
@@ -673,6 +782,7 @@ mod mod_data_tests {
         };
 
         let mod_2 = ModConfig {
+            member_id: None,
             spec: ModSpecification::new("b".to_string()),
             required: true,
             enabled: false,
@@ -680,6 +790,7 @@ mod mod_data_tests {
         };
 
         let mod_3 = ModConfig {
+            member_id: None,
             spec: ModSpecification::new("c".to_string()),
             required: false,
             enabled: true,
@@ -694,6 +805,7 @@ mod mod_data_tests {
                     mods: vec![
                         ModOrGroup::Individual(mod_1),
                         ModOrGroup::Group {
+                            member_overrides: Default::default(),
                             group_name: "mg1".to_string(),
                             enabled: true,
                         },

@@ -4,6 +4,7 @@ use crate::state::ModGroup;
 
 fn mod_config(name: &str) -> ModConfig {
     ModConfig {
+        member_id: None,
         spec: ModSpecification::new(name.to_owned()),
         enabled: true,
         required: false,
@@ -38,15 +39,15 @@ fn sorting_preserves_group_boundaries_and_manual_order() {
     ];
     let before = serde_json::to_value(&mods).unwrap();
     assert_eq!(
-        sorted_mod_indices(entries, Some(&sorting(SortBy::Name, false)), |_| None),
+        sorted_mod_indices(None, entries, Some(&sorting(SortBy::Name, false)), |_| None),
         [0, 2, 1, 3, 4, 6, 5, 7]
     );
     assert_eq!(
-        sorted_mod_indices(entries, Some(&sorting(SortBy::Name, true)), |_| None),
+        sorted_mod_indices(None, entries, Some(&sorting(SortBy::Name, true)), |_| None),
         [0, 1, 2, 3, 4, 5, 6, 7]
     );
     assert_eq!(
-        sorted_mod_indices(entries, None, |_| panic!(
+        sorted_mod_indices(None, entries, None, |_| panic!(
             "Manual order must not query metadata"
         )),
         (0..entries.len()).collect::<Vec<_>>()
@@ -96,7 +97,7 @@ fn all_sort_categories_support_both_directions_and_missing_metadata() {
         for direction in [false, true] {
             let config = sorting(category, direction);
             let calls = std::cell::Cell::new(0);
-            let order = sorted_mod_indices([Some(&zulu), Some(&alpha)], Some(&config), |spec| {
+            let order = sorted_mod_indices(None, [Some(&zulu), Some(&alpha)], Some(&config), |spec| {
                 calls.set(calls.get() + 1);
                 metadata(spec)
             });
@@ -107,15 +108,15 @@ fn all_sort_categories_support_both_directions_and_missing_metadata() {
             );
             assert_eq!(calls.get(), 2);
             let order =
-                sorted_mod_indices([Some(&zulu), None, Some(&alpha)], Some(&config), |_| None);
+                sorted_mod_indices(None, [Some(&zulu), None, Some(&alpha)], Some(&config), |_| None);
             assert_eq!(order, [0, 1, 2]);
-            assert!(sorted_mod_indices([], Some(&config), |_| None).is_empty());
+            assert!(sorted_mod_indices(None, [], Some(&config), |_| None).is_empty());
             assert_eq!(
-                sorted_mod_indices([None, None], Some(&config), |_| None),
+                sorted_mod_indices(None, [None, None], Some(&config), |_| None),
                 [0, 1]
             );
             assert_eq!(
-                sorted_mod_indices([Some(&alpha), Some(&alpha)], Some(&config), |_| None),
+                sorted_mod_indices(None, [Some(&alpha), Some(&alpha)], Some(&config), |_| None),
                 [0, 1]
             );
         }
@@ -163,7 +164,7 @@ fn adjacent_mods_sort_with_one_missing_metadata() {
     ] {
         for (direction, expected) in [(false, normal), (true, reversed)] {
             for mods in [[&known, &missing], [&missing, &known]] {
-                let order = sorted_mod_indices(
+                let order = sorted_mod_indices(None,
                     mods.map(Some),
                     Some(&sorting(category, direction)),
                     |spec| (spec.url == known.spec.url).then(|| metadata.clone()),
@@ -204,7 +205,7 @@ fn adjacent_mods_sort_with_both_missing_metadata() {
         for (direction, expected) in [(false, normal), (true, reversed)] {
             for mods in [[&alpha, &zulu], [&zulu, &alpha]] {
                 let order =
-                    sorted_mod_indices(mods.map(Some), Some(&sorting(category, direction)), |_| {
+                    sorted_mod_indices(None, mods.map(Some), Some(&sorting(category, direction)), |_| {
                         None
                     });
                 let sorted_urls: Vec<_> = order
@@ -315,10 +316,12 @@ fn grouped_profile_renders_every_sort_mode_after_reload() {
         ModOrGroup::Individual(zulu.clone()),
         ModOrGroup::Individual(alpha.clone()),
         ModOrGroup::Group {
+            member_overrides: Default::default(),
             group_name: "Group".into(),
             enabled: true,
         },
         ModOrGroup::Group {
+            member_overrides: Default::default(),
             group_name: "Empty".into(),
             enabled: false,
         },
@@ -373,6 +376,7 @@ fn sorted_group_uses_local_indices_for_toggle_and_duplicate_removal() {
         .unwrap()
         .mods = vec![
         ModOrGroup::Group {
+            member_overrides: Default::default(),
             group_name: "Group".into(),
             enabled: true,
         },
@@ -384,6 +388,8 @@ fn sorted_group_uses_local_indices_for_toggle_and_duplicate_removal() {
             mods: vec![zulu, alpha],
         },
     );
+    let second_profile = test.app.state.mod_data.profiles["default"].clone();
+    test.app.state.mod_data.profiles.insert("second".into(), second_profile);
     test.app.update_sorting_config(Some(SortBy::Name), false);
     test.open_group("Group");
     let output = test.frame(vec![]);
@@ -413,7 +419,7 @@ fn sorted_group_uses_local_indices_for_toggle_and_duplicate_removal() {
         })
         .expect("Group member toggle is rendered");
     test.click(toggle_pos);
-    assert!(!test.app.state.mod_data.groups["Group"].mods[0].enabled);
+    assert!(test.app.state.mod_data.groups["Group"].mods[0].enabled);
     assert!(test.app.state.mod_data.groups["Group"].mods[1].enabled);
     let output = test.frame(vec![]);
     test.click(text_rect(&output, "⚠").center());
@@ -423,7 +429,13 @@ fn sorted_group_uses_local_indices_for_toggle_and_duplicate_removal() {
     assert_eq!(test.app.state.mod_data.profiles["default"].mods.len(), 2);
     let reloaded = State::init(Dirs::from_path(test.directory.path()).unwrap()).unwrap();
     assert_eq!(reloaded.mod_data.groups["Group"].mods.len(), 1);
-    assert!(!reloaded.mod_data.groups["Group"].mods[0].enabled);
+    for (profile, expected) in [("default", false), ("second", true)] {
+        let mut includes_zulu = false;
+        reloaded.mod_data.for_each_enabled_mod(profile, |mc| {
+            includes_zulu |= mc.spec.url.ends_with("zulu.pak");
+        });
+        assert_eq!(includes_zulu, expected, "profile {profile}");
+    }
 }
 
 #[test]
@@ -445,4 +457,24 @@ fn sorted_individual_delete_targets_the_displayed_mod() {
     let mods = &test.app.state.mod_data.profiles["default"].mods;
     assert_eq!(mods.len(), 1);
     assert!(matches!(&mods[0], ModOrGroup::Individual(mc) if mc.spec.url.ends_with("zulu.pak")));
+}
+
+#[test]
+fn dropping_files_on_closed_group_prepends_batch_and_opens_it() {
+    let mut test = TestApp::new();
+    let existing = test.local_mod("existing.pak");
+    let a = test.local_mod("a.pak").spec;
+    let b = test.local_mod("b.pak").spec;
+    test.app.state.mod_data.groups.insert("Tools".into(), ModGroup { mods: vec![existing] });
+    test.app.state.mod_data.profiles.get_mut("default").unwrap().mods = vec![ModOrGroup::Group {
+        group_name: "Tools".into(), enabled: true, member_overrides: Default::default(),
+    }];
+    test.frame(vec![]);
+    group_controls::add_files(&mut test.app, "default".into(), "Tools".into(), true,
+        Ok(vec![a.clone(), b.clone()]));
+    let mods = &test.app.state.mod_data.groups["Tools"].mods;
+    assert_eq!((&mods[0].spec, &mods[1].spec), (&a, &b));
+    assert!(test.app.groups_to_open.contains(&("default".into(), "Tools".into())));
+    test.frame(vec![]);
+    assert!(test.app.groups_to_open.is_empty());
 }

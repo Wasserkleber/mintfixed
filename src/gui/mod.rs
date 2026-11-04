@@ -1,4 +1,6 @@
 mod find_string;
+mod group_controls;
+use group_controls::{Drag, Target};
 mod message;
 mod named_combobox;
 mod request_counter;
@@ -41,7 +43,7 @@ use crate::Dirs;
 use crate::gui::find_string::searchable_text;
 use crate::mod_lints::{LintId, LintReport, SplitAssetPair};
 use crate::providers::ProviderError;
-use crate::state::SortingConfig;
+use crate::state::{MemberOverrides, SortingConfig};
 use crate::{
     MintError,
     integrate::uninstall,
@@ -135,6 +137,9 @@ pub struct App {
     tx: Sender<message::Message>,
     rx: Receiver<message::Message>,
     state: State,
+    undo_group_move: Option<group_controls::UndoMove>,
+    groups_to_open: HashSet<(String, String)>,
+    new_group_name: String,
     resolve_mod: String,
     resolve_mod_rid: Option<MessageHandle<()>>,
     integrate_rid: Option<MessageHandle<HashMap<ModSpecification, SpecFetchProgress>>>,
@@ -215,10 +220,11 @@ enum LastActionStatus {
 
 impl App {
     fn new(
-        _cc: &eframe::CreationContext,
+        cc: &eframe::CreationContext,
         dirs: Dirs,
         args: Option<Vec<String>>,
     ) -> Result<Self, MintError> {
+        egui_extras::install_image_loaders(&cc.egui_ctx);
         let (tx, rx) = mpsc::channel(10);
         let state = State::init(dirs)?;
 
@@ -228,6 +234,9 @@ impl App {
             rx,
             request_counter: Default::default(),
             state,
+            undo_group_move: None,
+            groups_to_open: HashSet::new(),
+            new_group_name: String::new(),
             resolve_mod: Default::default(),
             resolve_mod_rid: None,
             integrate_rid: None,
@@ -257,7 +266,11 @@ impl App {
         })
     }
 
-    fn ui_profile(&mut self, ui: &mut Ui, profile: &str) {
+    fn ui_profile(&mut self, ui: &mut Ui, profile: &str) -> Option<(String, bool)> {
+        if egui::DragAndDrop::payload::<Drag>(ui.ctx()).is_some() {
+            ui.style_mut().interaction.selectable_labels = false;
+        }
+        let profile_name = profile;
         let sorting_config = self.get_sorting_config();
 
         let ModData {
@@ -269,12 +282,16 @@ impl App {
             scroll_to_match: bool,
             btn_remove: Option<(Option<String>, usize)>,
             add_deps: Option<Vec<ModSpecification>>,
+            drag: Option<(Drag, Target)>,
+            file_group: Option<(String, bool)>,
         }
         let mut ctx = Ctx {
             needs_save: false,
             scroll_to_match: self.scroll_to_match,
             btn_remove: None,
             add_deps: None,
+            drag: None,
+            file_group: None,
         };
 
         let mut ui_profile = |ui: &mut Ui, profile: &mut ModProfile| {
@@ -292,6 +309,7 @@ impl App {
                         ModOrGroup::Group {
                             group_name,
                             enabled,
+                            member_overrides,
                         } => Box::new(
                             enabled
                                 .then(|| groups.get(group_name))
@@ -299,7 +317,7 @@ impl App {
                                 .into_iter()
                                 .flat_map(move |g| {
                                     g.mods.iter().enumerate().filter_map(move |(index, mc)| {
-                                        mc.enabled.then_some((
+                                        member_overrides.enabled(mc).then_some((
                                             (Some(group_name.clone()), index),
                                             mc.spec.clone(),
                                         ))
@@ -435,18 +453,25 @@ impl App {
                               ui: &mut Ui,
                               group: Option<&str>,
                               row_index: usize,
-                              mc: &mut ModConfig| {
-                if !mc.enabled {
+                              mc: &mut ModConfig,
+                              overrides: Option<&mut MemberOverrides>| {
+                let mut enabled = overrides.as_ref().map_or(mc.enabled, |o| o.enabled(mc));
+                if !enabled {
                     let vis = ui.visuals_mut();
                     vis.override_text_color = Some(vis.text_color());
                     vis.hyperlink_color = vis.text_color();
                 }
 
                 if ui
-                    .add(toggle_switch(&mut mc.enabled))
+                    .add(toggle_switch(&mut enabled))
                     .on_hover_text_at_pointer("Enabled?")
                     .changed()
                 {
+                    if let Some(overrides) = overrides {
+                        overrides.set(mc, enabled);
+                    } else {
+                        mc.enabled = enabled;
+                    }
                     ctx.needs_save = true;
                 }
 
@@ -470,7 +495,7 @@ impl App {
                     ui.add_enabled(false, icon);
                 }
 
-                if mc.enabled
+                if enabled
                     && let Some(req) = &self.integrate_rid
                 {
                     match req.state.get(&mc.spec) {
@@ -564,7 +589,7 @@ impl App {
                         ui.ctx().copy_text(mc.spec.url.to_string());
                     }
 
-                    if mc.enabled {
+                    if enabled {
                         let is_duplicate = enabled_specs.iter().any(|((name, index), spec)| {
                             (group, row_index) != (name.as_deref(), *index)
                                 && info.spec.satisfies_dependency(spec)
@@ -626,7 +651,7 @@ impl App {
                                 });
                             let mut img =
                                 egui::Image::new(texture).fit_to_exact_size([16.0, 16.0].into());
-                            if !mc.enabled {
+                            if !enabled {
                                 img = img.tint(Color32::LIGHT_RED);
                             }
                             ui.add(img);
@@ -697,12 +722,13 @@ impl App {
                     match mc {
                         ModOrGroup::Individual(mc) => {
                             ui.push_id(("mod", row_index), |ui| {
-                                ui_mod(ctx, ui, None, row_index, mc);
+                                ui_mod(ctx, ui, None, row_index, mc, None);
                             });
                         }
                         ModOrGroup::Group {
                             group_name,
                             enabled,
+                            member_overrides,
                         } => {
                             if ui
                                 .add(toggle_switch(enabled))
@@ -711,33 +737,65 @@ impl App {
                             {
                                 ctx.needs_save = true;
                             }
-                            ui.collapsing(group_name.as_str(), |ui| {
+                            let open = !self.groups_to_open.is_empty()
+                                && self.groups_to_open.remove(&(profile_name.to_owned(), group_name.clone()));
+                            let panel = CollapsingHeader::new(group_name.as_str())
+                                .id_salt((profile_name, group_name.as_str()))
+                                .open(open.then_some(true))
+                                .show(ui, |ui| {
                                 let group = groups.get_mut(group_name).unwrap();
                                 let order = sorted_mod_indices(
+                                    Some(member_overrides),
                                     group.mods.iter().map(Some),
                                     sorting_config.as_ref(),
                                     |spec| self.state.store.get_mod_info(spec),
                                 );
                                 for index in order {
-                                    ui.push_id(("group", group_name.as_str(), index), |ui| {
+                                    let member = Drag::paint_row(ui, profile_name, Some(group_name), index, |ui| ui.push_id(("group", group_name.as_str(), index), |ui| {
                                         ui.horizontal(|ui| {
+                                            if sorting_config.is_none() {
+                                                Drag::handle(ui, profile_name, Some(group_name), index, &group.mods[index].spec.url, false);
+                                            }
                                             ui_mod(
                                                 ctx,
                                                 ui,
                                                 Some(group_name),
                                                 index,
                                                 &mut group.mods[index],
+                                                Some(member_overrides),
                                             );
                                         });
-                                    });
+                                    }));
+                                    if sorting_config.is_none() {
+                                        group_controls::row_target(ui, &member.response, &mut ctx.drag, Some(group_name), index);
+                                    }
                                 }
                             });
+                            let mut area = panel.header_response.rect;
+                            if let Some(body) = &panel.body_response {
+                                area = area.union(body.rect);
+                            }
+                            if ui.rect_contains_pointer(area) {
+                                ctx.file_group = Some((group_name.clone(), panel.fully_closed()));
+                            }
+                            if panel.header_response.dnd_hover_payload::<Drag>().is_some_and(|d| !d.is_group)
+                                || (ctx.file_group.as_ref().is_some_and(|(name, _)| name == group_name) && ui.input(|i| !i.raw.hovered_files.is_empty()))
+                            {
+                                ui.painter().hline(area.x_range(), area.top(), (2.0, ui.visuals().selection.stroke.color));
+                            }
+                            if sorting_config.is_none()
+                                && panel.header_response.dnd_hover_payload::<Drag>().is_some_and(|d| !d.is_group)
+                                && let Some(source) = panel.header_response.dnd_release_payload::<Drag>()
+                            {
+                                ctx.drag = Some(((*source).clone(), Target { group: Some(group_name.clone()), slot: if panel.fully_closed() { 0 } else { usize::MAX } }));
+                            }
                         }
                     }
                 };
 
             if sorting_config.is_some() {
                 let order = sorted_mod_indices(
+                    None,
                     profile.mods.iter().map(|item| match item {
                         ModOrGroup::Individual(mc) => Some(mc),
                         ModOrGroup::Group { .. } => None,
@@ -757,41 +815,27 @@ impl App {
                     });
                 }
             } else {
-                let res = egui_dnd::dnd(ui, ui.id())
-                    .with_mouse_config(egui_dnd::DragDropConfig::mouse())
-                    .show(
-                        profile.mods.iter_mut().enumerate(),
-                        |ui, (_index, item), handle, state| {
-                            let mut frame = egui::Frame::NONE;
-                            if state.dragged {
-                                frame.fill = ui.visuals().extreme_bg_color
-                            } else if state.index % 2 == 1 {
-                                frame.fill = ui.visuals().faint_bg_color
-                            }
-                            frame.show(ui, |ui| {
-                                ui.horizontal(|ui| {
-                                    handle.ui(ui, |ui| {
-                                        ui.label("   ☰  ");
-                                    });
-
-                                    ui_item(&mut ctx, ui, item, state.index);
-                                });
-                            });
-                        },
-                    );
-
-                if res.final_update().is_some() {
-                    res.update_vec(&mut profile.mods);
-                    ctx.needs_save = true;
+                for (index, item) in profile.mods.iter_mut().enumerate() {
+                    let mut frame = egui::Frame::NONE;
+                    if index % 2 == 1 {
+                        frame.fill = ui.visuals().faint_bg_color;
+                    }
+                    let row = Drag::paint_row(ui, profile_name, None, index, |ui| frame.show(ui, |ui| {
+                        ui.horizontal(|ui| {
+                            let (key, is_group) = match item {
+                                ModOrGroup::Individual(mc) => (mc.spec.url.as_str(), false),
+                                ModOrGroup::Group { group_name, .. } => (group_name.as_str(), true),
+                            };
+                            Drag::handle(ui, profile_name, None, index, key, is_group);
+                            ui_item(&mut ctx, ui, item, index);
+                        });
+                    }));
+                    group_controls::row_target(ui, &row.response, &mut ctx.drag, None, index);
                 }
-            }
-            if let Some((group, index)) = ctx.btn_remove.take() {
-                if let Some(group) = group {
-                    groups.get_mut(&group).unwrap().mods.remove(index);
-                } else {
-                    profile.mods.remove(index);
+                if egui::DragAndDrop::payload::<Drag>(ui.ctx()).is_some() {
+                    let end = ui.label("Drop here to move to the end of the profile");
+                    group_controls::row_target(ui, &end, &mut ctx.drag, None, profile.mods.len());
                 }
-                ctx.needs_save = true;
             }
         };
 
@@ -803,6 +847,40 @@ impl App {
             }
         });
 
+        if let Some((target, index)) = ctx.btn_remove {
+            if let Some(name) = target {
+                let removed = groups.get_mut(&name).unwrap().mods.remove(index);
+                if let Some(id) = removed.member_id {
+                    for item in profiles.values_mut().flat_map(|p| &mut p.mods) {
+                        if let ModOrGroup::Group { group_name, member_overrides, .. } = item
+                            && *group_name == name
+                        {
+                            member_overrides.forget(&id);
+                        }
+                    }
+                }
+            } else {
+                profiles.get_mut(profile).unwrap().mods.remove(index);
+            }
+            ctx.needs_save = true;
+        }
+
+        if let Some((source, dest)) = ctx.drag {
+            let before = self.state.mod_data.deref().deref().clone();
+            let destination_group = dest.group.clone();
+            match source.apply(&mut self.state.mod_data, profile, dest) {
+                Ok(()) => {
+                    if let Some(name) = destination_group {
+                        self.groups_to_open.insert((profile.to_owned(), name));
+                        ui.ctx().request_repaint();
+                    }
+                    self.undo_group_move = Some(group_controls::UndoMove::new(before, &self.state.mod_data));
+                    ctx.needs_save = true;
+                }
+                Err(error) => self.last_action = Some(LastAction::failure(error.into())),
+            }
+        }
+
         if let Some(add_deps) = ctx.add_deps {
             message::ResolveMods::send(self, ui.ctx(), add_deps, true);
             self.problematic_mod_id = None;
@@ -813,6 +891,7 @@ impl App {
         if ctx.needs_save {
             self.state.mod_data.save().unwrap();
         }
+        ctx.file_group
     }
 
     fn parse_mods(&self) -> Vec<ModSpecification> {
@@ -822,17 +901,6 @@ impl App {
             .filter(|l| !l.is_empty())
             .map(|l| ModSpecification::new(l.to_string()))
             .collect()
-    }
-
-    fn build_mod_string(mods: &Vec<ModConfig>) -> String {
-        let mut string = String::new();
-        for m in mods {
-            if m.enabled {
-                string.push_str(&m.spec.url);
-                string.push('\n');
-            }
-        }
-        string
     }
 
     fn show_update_window(&mut self, ctx: &egui::Context) {
@@ -1596,6 +1664,7 @@ impl App {
 }
 
 fn sorted_mod_indices<'a>(
+    overrides: Option<&MemberOverrides>,
     mods: impl IntoIterator<Item = Option<&'a ModConfig>>,
     config: Option<&SortingConfig>,
     get_info: impl Fn(&ModSpecification) -> Option<ModInfo>,
@@ -1609,7 +1678,7 @@ fn sorted_mod_indices<'a>(
         })
         .collect();
     if let Some(config) = config {
-        let compare = sort_mods(config);
+        let compare = sort_mods(config, overrides);
         // Group entries separate independently sorted runs and retain their positions.
         for run in entries.split_mut(|(_, mc, _)| mc.is_none()) {
             run.sort_by(|(_, a, info_a), (_, b, info_b)| {
@@ -1621,7 +1690,7 @@ fn sorted_mod_indices<'a>(
 }
 
 type ModListEntry<'a> = (&'a ModConfig, Option<&'a ModInfo>);
-fn sort_mods(config: &SortingConfig) -> impl Fn(ModListEntry, ModListEntry) -> Ordering {
+fn sort_mods<'a>(config: &'a SortingConfig, overrides: Option<&'a MemberOverrides>) -> impl Fn(ModListEntry, ModListEntry) -> Ordering + 'a {
     move |(mc_a, info_a), (mc_b, info_b)| {
         fn map_cmp<V, M, F>(a: &V, b: &V, map: F) -> Ordering
         where
@@ -1644,7 +1713,10 @@ fn sort_mods(config: &SortingConfig) -> impl Fn(ModListEntry, ModListEntry) -> O
                 .map(|t| std::cmp::Reverse(t.required_status))
         });
         let mut order = match config.sort_category {
-            SortBy::Enabled => mc_b.enabled.cmp(&mc_a.enabled),
+            SortBy::Enabled => {
+                let enabled = |mc: &ModConfig| overrides.map_or(mc.enabled, |o| o.enabled(mc));
+                enabled(mc_b).cmp(&enabled(mc_a))
+            }
             SortBy::Name => name_order,
             SortBy::Priority => mc_a.priority.cmp(&mc_b.priority),
             SortBy::Provider => provider_order,
@@ -1942,20 +2014,23 @@ impl eframe::App for App {
             }
             // profile selection
 
+            let mut group_changed = false;
             let buttons = |ui: &mut Ui, mod_data: &mut ModData| {
                 if ui
                     .button("📋")
                     .on_hover_text_at_pointer("Copy profile mods")
                     .clicked()
                 {
-                    let mut mods = Vec::new();
+                    let mut mods = String::new();
                     let active_profile = mod_data.active_profile.clone();
                     mod_data.for_each_enabled_mod(&active_profile, |mc| {
-                        mods.push(mc.clone());
+                        mods.push_str(&mc.spec.url);
+                        mods.push('\n');
                     });
-                    let mods = Self::build_mod_string(&mods);
                     ui.ctx().copy_text(mods);
                 }
+
+                group_changed = group_controls::controls(ui, mod_data, &mut self.new_group_name);
 
                 // TODO find better icon, flesh out multiple-view usage, fix GUI locking
                 /*
@@ -1974,8 +2049,17 @@ impl eframe::App for App {
                 "profile",
                 self.state.mod_data.deref_mut().deref_mut(),
                 Some(buttons),
-            ) {
+            ) || group_changed {
                 self.state.mod_data.save().unwrap();
+            }
+
+            if self.undo_group_move.is_some() && ui.button("Undo move").clicked()
+                && let Some(undo) = self.undo_group_move.take()
+            {
+                match undo.apply(&mut self.state.mod_data) {
+                    Ok(()) => self.state.mod_data.save().unwrap(),
+                    Err(e) => self.last_action = Some(LastAction::failure(e.into())),
+                }
             }
 
             ui.separator();
@@ -2080,7 +2164,7 @@ impl eframe::App for App {
             });
             ui.add_space(4.);
 
-            self.ui_profile(ui, &profile);
+            let file_group = self.ui_profile(ui, &profile);
 
             // must access memory outside of input lock to prevent deadlock
             let is_anything_focused = ctx.memory(|m| m.focused().is_some());
@@ -2089,6 +2173,10 @@ impl eframe::App for App {
                     && self.integrate_rid.is_none()
                     && self.update_rid.is_none()
                 {
+                    if let Some((group, prepend)) = &file_group {
+                        let paths = i.raw.dropped_files.iter().filter_map(|f| f.path.clone()).collect();
+                        group_controls::drop_files(self, ctx, profile.clone(), group.clone(), *prepend, paths);
+                    } else {
                     let mut mods = String::new();
                     for f in i
                         .raw
@@ -2103,6 +2191,7 @@ impl eframe::App for App {
                     self.resolve_mod = mods.trim().to_string();
                     message::ResolveMods::send(self, ctx, self.parse_mods(), false);
                     self.problematic_mod_id = None;
+                    }
                 }
                 for e in &i.events {
                     match e {
