@@ -262,7 +262,9 @@ impl From<ModData!["0.0.0"]> for ModData!["0.1.0"] {
 pub enum VersionAnnotatedModData {
     #[serde(rename = "0.0.0")]
     V0_0_0(ModData!["0.0.0"]),
-    #[serde(rename = "0.1.0")]
+    // The notag fork (Strappazzon/drg-mint-notag) writes this same layout as "0.2.0"; read it too, so a
+    // notag install opens here. We still write our own "0.1.0".
+    #[serde(rename = "0.1.0", alias = "0.2.0")]
     V0_1_0(ModData!["0.1.0"]),
 }
 
@@ -339,6 +341,11 @@ pub struct Config {
     pub drg_pak_path: Option<PathBuf>,
     pub gui_theme: Option<GuiTheme>,
     pub sorting_config: Option<SortingConfig>,
+    // notag's config "0.1.0" adds these two; kept (unused here) so a notag install gets its settings back.
+    #[serde(default = "default_true")]
+    pub confirm_deletion: bool,
+    #[serde(default = "default_true")]
+    pub show_changelog: bool,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -359,7 +366,8 @@ impl Default for SortingConfig {
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(tag = "version")]
 pub enum VersionAnnotatedConfig {
-    #[serde(rename = "0.0.0")]
+    // notag's "0.1.0" is this layout plus the two flags above; read it too. We still write our own "0.0.0".
+    #[serde(rename = "0.0.0", alias = "0.1.0")]
     V0_0_0(Config!["0.0.0"]),
     #[serde(other)]
     Unsupported,
@@ -413,6 +421,8 @@ impl Default for Config!["0.0.0"] {
                 .map(DRGInstallation::main_pak),
             gui_theme: None,
             sorting_config: None,
+            confirm_deletion: true,
+            show_changelog: true,
         }
     }
 }
