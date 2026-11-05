@@ -193,6 +193,7 @@ struct RenameEditor {
     selected: String,
     name: String,
     error: Option<String>,
+    success: Option<String>,
     picker_open: bool,
 }
 
@@ -202,6 +203,7 @@ struct DeleteEditor {
     picker_open: bool,
     confirming: bool,
     error: Option<String>,
+    success: Option<String>,
 }
 
 #[derive(Clone, Default)]
@@ -210,6 +212,7 @@ struct DuplicateEditor {
     name: String,
     picker_open: bool,
     error: Option<String>,
+    success: Option<String>,
 }
 
 /// Renaming changes the shared collection's label, never its contents or order.
@@ -274,7 +277,43 @@ fn duplicate_group(data: &mut Data, source: &str, requested: &str) -> Result<Str
     Ok(name.to_owned())
 }
 
-pub(super) fn controls(ui: &mut Ui, data: &mut Data, name: &mut String, files_pending: bool) -> bool {
+/// A full-width dropdown row with the name left-aligned.
+/// The whole row receives hover highlighting and click input.
+fn group_option_row(ui: &mut Ui, name: &str, selected: bool) -> egui::Response {
+    let (rect, response) = ui.allocate_exact_size(
+        egui::vec2(ui.available_width(), ui.spacing().interact_size.y),
+        egui::Sense::click(),
+    );
+    if ui.is_rect_visible(rect) {
+        let highlighted = selected || response.hovered() || response.has_focus();
+        if highlighted {
+            ui.painter().rect_filled(rect, egui::CornerRadius::same(2), ui.visuals().selection.bg_fill);
+        }
+        let text_color = if highlighted {
+            ui.visuals().selection.stroke.color
+        } else {
+            ui.visuals().text_color()
+        };
+        ui.painter().text(
+            egui::pos2(rect.left() + 6.0, rect.center().y),
+            egui::Align2::LEFT_CENTER,
+            name,
+            egui::TextStyle::Button.resolve(ui.style()),
+            text_color,
+        );
+    }
+    response.on_hover_cursor(egui::CursorIcon::PointingHand)
+}
+
+/// Use the same compact, always-visible scrollbar for every group selector.
+fn group_picker_scroll() -> egui::ScrollArea {
+    egui::ScrollArea::vertical()
+        .max_height(140.0)
+        .scroll_bar_visibility(egui::containers::scroll_area::ScrollBarVisibility::AlwaysVisible)
+}
+
+/// Returns whether groups changed and an optional success message for the main status bar.
+pub(super) fn controls(ui: &mut Ui, data: &mut Data, name: &mut String, files_pending: bool) -> (bool, Option<String>) {
     let profile = data.profiles.get_mut(&data.active_profile).unwrap();
     let mut changed = false;
     let image = egui::Image::new(egui::include_image!("../../assets/groups.svg"))
@@ -291,11 +330,15 @@ pub(super) fn controls(ui: &mut Ui, data: &mut Data, name: &mut String, files_pe
     let mut requested_rename = None;
     let mut requested_duplicate = None;
     let mut requested_delete = None;
+    let mut success_message = None;
     if button.clicked() {
         editor.picker_open = false;
+        editor.success = None;
         duplicate_editor.picker_open = false;
+        duplicate_editor.success = None;
         delete_editor.picker_open = false;
         delete_editor.confirming = false;
+        delete_editor.success = None;
         ui.memory_mut(|mem| mem.toggle_popup(popup));
     }
     egui::popup_below_widget(ui, popup, &button, egui::PopupCloseBehavior::CloseOnClickOutside, |ui| {
@@ -304,10 +347,12 @@ pub(super) fn controls(ui: &mut Ui, data: &mut Data, name: &mut String, files_pe
         ui.text_edit_singleline(name);
         let trimmed = name.trim();
         if ui.add_enabled(!trimmed.is_empty() && !data.groups.contains_key(trimmed), Button::new("Create group")).clicked() {
-            data.groups.insert(trimmed.into(), Default::default());
-            attach(profile, trimmed);
+            let created = trimmed.to_owned();
+            data.groups.insert(created.clone(), Default::default());
+            attach(profile, &created);
             name.clear();
             changed = true;
+            success_message = Some(format!("Created group \"{created}\"."));
             ui.memory_mut(|mem| mem.close_popup());
         }
         ui.separator();
@@ -324,11 +369,12 @@ pub(super) fn controls(ui: &mut Ui, data: &mut Data, name: &mut String, files_pe
                 .id_salt(("attach-existing", &data.active_profile))
                 .show(ui, |ui| {
                     // Keep the expanded list compact; additional groups remain scrollable.
-                    egui::ScrollArea::vertical().max_height(140.0).show(ui, |ui| {
+                    group_picker_scroll().show(ui, |ui| {
                         for key in eligible {
-                            if ui.button(key.as_str()).clicked() {
+                            if group_option_row(ui, key.as_str(), false).clicked() {
                                 attach(profile, key);
                                 changed = true;
+                                success_message = Some(format!("Added existing group \"{key}\" to the active profile."));
                                 ui.memory_mut(|mem| mem.close_popup());
                                 break;
                             }
@@ -337,7 +383,10 @@ pub(super) fn controls(ui: &mut Ui, data: &mut Data, name: &mut String, files_pe
                 });
         }
         ui.separator();
-        egui::CollapsingHeader::new("Rename group").show(ui, |ui| {
+        let rename_section = egui::CollapsingHeader::new("Rename group").show(ui, |ui| {
+            if let Some(success) = &editor.success {
+                ui.colored_label(egui::Color32::from_rgb(100, 200, 120), success);
+            }
             if data.groups.is_empty() {
                 ui.label("No groups to rename.");
                 return;
@@ -345,7 +394,7 @@ pub(super) fn controls(ui: &mut Ui, data: &mut Data, name: &mut String, files_pe
             // Don't select the first group automatically. Require an explicit choice.
             if !editor.selected.is_empty() && !data.groups.contains_key(&editor.selected) {
                 editor.selected.clear();
-                editor.name.clear();
+                // Keep the new name even if the previous group was removed.
                 editor.error = None;
                 editor.picker_open = false;
             }
@@ -373,19 +422,24 @@ pub(super) fn controls(ui: &mut Ui, data: &mut Data, name: &mut String, files_pe
                 arrow, ui.visuals().text_color(), egui::Stroke::NONE,
             ));
             if editor.picker_open {
-                egui::ScrollArea::vertical().max_height(140.0).show(ui, |ui| {
+                group_picker_scroll().show(ui, |ui| {
                     for key in data.groups.keys() {
-                        if ui.selectable_label(editor.selected == key.as_str(), key.as_str()).clicked() {
+                        if group_option_row(ui, key.as_str(), editor.selected == key.as_str()).clicked() {
                             editor.selected = key.clone();
-                            editor.name = key.clone();
+                            // Keep any new name entered before choosing the source group.
                             editor.error = None;
+                            editor.success = None;
                             editor.picker_open = false;
                         }
                     }
                 });
             }
-            ui.label("New name");
-            if ui.text_edit_singleline(&mut editor.name).changed() { editor.error = None; }
+            ui.add_space(8.0);
+            if ui.add(egui::TextEdit::singleline(&mut editor.name)
+                .hint_text("New group name")).changed() {
+                editor.error = None;
+                editor.success = None;
+            }
             ui.label("Renames this shared group in every profile.");
             if files_pending {
                 ui.label("Wait for dropped files to finish before renaming.");
@@ -401,16 +455,24 @@ pub(super) fn controls(ui: &mut Ui, data: &mut Data, name: &mut String, files_pe
             }
             if let Some(error) = &editor.error { ui.colored_label(ui.visuals().warn_fg_color, error); }
         });
+        if rename_section.header_response.clicked() {
+            editor.success = None;
+        }
         ui.separator();
-        egui::CollapsingHeader::new("Duplicate group")
+        let duplicate_section = egui::CollapsingHeader::new("Duplicate group")
             .id_salt("duplicate-group-section")
             .show(ui, |ui| {
+                if let Some(success) = &duplicate_editor.success {
+                    ui.colored_label(egui::Color32::from_rgb(100, 200, 120), success);
+                }
                 if data.groups.is_empty() {
                     ui.label("No groups to duplicate.");
                     return;
                 }
                 if !duplicate_editor.selected.is_empty() && !data.groups.contains_key(&duplicate_editor.selected) {
-                    duplicate_editor = DuplicateEditor::default();
+                    duplicate_editor.selected.clear();
+                    duplicate_editor.picker_open = false;
+                    duplicate_editor.error = None;
                 }
                 let response = ui.add(
                     Button::new(format!("{}    ", if duplicate_editor.selected.is_empty() {
@@ -434,21 +496,23 @@ pub(super) fn controls(ui: &mut Ui, data: &mut Data, name: &mut String, files_pe
                     arrow, ui.visuals().text_color(), egui::Stroke::NONE,
                 ));
                 if duplicate_editor.picker_open {
-                    egui::ScrollArea::vertical().max_height(140.0).show(ui, |ui| {
+                    group_picker_scroll().show(ui, |ui| {
                         for key in data.groups.keys() {
-                            if ui.selectable_label(duplicate_editor.selected == key.as_str(), key.as_str()).clicked() {
+                            if group_option_row(ui, key.as_str(), duplicate_editor.selected == key.as_str()).clicked() {
                                 duplicate_editor.selected = key.clone();
-                                duplicate_editor.name.clear();
+                                // Keep any new name entered before choosing the source group.
                                 duplicate_editor.error = None;
+                                duplicate_editor.success = None;
                                 duplicate_editor.picker_open = false;
                             }
                         }
                     });
                 }
-                ui.label("Name for duplicate");
+                ui.add_space(8.0);
                 if ui.add(egui::TextEdit::singleline(&mut duplicate_editor.name)
                     .hint_text("New group name")).changed() {
                     duplicate_editor.error = None;
+                    duplicate_editor.success = None;
                 }
                 ui.label("Creates a separate copy in the active profile.");
                 if files_pending {
@@ -467,10 +531,16 @@ pub(super) fn controls(ui: &mut Ui, data: &mut Data, name: &mut String, files_pe
                     ui.colored_label(ui.visuals().warn_fg_color, error);
                 }
             });
+        if duplicate_section.header_response.clicked() {
+            duplicate_editor.success = None;
+        }
         ui.separator();
-        egui::CollapsingHeader::new("Delete group")
+        let delete_section = egui::CollapsingHeader::new("Delete group")
             .id_salt("delete-group-section")
             .show(ui, |ui| {
+                if let Some(success) = &delete_editor.success {
+                    ui.colored_label(egui::Color32::from_rgb(100, 200, 120), success);
+                }
                 if data.groups.is_empty() {
                     ui.label("No groups to delete.");
                     return;
@@ -502,13 +572,14 @@ pub(super) fn controls(ui: &mut Ui, data: &mut Data, name: &mut String, files_pe
                     arrow, ui.visuals().text_color(), egui::Stroke::NONE,
                 ));
                 if delete_editor.picker_open {
-                    egui::ScrollArea::vertical().max_height(140.0).show(ui, |ui| {
+                    group_picker_scroll().show(ui, |ui| {
                         for key in data.groups.keys() {
-                            if ui.selectable_label(delete_editor.selected == key.as_str(), key.as_str()).clicked() {
+                            if group_option_row(ui, key.as_str(), delete_editor.selected == key.as_str()).clicked() {
                                 delete_editor.selected = key.clone();
                                 delete_editor.picker_open = false;
                                 delete_editor.confirming = false;
                                 delete_editor.error = None;
+                                delete_editor.success = None;
                             }
                         }
                     });
@@ -530,17 +601,30 @@ pub(super) fn controls(ui: &mut Ui, data: &mut Data, name: &mut String, files_pe
                 } else if ui.add_enabled(!delete_editor.selected.is_empty() && !files_pending,
                     Button::new("Delete group")).clicked() {
                     delete_editor.confirming = true;
+                    delete_editor.success = None;
                 }
                 if let Some(error) = &delete_editor.error {
                     ui.colored_label(ui.visuals().warn_fg_color, error);
                 }
             });
+        if delete_section.header_response.clicked() {
+            delete_editor.success = None;
+        }
+        ui.separator();
+        egui::CollapsingHeader::new("Export groups")
+            .id_salt("export-groups-section")
+            .show(ui, |_ui| {});
+        ui.separator();
+        egui::CollapsingHeader::new("Import groups")
+            .id_salt("import-groups-section")
+            .show(ui, |_ui| {});
     });
     if let Some((old, new)) = requested_rename {
         match rename_group(data, &old, &new) {
             Ok(renamed) => {
                 changed |= renamed;
-                editor.selected = new.clone();
+                // Require a fresh selection after renaming a group.
+                editor.selected.clear();
                 if duplicate_editor.selected == old {
                     duplicate_editor.selected = new.clone();
                 }
@@ -548,21 +632,34 @@ pub(super) fn controls(ui: &mut Ui, data: &mut Data, name: &mut String, files_pe
                     delete_editor.selected = new.clone();
                     delete_editor.confirming = false;
                 }
-                editor.name = new;
+                editor.name.clear();
                 editor.error = None;
+                editor.picker_open = false;
+                if renamed {
+                    let message = format!("Renamed group \"{old}\" to \"{new}\" in all profiles.");
+                    editor.success = Some(message.clone());
+                    success_message = Some(message);
+                }
                 egui::DragAndDrop::clear_payload(ui.ctx());
-                ui.memory_mut(|mem| mem.close_popup());
+                // Keep the menu open so the inline confirmation can be read.
+                ui.ctx().request_repaint();
             }
             Err(error) => editor.error = Some(error.to_owned()),
         }
     }
     if let Some((source, new_name)) = requested_duplicate {
         match duplicate_group(data, &source, &new_name) {
-            Ok(_) => {
+            Ok(created) => {
                 changed = true;
-                duplicate_editor = DuplicateEditor::default();
+                let message = format!("Duplicated group \"{source}\" as \"{created}\".");
+                success_message = Some(message.clone());
+                duplicate_editor = DuplicateEditor {
+                    success: Some(message),
+                    ..Default::default()
+                };
                 egui::DragAndDrop::clear_payload(ui.ctx());
-                ui.memory_mut(|mem| mem.close_popup());
+                // Keep the menu open so the inline confirmation can be read.
+                ui.ctx().request_repaint();
             }
             Err(error) => duplicate_editor.error = Some(error.to_owned()),
         }
@@ -571,7 +668,12 @@ pub(super) fn controls(ui: &mut Ui, data: &mut Data, name: &mut String, files_pe
         match delete_group(data, &target) {
             Ok(()) => {
                 changed = true;
-                delete_editor = DeleteEditor::default();
+                let message = format!("Deleted group \"{target}\" from all profiles.");
+                success_message = Some(message.clone());
+                delete_editor = DeleteEditor {
+                    success: Some(message),
+                    ..Default::default()
+                };
                 if editor.selected == target {
                     editor = RenameEditor::default();
                 }
@@ -579,7 +681,8 @@ pub(super) fn controls(ui: &mut Ui, data: &mut Data, name: &mut String, files_pe
                     duplicate_editor = DuplicateEditor::default();
                 }
                 egui::DragAndDrop::clear_payload(ui.ctx());
-                ui.memory_mut(|mem| mem.close_popup());
+                // Leave the Groups menu open to show the success message.
+                ui.ctx().request_repaint();
             }
             Err(error) => {
                 delete_editor.confirming = false;
@@ -592,7 +695,7 @@ pub(super) fn controls(ui: &mut Ui, data: &mut Data, name: &mut String, files_pe
         d.insert_temp(duplicate_id, duplicate_editor);
         d.insert_temp(delete_id, delete_editor);
     });
-    changed
+    (changed, success_message)
 }
 
 fn attach(profile: &mut Profile, name: &str) {

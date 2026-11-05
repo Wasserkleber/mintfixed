@@ -2050,6 +2050,7 @@ impl eframe::App for App {
             // profile selection
 
             let mut group_changed = false;
+            let mut group_success = None;
             let buttons = |ui: &mut Ui, mod_data: &mut ModData| {
                 let image = egui::Image::new(egui::include_image!("../../assets/copy_mods.svg"))
                     .fit_to_exact_size(egui::vec2(16.0, 16.0))
@@ -2068,7 +2069,9 @@ impl eframe::App for App {
                     ui.ctx().copy_text(mods);
                 }
 
-                group_changed = group_controls::controls(ui, mod_data, &mut self.new_group_name, self.pending_group_files > 0);
+                (group_changed, group_success) = group_controls::controls(
+                    ui, mod_data, &mut self.new_group_name, self.pending_group_files > 0,
+                );
 
                 // TODO find better icon, flesh out multiple-view usage, fix GUI locking
                 /*
@@ -2089,6 +2092,9 @@ impl eframe::App for App {
                 Some(buttons),
             ) || group_changed {
                 self.state.mod_data.save().unwrap();
+            }
+            if let Some(message) = group_success {
+                self.last_action = Some(LastAction::success(message));
             }
 
             if self.undo_group_move.is_some() && ui.button("Undo move").clicked()
