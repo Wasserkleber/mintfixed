@@ -7,7 +7,7 @@ use std::fs;
 use std::path::Path;
 
 use mint::providers::{ModSpecification, ModStore};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 fn spec(url: &str) -> ModSpecification {
     ModSpecification::new(url.to_owned())
@@ -113,8 +113,16 @@ fn moves_only_unreferenced_mods_and_related_metadata() {
     assert!(old_modio["dependencies"].get("2016954").is_some());
     assert!(live_modio["modfile_blobs"].get("2512163").is_none());
     assert!(old_modio["modfile_blobs"].get("2512163").is_some());
-    assert!(active["cache"]["http"]["url_blobs"].get("https://example.org/used.pak").is_some());
-    assert!(archived["cache"]["http"]["url_blobs"].get("https://example.org/unused.pak").is_some());
+    assert!(
+        active["cache"]["http"]["url_blobs"]
+            .get("https://example.org/used.pak")
+            .is_some()
+    );
+    assert!(
+        archived["cache"]["http"]["url_blobs"]
+            .get("https://example.org/unused.pak")
+            .is_some()
+    );
 }
 
 #[test]
@@ -134,7 +142,8 @@ fn archive_with_numeric_mod_ids_can_be_reloaded() {
     fs::copy(
         dir.path().join("deprecated_mods.json"),
         archive_dir.path().join("cache.json"),
-    ).unwrap();
+    )
+    .unwrap();
     ModStore::new(archive_dir.path(), &HashMap::new()).unwrap();
 }
 
@@ -148,9 +157,15 @@ fn later_cleanup_merges_archive_instead_of_overwriting_it() {
     let path = dir.path().join("deprecated_mods.json");
     let archived = read_json(&path);
     for id in ["1033779", "3096846", "2016954"] {
-        assert!(archived["cache"]["modio"]["mods"].get(id).is_some(), "missing {id}");
+        assert!(
+            archived["cache"]["modio"]["mods"].get(id).is_some(),
+            "missing {id}"
+        );
     }
-    for url in ["https://example.org/used.pak", "https://example.org/unused.pak"] {
+    for url in [
+        "https://example.org/used.pak",
+        "https://example.org/unused.pak",
+    ] {
         assert!(archived["cache"]["http"]["url_blobs"].get(url).is_some());
     }
 
@@ -169,8 +184,16 @@ fn an_exact_pin_protects_mod_and_modfile_even_with_a_different_slug() {
 
     let active = read_json(&dir.path().join("cache.json"));
     assert!(active["cache"]["modio"]["mods"].get("2016954").is_some());
-    assert!(active["cache"]["modio"]["modfile_blobs"].get("2512163").is_some());
-    assert!(active["cache"]["modio"]["mod_id_map"].get("hardhat-dotty").is_some());
+    assert!(
+        active["cache"]["modio"]["modfile_blobs"]
+            .get("2512163")
+            .is_some()
+    );
+    assert!(
+        active["cache"]["modio"]["mod_id_map"]
+            .get("hardhat-dotty")
+            .is_some()
+    );
 }
 
 #[test]
@@ -181,11 +204,17 @@ fn a_disabled_or_inactive_reference_must_still_be_passed_to_cleanup() {
     // These simulate an inactive profile and a disabled group's member.
     let inactive_profile = spec("https://mod.io/g/drg/m/hardhat-dotty");
     let disabled_group = spec("https://mod.io/g/drg/m/kept-mod");
-    assert_eq!(store.archive_unreferenced(&[
-        inactive_profile, disabled_group,
-        spec("https://example.org/used.pak"),
-        spec("https://example.org/unused.pak"),
-    ]).unwrap(), 0);
+    assert_eq!(
+        store
+            .archive_unreferenced(&[
+                inactive_profile,
+                disabled_group,
+                spec("https://example.org/used.pak"),
+                spec("https://example.org/unused.pak"),
+            ])
+            .unwrap(),
+        0
+    );
     assert!(!dir.path().join("deprecated_mods.json").exists());
 }
 
@@ -195,9 +224,8 @@ fn rejects_unknown_modio_reference_without_touching_files() {
     let store = make_store(dir.path());
     let before = fs::read(dir.path().join("cache.json")).unwrap();
 
-    let result = store.archive_unreferenced(&[
-        spec("https://mod.io/g/drg/m/kept-mod#invalid_fragment"),
-    ]);
+    let result =
+        store.archive_unreferenced(&[spec("https://mod.io/g/drg/m/kept-mod#invalid_fragment")]);
     assert!(result.is_err());
     assert_eq!(before, fs::read(dir.path().join("cache.json")).unwrap());
     assert!(!dir.path().join("deprecated_mods.json").exists());

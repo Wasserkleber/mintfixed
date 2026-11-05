@@ -340,8 +340,14 @@ mod tests {
         validate_ids(&original).unwrap();
         drop(state);
         let reloaded = State::init(crate::Dirs::from_path(dir.path()).unwrap()).unwrap();
-        assert_eq!(serde_json::to_value(reloaded.mod_data.deref()).unwrap(), original);
-        assert!(!dir.path().join("config/mod_data.json.pre-0.3.0.bak").exists());
+        assert_eq!(
+            serde_json::to_value(reloaded.mod_data.deref()).unwrap(),
+            original
+        );
+        assert!(
+            !dir.path()
+                .join("config/mod_data.json.pre-0.3.0.bak")
+                .exists()
+        );
     }
-
 }

@@ -36,20 +36,25 @@ impl ReleaseNumber {
         if !(2..=3).contains(&parts.len()) {
             return None;
         }
-        let numbers: Option<Vec<u64>> = parts.iter().map(|part| {
-            if part.is_empty()
-                || (part.len() > 1 && part.starts_with('0'))
-                || !part.bytes().all(|b| b.is_ascii_digit())
-            {
-                return None;
-            }
-            part.parse().ok()
-        }).collect();
+        let numbers: Option<Vec<u64>> = parts
+            .iter()
+            .map(|part| {
+                if part.is_empty()
+                    || (part.len() > 1 && part.starts_with('0'))
+                    || !part.bytes().all(|b| b.is_ascii_digit())
+                {
+                    return None;
+                }
+                part.parse().ok()
+            })
+            .collect();
         let numbers = numbers?;
         if let Some(suffix) = prerelease {
-            if suffix.is_empty() || suffix.split('.').any(|item| {
-                item.is_empty() || !item.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-')
-            }) {
+            if suffix.is_empty()
+                || suffix.split('.').any(|item| {
+                    item.is_empty() || !item.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-')
+                })
+            {
                 return None;
             }
         }
@@ -81,11 +86,14 @@ fn candidate_order(a: &Candidate, b: &Candidate) -> Ordering {
     a.distance
         .cmp(&b.distance)
         .then_with(|| match (&a.release, &b.release) {
-            (Some(x), Some(y)) => {
-                x.prerelease.is_some().cmp(&y.prerelease.is_some())
-                    .then_with(|| (y.major, y.minor, y.patch).cmp(&(x.major, x.minor, x.patch)))
-                    .then_with(|| compare_prereleases(y.prerelease.as_deref(), x.prerelease.as_deref()))
-            }
+            (Some(x), Some(y)) => x
+                .prerelease
+                .is_some()
+                .cmp(&y.prerelease.is_some())
+                .then_with(|| (y.major, y.minor, y.patch).cmp(&(x.major, x.minor, x.patch)))
+                .then_with(|| {
+                    compare_prereleases(y.prerelease.as_deref(), x.prerelease.as_deref())
+                }),
             (Some(_), None) => Ordering::Less,
             (None, Some(_)) => Ordering::Greater,
             (None, None) => Ordering::Equal,
@@ -94,7 +102,9 @@ fn candidate_order(a: &Candidate, b: &Candidate) -> Ordering {
 }
 
 fn compare_prereleases(a: Option<&str>, b: Option<&str>) -> Ordering {
-    let (Some(a), Some(b)) = (a, b) else { return Ordering::Equal; };
+    let (Some(a), Some(b)) = (a, b) else {
+        return Ordering::Equal;
+    };
     for (a, b) in a.split('.').zip(b.split('.')) {
         let order = match (a.parse::<u64>(), b.parse::<u64>()) {
             (Ok(x), Ok(y)) => x.cmp(&y),
@@ -115,12 +125,20 @@ fn is_legacy_tag(tag: &str) -> bool {
 }
 
 fn git_output(working_dir: &Path, args: &[&str]) -> Option<Output> {
-    Command::new("git").arg("-C").arg(working_dir).args(args).output().ok()
+    Command::new("git")
+        .arg("-C")
+        .arg(working_dir)
+        .args(args)
+        .output()
+        .ok()
 }
 
 fn git_text(working_dir: &Path, args: &[&str]) -> Option<String> {
     let output = git_output(working_dir, args)?;
-    output.status.success().then(|| String::from_utf8_lossy(&output.stdout).trim().to_owned())
+    output
+        .status
+        .success()
+        .then(|| String::from_utf8_lossy(&output.stdout).trim().to_owned())
 }
 
 fn git_success(working_dir: &Path, args: &[&str]) -> bool {
@@ -146,15 +164,36 @@ fn relevant_untracked(path: &str) -> bool {
         || path.starts_with("assets")
         || path.starts_with("tests")
         || path.starts_with(".github/workflows");
-    is_source_area && path.extension().and_then(|x| x.to_str()).is_some_and(|ext| {
-        matches!(ext, "rs" | "toml" | "json" | "yml" | "yaml" | "svg" | "png" | "h" | "c" | "cpp" | "pak" | "vert" | "frag")
-    })
+    is_source_area
+        && path
+            .extension()
+            .and_then(|x| x.to_str())
+            .is_some_and(|ext| {
+                matches!(
+                    ext,
+                    "rs" | "toml"
+                        | "json"
+                        | "yml"
+                        | "yaml"
+                        | "svg"
+                        | "png"
+                        | "h"
+                        | "c"
+                        | "cpp"
+                        | "pak"
+                        | "vert"
+                        | "frag"
+                )
+            })
 }
 
 fn is_modified(repo: &Path) -> Result<bool, String> {
-    let output = git_output(repo, &["status", "--porcelain=v1", "--untracked-files=all", "-z"])
-        .filter(|out| out.status.success())
-        .ok_or_else(|| "failed to inspect Git working tree".to_owned())?;
+    let output = git_output(
+        repo,
+        &["status", "--porcelain=v1", "--untracked-files=all", "-z"],
+    )
+    .filter(|out| out.status.success())
+    .ok_or_else(|| "failed to inspect Git working tree".to_owned())?;
     // Porcelain -z is NUL delimited, so spaces/newlines in file names are safe.
     for record in output.stdout.split(|b| *b == 0) {
         if record.len() < 4 || record[2] != b' ' {
@@ -172,8 +211,11 @@ fn is_modified(repo: &Path) -> Result<bool, String> {
 }
 
 fn collect_candidates(repo: &Path, sha: &str, shallow: bool) -> Vec<Candidate> {
-    let tags = git_text(repo, &["for-each-ref", "--format=%(refname:strip=2)", "refs/tags"])
-        .unwrap_or_default();
+    let tags = git_text(
+        repo,
+        &["for-each-ref", "--format=%(refname:strip=2)", "refs/tags"],
+    )
+    .unwrap_or_default();
     let mut candidates = Vec::new();
     for name in tags.lines() {
         let release = ReleaseNumber::from_tag(name);
@@ -181,7 +223,14 @@ fn collect_candidates(repo: &Path, sha: &str, shallow: bool) -> Vec<Candidate> {
             continue;
         }
         // ^{commit} peels both annotated and lightweight tags.
-        let Some(commit) = git_text(repo, &["rev-parse", "--verify", &format!("refs/tags/{name}^{{commit}}")]) else {
+        let Some(commit) = git_text(
+            repo,
+            &[
+                "rev-parse",
+                "--verify",
+                &format!("refs/tags/{name}^{{commit}}"),
+            ],
+        ) else {
             continue;
         };
         if !git_success(repo, &["merge-base", "--is-ancestor", &commit, sha]) {
@@ -193,10 +242,15 @@ fn collect_candidates(repo: &Path, sha: &str, shallow: bool) -> Vec<Candidate> {
             continue;
         }
         let Some(distance) = git_text(repo, &["rev-list", "--count", &format!("{commit}..{sha}")])
-            .and_then(|value| value.parse::<u64>().ok()) else {
+            .and_then(|value| value.parse::<u64>().ok())
+        else {
             continue;
         };
-        candidates.push(Candidate { name: name.to_owned(), distance, release });
+        candidates.push(Candidate {
+            name: name.to_owned(),
+            distance,
+            release,
+        });
     }
     candidates
 }
@@ -213,10 +267,17 @@ fn fallback(cargo_version: &str) -> BuildVersion {
 
 /// Resolve from the checked-out source. An optional release context is *validated*,
 /// not trusted as a version override; a mismatch fails the build.
-pub fn resolve(working_dir: &Path, cargo_version: &str, release_tag: Option<&str>) -> Result<BuildVersion, String> {
+pub fn resolve(
+    working_dir: &Path,
+    cargo_version: &str,
+    release_tag: Option<&str>,
+) -> Result<BuildVersion, String> {
     let Some(repo) = git_repo_root(working_dir) else {
         return if release_tag.is_some() {
-            Err("release build requires a complete Git checkout and an available Git executable".to_owned())
+            Err(
+                "release build requires a complete Git checkout and an available Git executable"
+                    .to_owned(),
+            )
         } else {
             Ok(fallback(cargo_version))
         };
@@ -226,8 +287,8 @@ pub fn resolve(working_dir: &Path, cargo_version: &str, release_tag: Option<&str
         _ if release_tag.is_none() => return Ok(fallback(cargo_version)),
         _ => return Err("release build could not resolve HEAD".to_owned()),
     };
-    let shallow = git_text(&repo, &["rev-parse", "--is-shallow-repository"])
-        .as_deref() == Some("true");
+    let shallow =
+        git_text(&repo, &["rev-parse", "--is-shallow-repository"]).as_deref() == Some("true");
     let modified = is_modified(&repo)?;
     let mut candidates = collect_candidates(&repo, &sha, shallow);
     let chosen = if let Some(tag) = release_tag {
@@ -235,18 +296,30 @@ pub fn resolve(working_dir: &Path, cargo_version: &str, release_tag: Option<&str
             return Err(format!("invalid mintfixed release tag: {tag:?}"));
         }
         if shallow {
-            return Err("release builds require full Git history (checkout fetch-depth: 0)".to_owned());
+            return Err(
+                "release builds require full Git history (checkout fetch-depth: 0)".to_owned(),
+            );
         }
         if modified {
             return Err("refusing to build a dirty official release".to_owned());
         }
-        let tag_sha = git_text(&repo, &["rev-parse", "--verify", &format!("refs/tags/{tag}^{{commit}}")])
-            .ok_or_else(|| format!("release tag {tag:?} was not fetched"))?;
+        let tag_sha = git_text(
+            &repo,
+            &[
+                "rev-parse",
+                "--verify",
+                &format!("refs/tags/{tag}^{{commit}}"),
+            ],
+        )
+        .ok_or_else(|| format!("release tag {tag:?} was not fetched"))?;
         if tag_sha != sha {
-            return Err(format!("release tag {tag:?} resolves to {tag_sha}, but HEAD is {sha}"));
+            return Err(format!(
+                "release tag {tag:?} resolves to {tag_sha}, but HEAD is {sha}"
+            ));
         }
         Some(Candidate {
-            name: tag.to_owned(), distance: 0,
+            name: tag.to_owned(),
+            distance: 0,
             release: ReleaseNumber::from_tag(tag),
         })
     } else {
@@ -273,14 +346,29 @@ pub fn resolve(working_dir: &Path, cargo_version: &str, release_tag: Option<&str
             }
             if candidate.distance > 0 || modified {
                 display.push_str(&format!(" ({short}"));
-                if modified { display.push_str(", modified"); }
+                if modified {
+                    display.push_str(", modified");
+                }
                 display.push(')');
             }
             (display, Some(candidate.name), Some(candidate.distance))
         }
-        None => (format!("mintfixed dev ({short}{})", if modified { ", modified" } else { "" }), None, None),
+        None => (
+            format!(
+                "mintfixed dev ({short}{})",
+                if modified { ", modified" } else { "" }
+            ),
+            None,
+            None,
+        ),
     };
-    Ok(BuildVersion { display, commit_sha: Some(sha), base_tag: tag, commits_since_tag: distance, modified })
+    Ok(BuildVersion {
+        display,
+        commit_sha: Some(sha),
+        base_tag: tag,
+        commits_since_tag: distance,
+        modified,
+    })
 }
 
 /// Watch Git's actual paths: works in linked worktrees and detached checkouts.
@@ -303,11 +391,29 @@ pub fn emit_rerun_directives(working_dir: &Path) {
             }
         }
     }
-    for dir in ["src", "mint_lib/src", "mint_lib/tests", "hook/src", "hook_resolvers/src", "assets", "tests", ".github/workflows"] {
+    for dir in [
+        "src",
+        "mint_lib/src",
+        "mint_lib/tests",
+        "hook/src",
+        "hook_resolvers/src",
+        "assets",
+        "tests",
+        ".github/workflows",
+    ] {
         let path = repo.join(dir);
-        if path.is_dir() { watch(&path); }
+        if path.is_dir() {
+            watch(&path);
+        }
     }
-    for relative_git_path in ["HEAD", "index", "packed-refs", "refs", "refs/heads", "refs/tags"] {
+    for relative_git_path in [
+        "HEAD",
+        "index",
+        "packed-refs",
+        "refs",
+        "refs/heads",
+        "refs/tags",
+    ] {
         watch_git_path(&repo, relative_git_path);
     }
     if let Some(current_ref) = git_text(&repo, &["symbolic-ref", "-q", "HEAD"]) {
@@ -315,13 +421,19 @@ pub fn emit_rerun_directives(working_dir: &Path) {
     }
     // Cargo also needs to re-run when a linked worktree's .git pointer changes.
     let git_pointer = repo.join(".git");
-    if git_pointer.is_file() { watch(&git_pointer); }
+    if git_pointer.is_file() {
+        watch(&git_pointer);
+    }
 }
 
 fn watch_git_path(repo: &Path, relative: &str) {
     if let Some(git_path) = git_text(repo, &["rev-parse", "--git-path", relative]) {
         let path = PathBuf::from(git_path);
-        let path = if path.is_absolute() { path } else { repo.join(path) };
+        let path = if path.is_absolute() {
+            path
+        } else {
+            repo.join(path)
+        };
         // Nonexistent refs/packed-refs are still watched to catch creation.
         watch(&path);
     }
@@ -329,12 +441,16 @@ fn watch_git_path(repo: &Path, relative: &str) {
 
 fn watch(path: &Path) {
     if let Some(path) = path.to_str() {
-        if !path.contains('\n') { println!("cargo:rerun-if-changed={path}"); }
+        if !path.contains('\n') {
+            println!("cargo:rerun-if-changed={path}");
+        }
     }
 }
 
 fn rust_option(value: Option<&str>) -> String {
-    value.map(|value| format!("Some({value:?})")).unwrap_or_else(|| "None".to_owned())
+    value
+        .map(|value| format!("Some({value:?})"))
+        .unwrap_or_else(|| "None".to_owned())
 }
 
 pub fn write_generated(out_dir: &Path, info: &BuildVersion) -> std::io::Result<()> {
@@ -348,7 +464,9 @@ pub fn write_generated(out_dir: &Path, info: &BuildVersion) -> std::io::Result<(
         info.display,
         rust_option(info.commit_sha.as_deref()),
         rust_option(info.base_tag.as_deref()),
-        info.commits_since_tag.map(|d| format!("Some({d})")).unwrap_or_else(|| "None".to_owned()),
+        info.commits_since_tag
+            .map(|d| format!("Some({d})"))
+            .unwrap_or_else(|| "None".to_owned()),
         info.modified,
     );
     let path = out_dir.join("mintfixed_version.rs");
@@ -367,8 +485,12 @@ mod tests {
     struct Repo(PathBuf);
     impl Repo {
         fn new() -> Self {
-            let unique = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
-            let path = env::temp_dir().join(format!("mintfixed-version-{}-{unique}", std::process::id()));
+            let unique = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos();
+            let path =
+                env::temp_dir().join(format!("mintfixed-version-{}-{unique}", std::process::id()));
             fs::create_dir_all(path.join("src")).unwrap();
             let repo = Self(path);
             repo.git(&["init", "-q"]);
@@ -382,18 +504,30 @@ mod tests {
         }
         fn git(&self, args: &[&str]) -> String {
             let output = git_output(&self.0, args).expect("Git must exist for resolver tests");
-            assert!(output.status.success(), "git {args:?} failed: {}", String::from_utf8_lossy(&output.stderr));
+            assert!(
+                output.status.success(),
+                "git {args:?} failed: {}",
+                String::from_utf8_lossy(&output.stderr)
+            );
             String::from_utf8_lossy(&output.stdout).trim().to_owned()
         }
         fn commit(&self, n: usize) {
-            fs::write(self.0.join("src/main.rs"), format!("fn main() {{ let _ = {n}; }}\n")).unwrap();
+            fs::write(
+                self.0.join("src/main.rs"),
+                format!("fn main() {{ let _ = {n}; }}\n"),
+            )
+            .unwrap();
             self.git(&["add", "src/main.rs"]);
             self.git(&["commit", "-q", "-m", &format!("commit-{n}")]);
         }
-        fn version(&self) -> BuildVersion { resolve(&self.0, "0.2.10", None).unwrap() }
+        fn version(&self) -> BuildVersion {
+            resolve(&self.0, "0.2.10", None).unwrap()
+        }
     }
     impl Drop for Repo {
-        fn drop(&mut self) { let _ = fs::remove_dir_all(&self.0); }
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
     }
 
     #[test]
@@ -401,13 +535,24 @@ mod tests {
         let repo = Repo::new();
         repo.git(&["tag", "mintfixed_1.3"]);
         assert_eq!(repo.version().display, "mintfixed v1.3");
-        for i in 1..=4 { repo.commit(i); }
+        for i in 1..=4 {
+            repo.commit(i);
+        }
         let sha = repo.git(&["rev-parse", "--short=7", "HEAD"]);
-        assert_eq!(repo.version().display, format!("mintfixed v1.3 +4 commits ({sha})"));
+        assert_eq!(
+            repo.version().display,
+            format!("mintfixed v1.3 +4 commits ({sha})")
+        );
         repo.git(&["tag", "-a", "mintfixed_1.4-beta.1", "-m", "beta"]);
         assert_eq!(repo.version().display, "mintfixed v1.4-beta.1");
         repo.commit(5);
-        assert_eq!(repo.version().display, format!("mintfixed v1.4-beta.1 +1 commits ({})", short_sha(&repo.git(&["rev-parse", "HEAD"]))));
+        assert_eq!(
+            repo.version().display,
+            format!(
+                "mintfixed v1.4-beta.1 +1 commits ({})",
+                short_sha(&repo.git(&["rev-parse", "HEAD"]))
+            )
+        );
     }
 
     #[test]
@@ -455,7 +600,12 @@ mod tests {
     fn validates_release_context_and_dirty_check() {
         let repo = Repo::new();
         repo.git(&["tag", "mintfixed_1.3"]);
-        assert_eq!(resolve(&repo.0, "0.2.10", Some("mintfixed_1.3")).unwrap().display, "mintfixed v1.3");
+        assert_eq!(
+            resolve(&repo.0, "0.2.10", Some("mintfixed_1.3"))
+                .unwrap()
+                .display,
+            "mintfixed v1.3"
+        );
         assert!(resolve(&repo.0, "0.2.10", Some("mintfixed_1.2")).is_err());
         repo.commit(1);
         assert!(resolve(&repo.0, "0.2.10", Some("mintfixed_1.3")).is_err());
@@ -468,8 +618,10 @@ mod tests {
     fn without_git_uses_cargo_fallback() {
         let path = env::temp_dir().join(format!("mintfixed-no-git-{}", std::process::id()));
         fs::create_dir_all(&path).unwrap();
-        assert_eq!(resolve(&path, "0.2.10", None).unwrap().display,
-            "mintfixed 0.2.10 (version metadata unavailable)");
+        assert_eq!(
+            resolve(&path, "0.2.10", None).unwrap().display,
+            "mintfixed 0.2.10 (version metadata unavailable)"
+        );
         assert!(resolve(&path, "0.2.10", Some("mintfixed_1.3")).is_err());
         let _ = fs::remove_dir_all(path);
     }
@@ -479,20 +631,45 @@ mod tests {
         let repo = Repo::new();
         repo.git(&["tag", "mintfixed_1.3"]);
         let worktree = repo.0.with_extension("linked");
-        repo.git(&["worktree", "add", "-q", "--detach", worktree.to_str().unwrap()]);
-        assert_eq!(resolve(&worktree, "0.2.10", None).unwrap().display, "mintfixed v1.3");
+        repo.git(&[
+            "worktree",
+            "add",
+            "-q",
+            "--detach",
+            worktree.to_str().unwrap(),
+        ]);
+        assert_eq!(
+            resolve(&worktree, "0.2.10", None).unwrap().display,
+            "mintfixed v1.3"
+        );
         repo.git(&["worktree", "remove", "--force", worktree.to_str().unwrap()]);
     }
 
     #[test]
     fn tag_validation_and_generated_escaping() {
-        for bad in ["mintfixed_1", "mintfixed_1.02", "mintfixed_1.3-", "mintfixed_1.3-evil\n", "mintfixed_1.3+meta"] {
+        for bad in [
+            "mintfixed_1",
+            "mintfixed_1.02",
+            "mintfixed_1.3-",
+            "mintfixed_1.3-evil\n",
+            "mintfixed_1.3+meta",
+        ] {
             assert!(ReleaseNumber::from_tag(bad).is_none(), "{bad}");
         }
         assert!(ReleaseNumber::from_tag("mintfixed_1.4-beta.1").is_some());
         let path = env::temp_dir().join(format!("mintfixed-escape-{}", std::process::id()));
         fs::create_dir_all(&path).unwrap();
-        write_generated(&path, &BuildVersion { display: "test \"name\"\\path".into(), commit_sha: None, base_tag: None, commits_since_tag: None, modified: false }).unwrap();
+        write_generated(
+            &path,
+            &BuildVersion {
+                display: "test \"name\"\\path".into(),
+                commit_sha: None,
+                base_tag: None,
+                commits_since_tag: None,
+                modified: false,
+            },
+        )
+        .unwrap();
         let text = fs::read_to_string(path.join("mintfixed_version.rs")).unwrap();
         assert!(text.contains(r#"test \"name\"\\path"#));
         let _ = fs::remove_dir_all(path);

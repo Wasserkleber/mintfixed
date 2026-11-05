@@ -55,7 +55,12 @@ impl MemberOverrides {
     }
 
     pub fn enabled(&self, member: &ModConfig) -> bool {
-        member.member_id.as_ref().and_then(|id| self.0.get(id)).copied().unwrap_or(member.enabled)
+        member
+            .member_id
+            .as_ref()
+            .and_then(|id| self.0.get(id))
+            .copied()
+            .unwrap_or(member.enabled)
     }
 
     pub fn set(&mut self, member: &mut ModConfig, enabled: bool) {
@@ -64,7 +69,9 @@ impl MemberOverrides {
                 self.0.remove(id);
             }
         } else {
-            let id = member.member_id.get_or_insert_with(|| format!("{:032x}", rand::random::<u128>()));
+            let id = member
+                .member_id
+                .get_or_insert_with(|| format!("{:032x}", rand::random::<u128>()));
             self.0.insert(id.clone(), enabled);
         }
     }
@@ -222,7 +229,12 @@ impl ModData!["0.1.0"] {
         for item in &self.profiles[profile].mods {
             match item {
                 ModOrGroup::Individual(mc) if mc.enabled => f(mc),
-                ModOrGroup::Group { group_name, enabled: true, member_overrides, .. } => {
+                ModOrGroup::Group {
+                    group_name,
+                    enabled: true,
+                    member_overrides,
+                    ..
+                } => {
                     for mc in &self.groups[group_name].mods {
                         if member_overrides.enabled(mc) {
                             f(mc);
@@ -256,7 +268,8 @@ impl ModData!["0.1.0"] {
                 ModOrGroup::Individual(mc) => f(mc, None),
                 ModOrGroup::Group {
                     group_name,
-                    enabled, ..
+                    enabled,
+                    ..
                 } => self
                     .groups
                     .get(group_name)
@@ -306,9 +319,18 @@ impl ModData!["0.1.0"] {
                     mc.enabled = true;
                     return true;
                 }
-                ModOrGroup::Group { group_name, enabled, member_overrides, .. } => {
+                ModOrGroup::Group {
+                    group_name,
+                    enabled,
+                    member_overrides,
+                    ..
+                } => {
                     let group = self.groups.get_mut(group_name).unwrap();
-                    if let Some(mc) = group.mods.iter_mut().find(|mc| mc.spec.satisfies_dependency(spec)) {
+                    if let Some(mc) = group
+                        .mods
+                        .iter_mut()
+                        .find(|mc| mc.spec.satisfies_dependency(spec))
+                    {
                         *enabled = true;
                         member_overrides.set(mc, true);
                         return true;
@@ -588,7 +610,9 @@ impl State {
                 VersionAnnotatedModData::V0_0_0(_) => unreachable!("mod data should be upgraded"),
             }
         }
-        if fresh { config::write_atomic(&mod_data_path, &mod_data)?; }
+        if fresh {
+            config::write_atomic(&mod_data_path, &mod_data)?;
+        }
         let mod_data = ConfigWrapper::<VersionAnnotatedModData>::new(mod_data_path, mod_data);
         // The loader commits migrations before creating an auto-saving wrapper.
 
@@ -653,7 +677,8 @@ mod mod_data_tests {
                 {"spec": {"url": "a"}, "required": false, "enabled": false},
                 {"spec": {"url": "b"}, "required": false, "enabled": false}
             ]}}
-        })).unwrap();
+        }))
+        .unwrap();
 
         assert!(data.enable_dependency("A", &ModSpecification::new("a".into())));
         data.groups.get_mut("tools").unwrap().mods.swap(0, 1);
@@ -872,13 +897,26 @@ mod mod_data_tests {
 }
 
 impl Default for ModGroup {
-    fn default() -> Self { Self { id: new_id(), description: None, mods: Vec::new() } }
+    fn default() -> Self {
+        Self {
+            id: new_id(),
+            description: None,
+            mods: Vec::new(),
+        }
+    }
 }
 impl Default for ModProfile_v0_0_0 {
-    fn default() -> Self { Self { mods: Vec::new() } }
+    fn default() -> Self {
+        Self { mods: Vec::new() }
+    }
 }
 impl Default for ModProfile_v0_1_0 {
-    fn default() -> Self { Self { id: new_id(), mods: Vec::new() } }
+    fn default() -> Self {
+        Self {
+            id: new_id(),
+            mods: Vec::new(),
+        }
+    }
 }
 impl ModOrGroup {
     pub fn id(&self) -> &str {

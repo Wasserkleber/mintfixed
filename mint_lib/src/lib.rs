@@ -190,7 +190,11 @@ pub fn setup_logging<P: AsRef<Path>>(
         }
     }
 
-    let f = fs::File::create(log_path.as_ref())?;
+    // Append instead of truncating so cleanup history survives restarts.
+    let f = fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(log_path.as_ref())?;
     let writer = BufWriter::new(f);
     let (log_file_appender, guard) = tracing_appender::non_blocking(writer);
     let debug_file_log = fmt::layer()

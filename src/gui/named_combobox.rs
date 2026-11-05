@@ -85,7 +85,9 @@ where
             });
 
             ui.with_layout(egui::Layout::right_to_left(egui::Align::TOP), |ui| {
-                ui.add_enabled_ui(allow_edit, |ui| mk_duplicate(ui, name, entries, &mut modified));
+                ui.add_enabled_ui(allow_edit, |ui| {
+                    mk_duplicate(ui, name, entries, &mut modified)
+                });
 
                 if let Some(additional_ui) = additional_ui {
                     additional_ui(ui, entries);

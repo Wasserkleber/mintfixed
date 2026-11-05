@@ -17,10 +17,11 @@ fn cache_identity(url: &str) -> Option<(&str, Option<u32>, Option<u32>)> {
     let caps = re.captures(url)?;
     let name = caps.name("name_id")?.as_str();
     let mod_id = caps.name("mod_id").and_then(|m| m.as_str().parse().ok());
-    let file_id = caps.name("modfile_id").and_then(|m| m.as_str().parse().ok());
+    let file_id = caps
+        .name("modfile_id")
+        .and_then(|m| m.as_str().parse().ok());
     Some((name, mod_id, file_id))
 }
-
 
 fn providers(value: &mut Value) -> Result<&mut Map<String, Value>, String> {
     value
@@ -29,7 +30,10 @@ fn providers(value: &mut Value) -> Result<&mut Map<String, Value>, String> {
         .ok_or_else(|| "expected a versioned cache with a 'cache' object".to_owned())
 }
 
-fn field<'a>(provider: &'a Map<String, Value>, name: &str) -> Result<&'a Map<String, Value>, String> {
+fn field<'a>(
+    provider: &'a Map<String, Value>,
+    name: &str,
+) -> Result<&'a Map<String, Value>, String> {
     provider
         .get(name)
         .and_then(Value::as_object)
@@ -109,7 +113,10 @@ pub(super) fn prune(
                 // An unrecognised mod.io URL is still a profile reference.
                 // Refuse to prune rather than accidentally archiving its data.
                 if spec.url.starts_with("https://mod.io/g/drg/m/") {
-                    return Err(format!("cannot identify cached mod.io reference: {}", spec.url));
+                    return Err(format!(
+                        "cannot identify cached mod.io reference: {}",
+                        spec.url
+                    ));
                 }
                 continue;
             };
@@ -151,7 +158,12 @@ pub(super) fn prune(
             if let Some(file) = details.get("latest_modfile").and_then(Value::as_u64) {
                 keep_files.insert(file.to_string());
             }
-            for file in details.get("modfiles").and_then(Value::as_array).into_iter().flatten() {
+            for file in details
+                .get("modfiles")
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+            {
                 if let Some(id) = file.get("id").and_then(Value::as_u64) {
                     keep_files.insert(id.to_string());
                 }
@@ -159,15 +171,22 @@ pub(super) fn prune(
         }
 
         let archive = archive_provider(
-            archive, "modio", provider,
+            archive,
+            "modio",
+            provider,
             &["mod_id_map", "modfile_blobs", "dependencies", "mods"],
         )?;
         archived_mods += move_unused(provider, archive, "mods", |id, _| keep_ids.contains(id))?;
         move_unused(provider, archive, "mod_id_map", |_, id| {
-            id.as_u64().is_some_and(|id| keep_ids.contains(&id.to_string()))
+            id.as_u64()
+                .is_some_and(|id| keep_ids.contains(&id.to_string()))
         })?;
-        move_unused(provider, archive, "dependencies", |id, _| keep_ids.contains(id))?;
-        move_unused(provider, archive, "modfile_blobs", |file, _| keep_files.contains(file))?;
+        move_unused(provider, archive, "dependencies", |id, _| {
+            keep_ids.contains(id)
+        })?;
+        move_unused(provider, archive, "modfile_blobs", |file, _| {
+            keep_files.contains(file)
+        })?;
     }
 
     if let Some(provider) = active.get_mut("http") {
@@ -176,7 +195,9 @@ pub(super) fn prune(
             .ok_or_else(|| "invalid HTTP provider cache".to_owned())?;
         let live_urls: HashSet<&str> = live_specs.iter().map(|spec| spec.url.as_str()).collect();
         let archive = archive_provider(archive, "http", provider, &["url_blobs"])?;
-        archived_mods += move_unused(provider, archive, "url_blobs", |url, _| live_urls.contains(url))?;
+        archived_mods += move_unused(provider, archive, "url_blobs", |url, _| {
+            live_urls.contains(url)
+        })?;
     }
     Ok(archived_mods)
 }
@@ -214,21 +235,42 @@ mod tests {
             }
         });
         let mut archive = json!({"version": "0.0.0", "cache": {}});
-        let count = prune(&mut active, &mut archive, &[
-            spec("https://mod.io/g/drg/m/active"),
-            spec("https://example.com/active.pak"),
-        ]).unwrap();
+        let count = prune(
+            &mut active,
+            &mut archive,
+            &[
+                spec("https://mod.io/g/drg/m/active"),
+                spec("https://example.com/active.pak"),
+            ],
+        )
+        .unwrap();
         assert_eq!(count, 2);
         assert!(active["cache"]["modio"]["mods"].get("1").is_some());
         assert!(active["cache"]["modio"]["mods"].get("2").is_some());
         assert!(active["cache"]["modio"]["mods"].get("3").is_none());
-        assert!(active["cache"]["modio"]["modfile_blobs"].get("20").is_some());
+        assert!(
+            active["cache"]["modio"]["modfile_blobs"]
+                .get("20")
+                .is_some()
+        );
         assert!(archive["cache"]["modio"]["mods"].get("3").is_some());
-        assert!(archive["cache"]["http"]["url_blobs"].get("https://example.com/old.pak").is_some());
-        assert_eq!(prune(&mut active, &mut archive, &[
-            spec("https://mod.io/g/drg/m/active"),
-            spec("https://example.com/active.pak"),
-        ]).unwrap(), 0);
+        assert!(
+            archive["cache"]["http"]["url_blobs"]
+                .get("https://example.com/old.pak")
+                .is_some()
+        );
+        assert_eq!(
+            prune(
+                &mut active,
+                &mut archive,
+                &[
+                    spec("https://mod.io/g/drg/m/active"),
+                    spec("https://example.com/active.pak"),
+                ]
+            )
+            .unwrap(),
+            0
+        );
     }
 
     #[test]
@@ -238,9 +280,14 @@ mod tests {
             "dependencies": {}, "modfile_blobs": {}, "last_update_time": null
         }}});
         let mut archive = json!({"version": "0.0.0", "cache": {}});
-        assert!(prune(&mut active, &mut archive, &[
-            spec("https://mod.io/g/drg/m/my-mod#invalid_fragment")
-        ]).is_err());
+        assert!(
+            prune(
+                &mut active,
+                &mut archive,
+                &[spec("https://mod.io/g/drg/m/my-mod#invalid_fragment")]
+            )
+            .is_err()
+        );
         assert_eq!(archive, json!({"version": "0.0.0", "cache": {}}));
     }
 
@@ -252,8 +299,21 @@ mod tests {
             "last_update_time": null
         }}});
         let mut archive = json!({"version": "0.0.0", "cache": {}});
-        prune(&mut active, &mut archive, &[spec("https://mod.io/g/drg/m/pinned#10/400")]).unwrap();
-        assert!(active["cache"]["modio"]["modfile_blobs"].get("400").is_some());
-        assert!(archive["cache"]["modio"]["modfile_blobs"].get("500").is_some());
+        prune(
+            &mut active,
+            &mut archive,
+            &[spec("https://mod.io/g/drg/m/pinned#10/400")],
+        )
+        .unwrap();
+        assert!(
+            active["cache"]["modio"]["modfile_blobs"]
+                .get("400")
+                .is_some()
+        );
+        assert!(
+            archive["cache"]["modio"]["modfile_blobs"]
+                .get("500")
+                .is_some()
+        );
     }
 }

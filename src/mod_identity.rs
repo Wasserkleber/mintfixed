@@ -15,7 +15,9 @@ impl Artifact {
     pub(crate) fn cached(store: &ModStore, spec: &ModSpecification) -> Self {
         match store.cached_modio_file(spec) {
             Some((id, file)) => Self::Modio(id, file),
-            None => store.cached_local_file(spec).map(Self::Local)
+            None => store
+                .cached_local_file(spec)
+                .map(Self::Local)
                 .unwrap_or_else(|| Self::Specification(spec.clone())),
         }
     }
@@ -36,12 +38,16 @@ pub(crate) fn local_digest(path: &std::path::Path) -> std::io::Result<[u8; 32]> 
     let mut buffer = [0u8; 64 * 1024];
     loop {
         let count = file.read(&mut buffer)?;
-        if count == 0 { break; }
+        if count == 0 {
+            break;
+        }
         digest.update(&buffer[..count]);
     }
     let after = std::fs::metadata(&path)?;
     if before.len() != after.len() || before.modified()? != after.modified()? {
-        return Err(std::io::Error::other("File changed while checking its contents; try again"));
+        return Err(std::io::Error::other(
+            "File changed while checking its contents; try again",
+        ));
     }
     Ok(digest.finalize().into())
 }
@@ -50,7 +56,9 @@ pub(crate) fn all_specs(data: &Data) -> Vec<ModSpecification> {
     let mut specs = HashSet::new();
     for profile in data.profiles.values() {
         for item in &profile.mods {
-            if let ModOrGroup::Individual(mc) = item { specs.insert(mc.spec.clone()); }
+            if let ModOrGroup::Individual(mc) = item {
+                specs.insert(mc.spec.clone());
+            }
         }
     }
     for group in data.groups.values() {
@@ -91,7 +99,9 @@ pub(crate) fn promote_standalone(
     profile.mods.retain(|item| {
         if let ModOrGroup::Individual(mc) = item {
             if mc.spec == *spec || Artifact::cached(store, &mc.spec) == identity {
-                if first.is_none() { first = Some(mc.clone()); }
+                if first.is_none() {
+                    first = Some(mc.clone());
+                }
                 return false;
             }
         }
@@ -116,7 +126,9 @@ pub(crate) fn unique_local_inputs(
             let digest = local_digest(&path).map_err(|e| IntegrationError::GenericError {
                 msg: format!("Cannot check local mod {}: {e}", path.display()),
             })?;
-            if !seen.insert(digest) { continue; }
+            if !seen.insert(digest) {
+                continue;
+            }
         }
         unique.push((info, path));
     }
@@ -139,34 +151,54 @@ impl ProfileIssues {
         let mut result = Self::default();
         let mut versions = BTreeMap::<u32, BTreeMap<u32, Vec<String>>>::new();
         let mut seen = HashMap::new();
-        let mut visit = |spec: &ModSpecification, group: Option<&str>, index: usize, enabled: bool| {
-            let artifact = Artifact::cached(store, spec);
-            let location = format!("{} #{}{}", group.unwrap_or("Standalone"), index + 1,
-                if enabled { "" } else { " (disabled)" });
-            if let Artifact::Modio(id, file) = &artifact {
-                versions.entry(*id).or_default().entry(*file).or_default().push(location);
-            } else if spec.url.starts_with("https://mod.io/g/drg/m/") {
-                result.pending.push(format!("{location}: {}", spec.url));
-            }
-            // Preserve the separate standalone check for enabled entries. Within a
-            // group, a disabled duplicate is still a duplicate membership.
-            if group.is_some() || enabled {
-                let scope = group.map(str::to_owned);
-                if let Some(first) = seen.insert((scope.clone(), artifact), index) {
-                    if first != index {
-                        result.duplicates.insert((scope.clone(), first));
-                        result.duplicates.insert((scope, index));
+        let mut visit =
+            |spec: &ModSpecification, group: Option<&str>, index: usize, enabled: bool| {
+                let artifact = Artifact::cached(store, spec);
+                let location = format!(
+                    "{} #{}{}",
+                    group.unwrap_or("Standalone"),
+                    index + 1,
+                    if enabled { "" } else { " (disabled)" }
+                );
+                if let Artifact::Modio(id, file) = &artifact {
+                    versions
+                        .entry(*id)
+                        .or_default()
+                        .entry(*file)
+                        .or_default()
+                        .push(location);
+                } else if spec.url.starts_with("https://mod.io/g/drg/m/") {
+                    result.pending.push(format!("{location}: {}", spec.url));
+                }
+                // Preserve the separate standalone check for enabled entries. Within a
+                // group, a disabled duplicate is still a duplicate membership.
+                if group.is_some() || enabled {
+                    let scope = group.map(str::to_owned);
+                    if let Some(first) = seen.insert((scope.clone(), artifact), index) {
+                        if first != index {
+                            result.duplicates.insert((scope.clone(), first));
+                            result.duplicates.insert((scope, index));
+                        }
                     }
                 }
-            }
-        };
+            };
         for (index, item) in data.profiles[profile].mods.iter().enumerate() {
             match item {
                 ModOrGroup::Individual(mc) => visit(&mc.spec, None, index, mc.enabled),
-                ModOrGroup::Group { group_name, enabled, member_overrides, .. } => {
+                ModOrGroup::Group {
+                    group_name,
+                    enabled,
+                    member_overrides,
+                    ..
+                } => {
                     if let Some(group) = data.groups.get(group_name) {
                         for (i, mc) in group.mods.iter().enumerate() {
-                            visit(&mc.spec, Some(group_name), i, *enabled && member_overrides.enabled(mc));
+                            visit(
+                                &mc.spec,
+                                Some(group_name),
+                                i,
+                                *enabled && member_overrides.enabled(mc),
+                            );
                         }
                     }
                 }
@@ -174,10 +206,14 @@ impl ProfileIssues {
         }
         for (id, files) in versions {
             if files.len() > 1 {
-                let entries = files.into_iter().map(|(file, places)| {
-                    format!("file {file} in {}", places.join(", "))
-                }).collect::<Vec<_>>();
-                result.versions.push(format!("mod.io mod {id} has multiple versions: {}", entries.join("; ")));
+                let entries = files
+                    .into_iter()
+                    .map(|(file, places)| format!("file {file} in {}", places.join(", ")))
+                    .collect::<Vec<_>>();
+                result.versions.push(format!(
+                    "mod.io mod {id} has multiple versions: {}",
+                    entries.join("; ")
+                ));
             }
         }
         result
@@ -194,18 +230,23 @@ pub(crate) fn installation_inputs(
     let mut other = HashSet::new();
     let mut result = Vec::new();
     for spec in specs {
-        let info = resolved.get(spec).ok_or_else(|| IntegrationError::GenericError {
-            msg: format!("Missing resolved metadata for {}", spec.url),
-        })?;
+        let info = resolved
+            .get(spec)
+            .ok_or_else(|| IntegrationError::GenericError {
+                msg: format!("Missing resolved metadata for {}", spec.url),
+            })?;
         if info.provider == "modio" {
-            let (id, file) = modio::pinned_file(&info.resolution.url.0)
-                .ok_or_else(|| IntegrationError::GenericError {
+            let (id, file) = modio::pinned_file(&info.resolution.url.0).ok_or_else(|| {
+                IntegrationError::GenericError {
                     msg: format!("Missing resolved mod.io file ID for {}", spec.url),
-                })?;
+                }
+            })?;
             if let Some(previous) = files.insert(id, file) {
                 if previous != file {
                     return Err(IntegrationError::GenericError {
-                        msg: format!("mod.io mod {id} has two enabled files ({previous} and {file}). Disable one version before installing."),
+                        msg: format!(
+                            "mod.io mod {id} has two enabled files ({previous} and {file}). Disable one version before installing."
+                        ),
                     });
                 }
                 continue;
@@ -225,18 +266,34 @@ mod tests {
     use crate::state::{MemberOverrides, ModConfig, ModGroup, ModProfile_v0_1_0};
 
     fn spec(url: &str) -> ModSpecification {
-        ModSpecification { url: url.to_owned() }
+        ModSpecification {
+            url: url.to_owned(),
+        }
     }
 
     fn member(url: &str) -> ModConfig {
-        ModConfig { id: crate::state::new_id(), description: None, spec: spec(url), required: false, member_id: None, enabled: true, priority: 0 }
+        ModConfig {
+            id: crate::state::new_id(),
+            description: None,
+            spec: spec(url),
+            required: false,
+            member_id: None,
+            enabled: true,
+            priority: 0,
+        }
     }
 
     fn info(url: &str) -> ModInfo {
         ModInfo {
-            provider: "modio", name: url.to_owned(), spec: spec(url), versions: vec![],
+            provider: "modio",
+            name: url.to_owned(),
+            spec: spec(url),
+            versions: vec![],
             resolution: ModResolution::resolvable(url.to_owned().into()),
-            suggested_require: false, suggested_dependencies: vec![], modio_tags: None, modio_id: None,
+            suggested_require: false,
+            suggested_dependencies: vec![],
+            modio_tags: None,
+            modio_id: None,
         }
     }
 
@@ -244,10 +301,14 @@ mod tests {
     fn pins_identify_aliases_without_network_or_credentials() {
         let dir = tempfile::tempdir().unwrap();
         let store = ModStore::new(dir.path(), &HashMap::new()).unwrap();
-        assert_eq!(Artifact::cached(&store, &spec("https://mod.io/g/drg/m/old#123/10")),
-            Artifact::cached(&store, &spec("https://mod.io/g/drg/m/new#123/10")));
-        assert_ne!(Artifact::cached(&store, &spec("https://mod.io/g/drg/m/old#123/10")),
-            Artifact::cached(&store, &spec("https://mod.io/g/drg/m/old#123/11")));
+        assert_eq!(
+            Artifact::cached(&store, &spec("https://mod.io/g/drg/m/old#123/10")),
+            Artifact::cached(&store, &spec("https://mod.io/g/drg/m/new#123/10"))
+        );
+        assert_ne!(
+            Artifact::cached(&store, &spec("https://mod.io/g/drg/m/old#123/10")),
+            Artifact::cached(&store, &spec("https://mod.io/g/drg/m/old#123/11"))
+        );
     }
 
     #[test]
@@ -258,14 +319,44 @@ mod tests {
         let b = "https://mod.io/g/drg/m/a#123/11";
         let data = Data {
             active_profile: "p".into(),
-            profiles: BTreeMap::from([("p".into(), ModProfile_v0_1_0 { id: crate::state::new_id(), mods: vec![
-                ModOrGroup::Individual(member(a)),
-                ModOrGroup::Group { id: crate::state::new_id(), group_name: "same".into(), enabled: true, member_overrides: MemberOverrides::default() },
-                ModOrGroup::Group { id: crate::state::new_id(), group_name: "other".into(), enabled: false, member_overrides: MemberOverrides::default() },
-            ] })]),
+            profiles: BTreeMap::from([(
+                "p".into(),
+                ModProfile_v0_1_0 {
+                    id: crate::state::new_id(),
+                    mods: vec![
+                        ModOrGroup::Individual(member(a)),
+                        ModOrGroup::Group {
+                            id: crate::state::new_id(),
+                            group_name: "same".into(),
+                            enabled: true,
+                            member_overrides: MemberOverrides::default(),
+                        },
+                        ModOrGroup::Group {
+                            id: crate::state::new_id(),
+                            group_name: "other".into(),
+                            enabled: false,
+                            member_overrides: MemberOverrides::default(),
+                        },
+                    ],
+                },
+            )]),
             groups: BTreeMap::from([
-                ("same".into(), ModGroup { id: crate::state::new_id(), description: None, mods: vec![member(a)] }),
-                ("other".into(), ModGroup { id: crate::state::new_id(), description: None, mods: vec![member(b), member(b)] }),
+                (
+                    "same".into(),
+                    ModGroup {
+                        id: crate::state::new_id(),
+                        description: None,
+                        mods: vec![member(a)],
+                    },
+                ),
+                (
+                    "other".into(),
+                    ModGroup {
+                        id: crate::state::new_id(),
+                        description: None,
+                        mods: vec![member(b), member(b)],
+                    },
+                ),
             ]),
         };
         let issues = ProfileIssues::collect(&data, "p", &store);
@@ -305,11 +396,18 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let store = ModStore::new(dir.path(), &HashMap::new()).unwrap();
         let data = Data {
-            active_profile: "p".into(), groups: BTreeMap::new(),
-            profiles: BTreeMap::from([("p".into(), ModProfile_v0_1_0 { id: crate::state::new_id(), mods: vec![
-                ModOrGroup::Individual(member("https://mod.io/g/drg/m/example")),
-                ModOrGroup::Individual(member("https://mod.io/g/drg/m/example-2")),
-            ] })]),
+            active_profile: "p".into(),
+            groups: BTreeMap::new(),
+            profiles: BTreeMap::from([(
+                "p".into(),
+                ModProfile_v0_1_0 {
+                    id: crate::state::new_id(),
+                    mods: vec![
+                        ModOrGroup::Individual(member("https://mod.io/g/drg/m/example")),
+                        ModOrGroup::Individual(member("https://mod.io/g/drg/m/example-2")),
+                    ],
+                },
+            )]),
         };
         let issues = ProfileIssues::collect(&data, "p", &store);
         assert!(issues.versions.is_empty());
@@ -317,7 +415,8 @@ mod tests {
         assert_eq!(issues.pending.len(), 2);
     }
     #[test]
-    fn readding_latest_or_its_pin_promotes_disabled_standalone_but_other_versions_remain_distinct() {
+    fn readding_latest_or_its_pin_promotes_disabled_standalone_but_other_versions_remain_distinct()
+    {
         let dir = tempfile::tempdir().unwrap();
         // Use the current versioned format so numeric mod IDs are decoded via
         // the cache reader's numeric-key compatibility path.
@@ -327,26 +426,46 @@ mod tests {
             "mods": {"123": {"name_id": "speedometer", "name": "Speedometer",
                 "latest_modfile": 10, "modfiles": [], "tags": []}}
         }}});
-        std::fs::write(dir.path().join("cache.json"), serde_json::to_vec(&cache).unwrap()).unwrap();
+        std::fs::write(
+            dir.path().join("cache.json"),
+            serde_json::to_vec(&cache).unwrap(),
+        )
+        .unwrap();
         let store = ModStore::new(dir.path(), &HashMap::new()).unwrap();
         let latest = "https://mod.io/g/drg/m/speedometer";
         let pin = "https://mod.io/g/drg/m/speedometer#123/10";
         let mut existing = member(latest);
         existing.enabled = false;
-        let mut profile = ModProfile_v0_1_0 { id: crate::state::new_id(), mods: vec![ModOrGroup::Individual(existing)] };
+        let mut profile = ModProfile_v0_1_0 {
+            id: crate::state::new_id(),
+            mods: vec![ModOrGroup::Individual(existing)],
+        };
         assert!(promote_standalone(&mut profile, &spec(pin), &store));
         assert!(promote_standalone(&mut profile, &spec(latest), &store));
         assert_eq!(profile.mods.len(), 1);
-        let ModOrGroup::Individual(existing) = &profile.mods[0] else { panic!() };
+        let ModOrGroup::Individual(existing) = &profile.mods[0] else {
+            panic!()
+        };
         assert!(existing.enabled);
         assert_eq!(existing.spec.url, latest);
-        assert!(!promote_standalone(&mut profile, &spec("https://mod.io/g/drg/m/speedometer#123/11"), &store));
+        assert!(!promote_standalone(
+            &mut profile,
+            &spec("https://mod.io/g/drg/m/speedometer#123/11"),
+            &store
+        ));
 
         let mut resolved = HashMap::from([(spec(latest), info(pin)), (spec(pin), info(pin))]);
-        let explicit = take_explicit(vec![spec(latest), spec(pin), spec(latest)], &mut resolved, &store);
+        let explicit = take_explicit(
+            vec![spec(latest), spec(pin), spec(latest)],
+            &mut resolved,
+            &store,
+        );
         assert_eq!(explicit.len(), 1);
         assert_eq!(explicit[0].0, spec(latest));
-        assert!(resolved.is_empty(), "Skipped aliases must not return as dependencies");
+        assert!(
+            resolved.is_empty(),
+            "Skipped aliases must not return as dependencies"
+        );
     }
 
     #[test]
@@ -362,14 +481,20 @@ mod tests {
         store.refresh_local_files(&[a.clone(), b.clone()]);
         let revision = store.metadata_revision();
         assert_eq!(Artifact::cached(&store, &a), Artifact::cached(&store, &b));
-        let mut profile = ModProfile_v0_1_0 { id: crate::state::new_id(), mods: vec![ModOrGroup::Individual(member(&a.url))] };
+        let mut profile = ModProfile_v0_1_0 {
+            id: crate::state::new_id(),
+            mods: vec![ModOrGroup::Individual(member(&a.url))],
+        };
         assert!(promote_standalone(&mut profile, &b, &store));
         // Same length, different bytes: no filename/length-based assumption.
         std::fs::write(&b.url, b"pak content two").unwrap();
         store.refresh_local_files(&[a.clone(), b.clone()]);
         assert_ne!(revision, store.metadata_revision());
         assert_ne!(Artifact::cached(&store, &a), Artifact::cached(&store, &b));
-        let mut profile = ModProfile_v0_1_0 { id: crate::state::new_id(), mods: vec![ModOrGroup::Individual(member(&a.url))] };
+        let mut profile = ModProfile_v0_1_0 {
+            id: crate::state::new_id(),
+            mods: vec![ModOrGroup::Individual(member(&a.url))],
+        };
         assert!(!promote_standalone(&mut profile, &b, &store));
         std::fs::remove_file(&b.url).unwrap();
         store.refresh_local_files(&[b.clone()]);
@@ -385,8 +510,16 @@ mod tests {
         std::fs::write(&a, b"same special asset bytes").unwrap();
         std::fs::copy(&a, &b).unwrap();
         std::fs::write(&c, b"different content").unwrap();
-        let local = |name: &str| { let mut value = info(name); value.provider = "file"; value };
-        let inputs = vec![(local("first"), b.clone()), (local("copy"), a), (local("last"), c)];
+        let local = |name: &str| {
+            let mut value = info(name);
+            value.provider = "file";
+            value
+        };
+        let inputs = vec![
+            (local("first"), b.clone()),
+            (local("copy"), a),
+            (local("last"), c),
+        ];
         let unique = unique_local_inputs(inputs).unwrap();
         assert_eq!(unique.len(), 2);
         assert_eq!(unique[0].0.name, "first");
@@ -406,24 +539,37 @@ mod tests {
         old.enabled = false;
         old.priority = 42;
         old.required = true;
-        let mut profile = ModProfile_v0_1_0 { id: crate::state::new_id(), mods: vec![
-            ModOrGroup::Individual(member("unrelated")),
-            ModOrGroup::Individual(old),
-            ModOrGroup::Group { id: crate::state::new_id(), group_name: "Tools".into(), enabled: true, member_overrides: Default::default() },
-            ModOrGroup::Individual(member(pin)),
-            ModOrGroup::Individual(member(different)),
-        ] };
+        let mut profile = ModProfile_v0_1_0 {
+            id: crate::state::new_id(),
+            mods: vec![
+                ModOrGroup::Individual(member("unrelated")),
+                ModOrGroup::Individual(old),
+                ModOrGroup::Group {
+                    id: crate::state::new_id(),
+                    group_name: "Tools".into(),
+                    enabled: true,
+                    member_overrides: Default::default(),
+                },
+                ModOrGroup::Individual(member(pin)),
+                ModOrGroup::Individual(member(different)),
+            ],
+        };
         assert!(promote_standalone(&mut profile, &spec(alias), &store));
         assert_eq!(profile.mods.len(), 4);
-        let ModOrGroup::Individual(top) = &profile.mods[0] else { panic!() };
+        let ModOrGroup::Individual(top) = &profile.mods[0] else {
+            panic!()
+        };
         assert_eq!(top.spec, spec(alias));
         assert!(top.enabled && top.required);
         assert_eq!(top.priority, 42);
-        assert!(matches!(&profile.mods[1], ModOrGroup::Individual(mc) if mc.spec.url == "unrelated"));
-        assert!(matches!(&profile.mods[2], ModOrGroup::Group { group_name, .. } if group_name == "Tools"));
+        assert!(
+            matches!(&profile.mods[1], ModOrGroup::Individual(mc) if mc.spec.url == "unrelated")
+        );
+        assert!(
+            matches!(&profile.mods[2], ModOrGroup::Group { group_name, .. } if group_name == "Tools")
+        );
         assert!(matches!(&profile.mods[3], ModOrGroup::Individual(mc) if mc.spec.url == different));
         assert!(promote_standalone(&mut profile, &spec(alias), &store));
         assert_eq!(profile.mods.len(), 4);
     }
-
 }

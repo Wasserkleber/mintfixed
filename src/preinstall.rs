@@ -71,10 +71,18 @@ struct PresetMod {
 }
 
 fn clean_description(description: Option<String>) -> Option<String> {
-    description.map(|value| value.trim().to_owned()).filter(|value| !value.is_empty())
+    description
+        .map(|value| value.trim().to_owned())
+        .filter(|value| !value.is_empty())
 }
 
-fn config(url: String, enabled: bool, required: bool, priority: i32, description: Option<String>) -> ModConfig {
+fn config(
+    url: String,
+    enabled: bool,
+    required: bool,
+    priority: i32,
+    description: Option<String>,
+) -> ModConfig {
     ModConfig {
         id: crate::state::new_id(),
         spec: ModSpecification::new(url),
@@ -133,15 +141,40 @@ fn apply_json(raw: &str, data: &mut ModData) -> Result<bool, String> {
     let mut groups = std::collections::BTreeMap::new();
     for item in preset.items {
         match item {
-            PresetItem::Mod { url, description, enabled, required, priority } => {
-                profile.mods.push(ModOrGroup::Individual(config(url, enabled, required, priority, description)));
+            PresetItem::Mod {
+                url,
+                description,
+                enabled,
+                required,
+                priority,
+            } => {
+                profile.mods.push(ModOrGroup::Individual(config(
+                    url,
+                    enabled,
+                    required,
+                    priority,
+                    description,
+                )));
             }
-            PresetItem::Group { name, description, enabled, mods } => {
-                groups.insert(name.clone(), ModGroup {
-                    id: crate::state::new_id(),
-                    description: clean_description(description),
-                    mods: mods.into_iter().map(|m| config(m.url, m.enabled, m.required, m.priority, m.description)).collect(),
-                });
+            PresetItem::Group {
+                name,
+                description,
+                enabled,
+                mods,
+            } => {
+                groups.insert(
+                    name.clone(),
+                    ModGroup {
+                        id: crate::state::new_id(),
+                        description: clean_description(description),
+                        mods: mods
+                            .into_iter()
+                            .map(|m| {
+                                config(m.url, m.enabled, m.required, m.priority, m.description)
+                            })
+                            .collect(),
+                    },
+                );
                 profile.mods.push(ModOrGroup::Group {
                     id: crate::state::new_id(),
                     group_name: name,
@@ -165,7 +198,8 @@ mod tests {
     #[test]
     fn groups_individuals_and_order_survive_seeding() {
         let mut data = ModData::default();
-        let has_enabled = apply_json(r#"{
+        let has_enabled = apply_json(
+            r#"{
           "profile": "Starter",
           "items": [
             {"type":"group", "name":"Tools", "mods":[
@@ -174,7 +208,10 @@ mod tests {
             ]},
             {"type":"mod", "url":"https://mod.io/g/drg/m/single", "enabled":true}
           ]
-        }"#, &mut data).unwrap();
+        }"#,
+            &mut data,
+        )
+        .unwrap();
         assert!(has_enabled);
         assert_eq!(data.active_profile, "Starter");
         assert_eq!(data.profiles["Starter"].mods.len(), 2);
@@ -189,7 +226,8 @@ mod tests {
     #[test]
     fn disabled_top_level_preset_skips_all_entries() {
         let mut data = ModData::default();
-        let had_enabled_mods = apply_json(r#"{
+        let had_enabled_mods = apply_json(
+            r#"{
           "enabled": false,
           "profile": "Starter",
           "items": [
@@ -198,13 +236,15 @@ mod tests {
               {"url":"https://mod.io/g/drg/m/example"}
             ]}
           ]
-        }"#, &mut data).unwrap();
+        }"#,
+            &mut data,
+        )
+        .unwrap();
         assert!(!had_enabled_mods);
         assert_eq!(data.active_profile, "default");
         assert!(data.profiles["default"].mods.is_empty());
         assert!(!data.groups.contains_key("Utilities"));
     }
-
 
     #[test]
     fn descriptions_survive_mod_data_serialization() {
@@ -218,26 +258,44 @@ mod tests {
             ]}
           ]
         }"#, &mut data).unwrap();
-        let restored: ModData = serde_json::from_str(&serde_json::to_string(&data).unwrap()).unwrap();
+        let restored: ModData =
+            serde_json::from_str(&serde_json::to_string(&data).unwrap()).unwrap();
         let items = &restored.profiles["Starter"].mods;
-        let ModOrGroup::Individual(single) = &items[0] else { panic!("expected standalone mod") };
+        let ModOrGroup::Individual(single) = &items[0] else {
+            panic!("expected standalone mod")
+        };
         assert_eq!(single.description.as_deref(), Some("Standalone help"));
-        assert_eq!(restored.groups["Utilities"].description.as_deref(), Some("Utilities help"));
-        assert_eq!(restored.groups["Utilities"].mods[0].description.as_deref(), Some("Group member help"));
+        assert_eq!(
+            restored.groups["Utilities"].description.as_deref(),
+            Some("Utilities help")
+        );
+        assert_eq!(
+            restored.groups["Utilities"].mods[0].description.as_deref(),
+            Some("Group member help")
+        );
     }
 
     #[test]
     fn old_mod_configs_without_descriptions_still_deserialize() {
         let mut data = ModData::default();
-        apply_json(r#"{"items":[{"type":"mod", "url":"https://mod.io/g/drg/m/old"}]}"#, &mut data).unwrap();
-        let ModOrGroup::Individual(mod_config) = &data.profiles["default"].mods[0] else { panic!("expected mod") };
+        apply_json(
+            r#"{"items":[{"type":"mod", "url":"https://mod.io/g/drg/m/old"}]}"#,
+            &mut data,
+        )
+        .unwrap();
+        let ModOrGroup::Individual(mod_config) = &data.profiles["default"].mods[0] else {
+            panic!("expected mod")
+        };
         assert!(mod_config.description.is_none());
     }
 
     #[test]
     fn invalid_preset_does_not_touch_data() {
         let mut data = ModData::default();
-        let err = apply_json(r#"{"items":[{"type":"mod", "url":"https://evil.example/mod"}]}"#, &mut data);
+        let err = apply_json(
+            r#"{"items":[{"type":"mod", "url":"https://evil.example/mod"}]}"#,
+            &mut data,
+        );
         assert!(err.is_err());
         assert!(data.profiles["default"].mods.is_empty());
     }

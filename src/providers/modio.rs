@@ -61,7 +61,9 @@ pub(super) fn cached_file(url: &str, cache: &ProviderCache) -> Option<(u32, u32)
     }
     let cache = cache.read().unwrap();
     let cache = cache.get::<ModioCache>(MODIO_PROVIDER_ID)?;
-    let id = parsed.mod_id.or_else(|| cache.mod_id_map.get(parsed.name_id).copied())?;
+    let id = parsed
+        .mod_id
+        .or_else(|| cache.mod_id_map.get(parsed.name_id).copied())?;
     Some((id, cache.mods.get(&id)?.latest_modfile?))
 }
 
@@ -253,7 +255,10 @@ impl Middleware for LoggingMiddleware {
                         || error.is_body()
                         || error.is_request() =>
                 {
-                    warn!("transient mod.io request failure at {}: {error}", req.url().path());
+                    warn!(
+                        "transient mod.io request failure at {}: {error}",
+                        req.url().path()
+                    );
                     None
                 }
                 _ => return res,
@@ -261,8 +266,13 @@ impl Middleware for LoggingMiddleware {
             retries = retries.saturating_add(1);
             // Do not hammer mod.io if its Retry-After is zero or malformed.
             let fallback = (1_u64 << retries.min(6)).min(60);
-            let delay = retry_after.filter(|seconds| *seconds > 0).unwrap_or(fallback);
-            warn!("mod.io request {}: retry {retries} in {delay}s", req.url().path());
+            let delay = retry_after
+                .filter(|seconds| *seconds > 0)
+                .unwrap_or(fallback);
+            warn!(
+                "mod.io request {}: retry {retries} in {delay}s",
+                req.url().path()
+            );
             tokio::time::sleep(tokio::time::Duration::from_secs(delay)).await;
         }
     }
@@ -879,7 +889,9 @@ impl<M: DrgModio + Send + Sync> ModProvider for ModioProvider<M> {
                                     // the CDN rather than expose its HTTP status directly.
                                     let status = error.status().or_else(|| {
                                         std::error::Error::source(&error)
-                                            .and_then(|source| source.downcast_ref::<reqwest::Error>())
+                                            .and_then(|source| {
+                                                source.downcast_ref::<reqwest::Error>()
+                                            })
                                             .and_then(|cause| cause.status())
                                     });
                                     let transient = status.is_none_or(|code| {
@@ -910,9 +922,15 @@ impl<M: DrgModio + Send + Sync> ModProvider for ModioProvider<M> {
                         drop(stream);
                         retries = retries.saturating_add(1);
                         let delay = (1_u64 << retries.min(6)).min(60);
-                        warn!("restarting mod.io download {} in {delay}s (attempt {retries})", res.url.0);
+                        warn!(
+                            "restarting mod.io download {} in {delay}s (attempt {retries})",
+                            res.url.0
+                        );
                         tokio::time::sleep(tokio::time::Duration::from_secs(delay)).await;
-                        file = self.modio.fetch_file(res.url.0.clone(), mod_id, modfile_id).await?;
+                        file = self
+                            .modio
+                            .fetch_file(res.url.0.clone(), mod_id, modfile_id)
+                            .await?;
                     };
 
                     let blob = blob_cache.write(&downloaded)?;

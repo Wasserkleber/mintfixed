@@ -52,8 +52,15 @@ pub enum Message {
     ResolveMods(ResolveMods),
     Integrate(Integrate),
     FetchModProgress(FetchModProgress),
-    InstallPhase { rid: RequestID, phase: InstallPhase },
-    CacheRecoveryProgress { rid: RequestID, completed: usize, total: usize },
+    InstallPhase {
+        rid: RequestID,
+        phase: InstallPhase,
+    },
+    CacheRecoveryProgress {
+        rid: RequestID,
+        completed: usize,
+        total: usize,
+    },
     UpdateCache(UpdateCache),
     CheckUpdates(CheckUpdates),
     LintMods(Box<LintMods>),
@@ -64,11 +71,22 @@ pub enum Message {
 impl Message {
     pub fn handle(self, app: &mut App) {
         match self {
-            Self::GroupFiles { target, prepend, files } => {
+            Self::GroupFiles {
+                target,
+                prepend,
+                files,
+            } => {
                 app.pending_group_files = app.pending_group_files.saturating_sub(1);
                 match target.resolve(&app.state.mod_data) {
-                    Some((profile, group)) => super::group_controls::add_files(app, profile, group, prepend, files),
-                    None => app.last_action = Some(LastAction::failure("Addition cancelled: the original group destination no longer exists.".into())),
+                    Some((profile, group)) => {
+                        super::group_controls::add_files(app, profile, group, prepend, files)
+                    }
+                    None => {
+                        app.last_action = Some(LastAction::failure(
+                            "Addition cancelled: the original group destination no longer exists."
+                                .into(),
+                        ))
+                    }
                 }
             }
             Self::ResolveMods(msg) => msg.receive(app),
@@ -79,7 +97,11 @@ impl Message {
                     app.install_phase = phase;
                 }
             }
-            Self::CacheRecoveryProgress { rid, completed, total } => {
+            Self::CacheRecoveryProgress {
+                rid,
+                completed,
+                total,
+            } => {
                 if app.update_rid.as_ref().is_some_and(|h| h.rid == rid) {
                     // Only successful counter advances reset the inactivity timer.
                     // Retries and duplicate progress messages do not count as progress.
@@ -117,7 +139,9 @@ impl ResolveMods {
         is_dependency: bool,
     ) {
         if app.resolve_mod_rid.is_some() {
-            app.last_action = Some(LastAction::failure("An addition is already running. Wait for it to finish, then try again.".into()));
+            app.last_action = Some(LastAction::failure(
+                "An addition is already running. Wait for it to finish, then try again.".into(),
+            ));
             return;
         }
         let profile = app.state.mod_data.active_profile.clone();
@@ -125,13 +149,14 @@ impl ResolveMods {
         let input = app.resolve_mod.clone();
         let rid = app.request_counter.next();
         let store = app.state.store.clone();
-        let identity_specs = specs.iter().any(|spec| {
-            !spec.url.starts_with("https://") && !spec.url.starts_with("http://")
-        }).then(|| {
-            let mut all = crate::mod_identity::all_specs(&app.state.mod_data);
-            all.extend(specs.iter().cloned());
-            all
-        });
+        let identity_specs = specs
+            .iter()
+            .any(|spec| !spec.url.starts_with("https://") && !spec.url.starts_with("http://"))
+            .then(|| {
+                let mut all = crate::mod_identity::all_specs(&app.state.mod_data);
+                all.extend(specs.iter().cloned());
+                all
+            });
         let ctx = ctx.clone();
         let tx = app.tx.clone();
         let handle = tokio::spawn(async move {
@@ -139,7 +164,9 @@ impl ResolveMods {
                 let identity_store = store.clone();
                 if let Err(error) = tokio::task::spawn_blocking(move || {
                     identity_store.refresh_local_files(&identity_specs);
-                }).await {
+                })
+                .await
+                {
                     tracing::warn!("Local identity worker failed: {error}");
                 }
             }
@@ -167,11 +194,18 @@ impl ResolveMods {
 
     fn receive(mut self, app: &mut App) {
         if Some(self.rid) == app.resolve_mod_rid.as_ref().map(|r| r.rid) {
-            let destination = app.state.mod_data.profiles.iter()
-                .find(|(_, profile)| profile.id == self.profile_id).map(|(name, _)| name.clone());
+            let destination = app
+                .state
+                .mod_data
+                .profiles
+                .iter()
+                .find(|(_, profile)| profile.id == self.profile_id)
+                .map(|(name, _)| name.clone());
             let Some(destination) = destination else {
                 app.resolve_mod_rid = None;
-                app.last_action = Some(LastAction::failure("Addition cancelled: the original profile no longer exists.".into()));
+                app.last_action = Some(LastAction::failure(
+                    "Addition cancelled: the original profile no longer exists.".into(),
+                ));
                 return;
             };
             self.profile = destination;
@@ -182,9 +216,16 @@ impl ResolveMods {
                     // be used to reconstruct the order of pasted mods.
                     // Insert explicit mods in reverse order at index 0.
                     let mut ordered_mods = Vec::with_capacity(resolved_mods.len());
-                    ordered_mods.extend(crate::mod_identity::take_explicit(
-                        self.specs, &mut resolved_mods, &app.state.store,
-                    ).into_iter().rev().map(|(spec, info)| (spec, info, false)));
+                    ordered_mods.extend(
+                        crate::mod_identity::take_explicit(
+                            self.specs,
+                            &mut resolved_mods,
+                            &app.state.store,
+                        )
+                        .into_iter()
+                        .rev()
+                        .map(|(spec, info)| (spec, info, false)),
+                    );
 
                     // Keep automatically discovered dependencies, in a stable order.
                     let mut dependencies = resolved_mods.into_iter().collect::<Vec<_>>();
@@ -202,16 +243,25 @@ impl ResolveMods {
                         let add = if is_dep {
                             // if mod is a dependency then check if there is a disabled
                             // mod that satisfies the dependency and enable it.
-                            !app.state.mod_data.enable_dependency(&self.profile, &resolved_spec)
+                            !app.state
+                                .mod_data
+                                .enable_dependency(&self.profile, &resolved_spec)
                         } else {
                             let data = &mut app.state.mod_data;
                             let profile = data.profiles.get_mut(&self.profile).unwrap();
-                            let requested = if crate::providers::modio::pinned_file(&resolved_spec.url).is_some() {
-                                &resolved_spec
-                            } else {
-                                &info.spec
-                            };
-                            if crate::mod_identity::promote_standalone(profile, requested, &app.state.store) {
+                            let requested =
+                                if crate::providers::modio::pinned_file(&resolved_spec.url)
+                                    .is_some()
+                                {
+                                    &resolved_spec
+                                } else {
+                                    &info.spec
+                                };
+                            if crate::mod_identity::promote_standalone(
+                                profile,
+                                requested,
+                                &app.state.store,
+                            ) {
                                 explicit_inserted += 1;
                                 false
                             } else {
@@ -230,10 +280,8 @@ impl ResolveMods {
                                 explicit_inserted += 1;
                                 0
                             };
-                            let ModData {
-                                profiles,
-                                ..
-                            } = app.state.mod_data.deref_mut().deref_mut();
+                            let ModData { profiles, .. } =
+                                app.state.mod_data.deref_mut().deref_mut();
 
                             profiles.get_mut(&self.profile).unwrap().mods.insert(
                                 insertion_index,
@@ -241,7 +289,11 @@ impl ResolveMods {
                                     id: crate::state::new_id(),
                                     description: None,
                                     member_id: None,
-                                    spec: if crate::providers::modio::pinned_file(&resolved_spec.url).is_some() {
+                                    spec: if crate::providers::modio::pinned_file(
+                                        &resolved_spec.url,
+                                    )
+                                    .is_some()
+                                    {
                                         resolved_spec.clone()
                                     } else {
                                         info.spec.clone()
@@ -256,14 +308,24 @@ impl ResolveMods {
                     if let Err(error) = app.state.mod_data.save() {
                         *app.state.mod_data.deref_mut().deref_mut() = before;
                         app.resolve_mod_rid = None;
-                        app.last_action = Some(LastAction::failure(format!("Could not save additions: {error}")));
+                        app.last_action = Some(LastAction::failure(format!(
+                            "Could not save additions: {error}"
+                        )));
                         return;
                     }
-                    if app.resolve_mod == self.input { app.resolve_mod.clear(); }
-                    app.last_action = Some(LastAction::success(
-                        format!("Added {} mod{} to {}", explicit_inserted + dependencies_inserted,
-                            if explicit_inserted + dependencies_inserted == 1 { "" } else { "s" }, self.profile),
-                    ));
+                    if app.resolve_mod == self.input {
+                        app.resolve_mod.clear();
+                    }
+                    app.last_action = Some(LastAction::success(format!(
+                        "Added {} mod{} to {}",
+                        explicit_inserted + dependencies_inserted,
+                        if explicit_inserted + dependencies_inserted == 1 {
+                            ""
+                        } else {
+                            "s"
+                        },
+                        self.profile
+                    )));
                 }
                 Err(ProviderError::NoProvider { url: _, factory }) => {
                     app.window_provider_parameters =
@@ -383,22 +445,33 @@ impl UpdateCache {
                     rid,
                     completed: 0,
                     total: missing.len(),
-                }).await.ok();
+                })
+                .await
+                .ok();
                 ctx.request_repaint();
                 for (index, spec) in missing.iter().enumerate() {
-                    info!("recovering metadata {}/{}: {}", index + 1, missing.len(), spec.url);
+                    info!(
+                        "recovering metadata {}/{}: {}",
+                        index + 1,
+                        missing.len(),
+                        spec.url
+                    );
                     store.resolve_mod(spec.clone(), false).await?;
                     tx.send(Message::CacheRecoveryProgress {
                         rid,
                         completed: index + 1,
                         total: missing.len(),
-                    }).await.ok();
+                    })
+                    .await
+                    .ok();
                     ctx.request_repaint();
                 }
-                Ok::<usize, ProviderError>(missing
-                    .iter()
-                    .filter(|spec| store.get_mod_info(spec).is_none())
-                    .count())
+                Ok::<usize, ProviderError>(
+                    missing
+                        .iter()
+                        .filter(|spec| store.get_mod_info(spec).is_none())
+                        .count(),
+                )
             }
             .await;
             tx.send(Message::UpdateCache(UpdateCache { rid, result: res }))
@@ -426,7 +499,9 @@ impl UpdateCache {
                     ));
                 }
                 Ok(remaining) => {
-                    error!("cache recovery incomplete: {remaining} referenced mod.io entries missing metadata");
+                    error!(
+                        "cache recovery incomplete: {remaining} referenced mod.io entries missing metadata"
+                    );
                     app.last_action = Some(LastAction::failure(format!(
                         "Cache recovery incomplete: {remaining} mod.io entries still lack metadata"
                     )));
@@ -513,7 +588,13 @@ async fn integrate_async(
 
     let to_integrate = crate::mod_identity::installation_inputs(&mod_specs, &mods)?;
     // Report phases from the actual async operation, not from guessed download progress.
-    message_tx.send(Message::InstallPhase { rid, phase: InstallPhase::Downloading }).await.ok();
+    message_tx
+        .send(Message::InstallPhase {
+            rid,
+            phase: InstallPhase::Downloading,
+        })
+        .await
+        .ok();
     ctx.request_repaint();
     let stage_tx = message_tx.clone();
     let stage_ctx = ctx.clone();
@@ -522,17 +603,30 @@ async fn integrate_async(
         use crate::mod_identity::Artifact;
         match crate::providers::modio::pinned_file(&info.resolution.url.0) {
             Some((id, file)) if info.provider == "modio" => Artifact::Modio(id, file),
-            _ => Artifact::Specification(ModSpecification { url: info.resolution.url.0.clone() }),
+            _ => Artifact::Specification(ModSpecification {
+                url: info.resolution.url.0.clone(),
+            }),
         }
     };
     let mut aliases = HashMap::<_, Vec<ModSpecification>>::new();
     for spec in &mod_specs {
         let info = &mods[spec];
-        aliases.entry((info.provider, identity(info))).or_default().push(spec.clone());
+        aliases
+            .entry((info.provider, identity(info)))
+            .or_default()
+            .push(spec.clone());
     }
-    let res_map: HashMap<ModResolution, Vec<ModSpecification>> = to_integrate.iter().map(|info| {
-        (info.resolution.clone(), aliases.remove(&(info.provider, identity(info))).unwrap_or_default())
-    }).collect();
+    let res_map: HashMap<ModResolution, Vec<ModSpecification>> = to_integrate
+        .iter()
+        .map(|info| {
+            (
+                info.resolution.clone(),
+                aliases
+                    .remove(&(info.provider, identity(info)))
+                    .unwrap_or_default(),
+            )
+        })
+        .collect();
     let urls = to_integrate
         .iter()
         .map(|m| &m.resolution)
@@ -560,7 +654,13 @@ async fn integrate_async(
     });
 
     let paths = store.fetch_mods_ordered(&urls, update, Some(tx)).await?;
-    stage_tx.send(Message::InstallPhase { rid, phase: InstallPhase::Integrating }).await.ok();
+    stage_tx
+        .send(Message::InstallPhase {
+            rid,
+            phase: InstallPhase::Integrating,
+        })
+        .await
+        .ok();
     stage_ctx.request_repaint();
 
     tokio::task::spawn_blocking(|| {
@@ -905,29 +1005,58 @@ mod addition_destination_tests {
     fn app() -> (tempfile::TempDir, App) {
         let dir = tempfile::tempdir().unwrap();
         let dirs = Dirs::from_path(dir.path()).unwrap();
-        std::fs::write(dirs.config_dir.join("mod_data.json"),
-            serde_json::to_vec(&crate::state::VersionAnnotatedModData::default()).unwrap()).unwrap();
-        let app = App::new(&eframe::CreationContext::_new_kittest(egui::Context::default()),
-            dirs, None).unwrap();
+        std::fs::write(
+            dirs.config_dir.join("mod_data.json"),
+            serde_json::to_vec(&crate::state::VersionAnnotatedModData::default()).unwrap(),
+        )
+        .unwrap();
+        let app = App::new(
+            &eframe::CreationContext::_new_kittest(egui::Context::default()),
+            dirs,
+            None,
+        )
+        .unwrap();
         (dir, app)
     }
 
     fn result(app: &mut App) -> ResolveMods {
         let rid = app.request_counter.next();
-        app.resolve_mod_rid = Some(MessageHandle { rid, handle: tokio::spawn(async {}), state: () });
+        app.resolve_mod_rid = Some(MessageHandle {
+            rid,
+            handle: tokio::spawn(async {}),
+            state: (),
+        });
         let spec = ModSpecification::new("test-mod".to_owned());
-        let info = ModInfo { provider: "file", name: "Test".into(), spec: spec.clone(), versions: vec![],
+        let info = ModInfo {
+            provider: "file",
+            name: "Test".into(),
+            spec: spec.clone(),
+            versions: vec![],
             resolution: ModResolution::resolvable("test-mod".to_owned().into()),
-            suggested_require: false, suggested_dependencies: vec![], modio_id: None, modio_tags: None };
-        ResolveMods { rid, profile_id: app.state.mod_data.profiles["default"].id.clone(), profile: "default".into(), input: "submitted input".into(),
-            specs: vec![spec.clone()], result: Ok(HashMap::from([(spec, info)])), is_dependency: false }
+            suggested_require: false,
+            suggested_dependencies: vec![],
+            modio_id: None,
+            modio_tags: None,
+        };
+        ResolveMods {
+            rid,
+            profile_id: app.state.mod_data.profiles["default"].id.clone(),
+            profile: "default".into(),
+            input: "submitted input".into(),
+            specs: vec![spec.clone()],
+            result: Ok(HashMap::from([(spec, info)])),
+            is_dependency: false,
+        }
     }
 
     #[tokio::test]
     async fn profile_switch_does_not_redirect_result_or_clear_new_input() {
         let (_dir, mut app) = app();
         let result = result(&mut app);
-        app.state.mod_data.profiles.insert("Other".into(), Default::default());
+        app.state
+            .mod_data
+            .profiles
+            .insert("Other".into(), Default::default());
         app.state.mod_data.active_profile = "Other".into();
         app.resolve_mod = "new input".into();
         result.receive(&mut app);
@@ -951,7 +1080,10 @@ mod addition_destination_tests {
     async fn missing_original_profile_cancels_without_fallback() {
         let (_dir, mut app) = app();
         let result = result(&mut app);
-        app.state.mod_data.profiles.insert("Other".into(), Default::default());
+        app.state
+            .mod_data
+            .profiles
+            .insert("Other".into(), Default::default());
         app.state.mod_data.active_profile = "Other".into();
         app.state.mod_data.profiles.remove("default");
         result.receive(&mut app);
@@ -963,7 +1095,10 @@ mod addition_destination_tests {
         let (_dir, mut app) = app();
         let result = result(&mut app);
         let profile = app.state.mod_data.profiles.remove("default").unwrap();
-        app.state.mod_data.profiles.insert("Renamed".into(), profile);
+        app.state
+            .mod_data
+            .profiles
+            .insert("Renamed".into(), profile);
         app.state.mod_data.active_profile = "Renamed".into();
         result.receive(&mut app);
         assert_eq!(app.state.mod_data.profiles["Renamed"].mods.len(), 1);
@@ -973,10 +1108,12 @@ mod addition_destination_tests {
     async fn replacement_profile_with_same_name_does_not_receive_old_request() {
         let (_dir, mut app) = app();
         let result = result(&mut app);
-        app.state.mod_data.profiles.insert("default".into(), Default::default());
+        app.state
+            .mod_data
+            .profiles
+            .insert("default".into(), Default::default());
         result.receive(&mut app);
         assert!(app.state.mod_data.profiles["default"].mods.is_empty());
         assert!(app.resolve_mod_rid.is_none());
     }
-
 }

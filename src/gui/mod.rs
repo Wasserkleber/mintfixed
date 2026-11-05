@@ -319,18 +319,29 @@ impl App {
             sorting_config = None;
         }
 
-        let revision = (self.state.mod_data.revision(), self.state.store.metadata_revision());
+        let revision = (
+            self.state.mod_data.revision(),
+            self.state.store.metadata_revision(),
+        );
         if self.profile_issues.get(profile).map(|entry| entry.0) != Some(revision) {
-            let issues = crate::mod_identity::ProfileIssues::collect(&self.state.mod_data, profile, &self.state.store);
-            self.profile_issues.insert(profile.to_owned(), (revision, issues));
+            let issues = crate::mod_identity::ProfileIssues::collect(
+                &self.state.mod_data,
+                profile,
+                &self.state.store,
+            );
+            self.profile_issues
+                .insert(profile.to_owned(), (revision, issues));
         }
         let issues = &self.profile_issues[profile].1;
         for warning in &issues.versions {
             ui.colored_label(ui.visuals().warn_fg_color, warning);
         }
         if !issues.pending.is_empty() {
-            ui.label(format!("{} mod.io entries awaiting version metadata", issues.pending.len()))
-                .on_hover_text(issues.pending.join("\n"));
+            ui.label(format!(
+                "{} mod.io entries awaiting version metadata",
+                issues.pending.len()
+            ))
+            .on_hover_text(issues.pending.join("\n"));
         }
 
         let ModData {
@@ -510,112 +521,113 @@ impl App {
                 }
             };
 
-            let mut ui_mod = |ctx: &mut Ctx,
-                              ui: &mut Ui,
-                              group: Option<&str>,
-                              row_index: usize,
-                              mc: &mut ModConfig,
-                              overrides: Option<&mut MemberOverrides>| {
-                let mut enabled = overrides.as_ref().map_or(mc.enabled, |o| o.enabled(mc));
-                if !enabled {
-                    let vis = ui.visuals_mut();
-                    vis.override_text_color = Some(vis.text_color());
-                    vis.hyperlink_color = vis.text_color();
-                }
-
-                if ui
-                    .add(toggle_switch(&mut enabled))
-                    .on_hover_text_at_pointer("Enabled?")
-                    .changed()
-                {
-                    if let Some(overrides) = overrides {
-                        overrides.set(mc, enabled);
-                    } else {
-                        mc.enabled = enabled;
+            let mut ui_mod =
+                |ctx: &mut Ctx,
+                 ui: &mut Ui,
+                 group: Option<&str>,
+                 row_index: usize,
+                 mc: &mut ModConfig,
+                 overrides: Option<&mut MemberOverrides>| {
+                    let mut enabled = overrides.as_ref().map_or(mc.enabled, |o| o.enabled(mc));
+                    if !enabled {
+                        let vis = ui.visuals_mut();
+                        vis.override_text_color = Some(vis.text_color());
+                        vis.hyperlink_color = vis.text_color();
                     }
-                    ctx.needs_save = true;
-                }
 
-                /*
-                if ui
-                    .add(egui::Checkbox::without_text(&mut mc.required))
-                    .changed()
-                {
-                    needs_save = true;
-                }
-                */
-
-                if issues.duplicate(group, row_index)
-                    && ui.button(egui::RichText::new("âš ").color(ui.visuals().warn_fg_color))
-                        .on_hover_text("Remove this duplicate entry").clicked()
-                {
-                    ctx.btn_remove = Some((group.map(str::to_owned), row_index));
-                }
-
-                let info = self.state.store.get_mod_info(&mc.spec);
-
-                if let Some(ref info) = info
-                    && let Some(modio_id) = info.modio_id
-                    && self.problematic_mod_id.is_some_and(|id| id == modio_id)
-                {
-                    let icon = egui::Button::new(RichText::new("❌").color(Color32::WHITE))
-                        .fill(Color32::RED);
-                    ui.add_enabled(false, icon);
-                }
-
-                if enabled
-                    && let Some(req) = &self.integrate_rid
-                {
-                    match req.state.get(&mc.spec) {
-                        Some(SpecFetchProgress::Progress { progress, size }) => {
-                            ui.add(
-                                egui::ProgressBar::new(*progress as f32 / *size as f32)
-                                    .show_percentage()
-                                    .desired_width(100.0),
-                            );
+                    if ui
+                        .add(toggle_switch(&mut enabled))
+                        .on_hover_text_at_pointer("Enabled?")
+                        .changed()
+                    {
+                        if let Some(overrides) = overrides {
+                            overrides.set(mc, enabled);
+                        } else {
+                            mc.enabled = enabled;
                         }
-                        Some(SpecFetchProgress::Complete) => {
-                            ui.add(egui::ProgressBar::new(1.0).desired_width(100.0));
-                        }
-                        None => {
-                            ui.spinner();
-                        }
+                        ctx.needs_save = true;
                     }
-                }
 
-                if let Some(info) = &info {
-                    let previous_spec = mc.spec.clone();
-                    egui::ComboBox::from_id_salt(row_index)
-                        .selected_text(
-                            self.state
-                                .store
-                                .get_version_name(&mc.spec)
-                                .unwrap_or_default(),
-                        )
-                        .show_ui(ui, |ui| {
-                            ui.selectable_value(
-                                &mut mc.spec.url,
-                                info.spec.url.to_string(),
-                                self.state
-                                    .store
-                                    .get_version_name(&info.spec)
-                                    .unwrap_or_default(),
-                            );
-                            for version in info.versions.iter().rev() {
-                                ui.selectable_value(
-                                    &mut mc.spec.url,
-                                    version.url.to_string(),
-                                    self.state
-                                        .store
-                                        .get_version_name(version)
-                                        .unwrap_or_default(),
+                    /*
+                    if ui
+                        .add(egui::Checkbox::without_text(&mut mc.required))
+                        .changed()
+                    {
+                        needs_save = true;
+                    }
+                    */
+
+                    if issues.duplicate(group, row_index)
+                        && ui
+                            .button(egui::RichText::new("âš ").color(ui.visuals().warn_fg_color))
+                            .on_hover_text("Remove this duplicate entry")
+                            .clicked()
+                    {
+                        ctx.btn_remove = Some((group.map(str::to_owned), row_index));
+                    }
+
+                    let info = self.state.store.get_mod_info(&mc.spec);
+
+                    if let Some(ref info) = info
+                        && let Some(modio_id) = info.modio_id
+                        && self.problematic_mod_id.is_some_and(|id| id == modio_id)
+                    {
+                        let icon = egui::Button::new(RichText::new("❌").color(Color32::WHITE))
+                            .fill(Color32::RED);
+                        ui.add_enabled(false, icon);
+                    }
+
+                    if enabled && let Some(req) = &self.integrate_rid {
+                        match req.state.get(&mc.spec) {
+                            Some(SpecFetchProgress::Progress { progress, size }) => {
+                                ui.add(
+                                    egui::ProgressBar::new(*progress as f32 / *size as f32)
+                                        .show_percentage()
+                                        .desired_width(100.0),
                                 );
                             }
-                        });
+                            Some(SpecFetchProgress::Complete) => {
+                                ui.add(egui::ProgressBar::new(1.0).desired_width(100.0));
+                            }
+                            None => {
+                                ui.spinner();
+                            }
+                        }
+                    }
 
-                    ctx.needs_save |= mc.spec != previous_spec;
+                    if let Some(info) = &info {
+                        let previous_spec = mc.spec.clone();
+                        egui::ComboBox::from_id_salt(row_index)
+                            .selected_text(
+                                self.state
+                                    .store
+                                    .get_version_name(&mc.spec)
+                                    .unwrap_or_default(),
+                            )
+                            .show_ui(ui, |ui| {
+                                ui.selectable_value(
+                                    &mut mc.spec.url,
+                                    info.spec.url.to_string(),
+                                    self.state
+                                        .store
+                                        .get_version_name(&info.spec)
+                                        .unwrap_or_default(),
+                                );
+                                for version in info.versions.iter().rev() {
+                                    ui.selectable_value(
+                                        &mut mc.spec.url,
+                                        version.url.to_string(),
+                                        self.state
+                                            .store
+                                            .get_version_name(version)
+                                            .unwrap_or_default(),
+                                    );
+                                }
+                            });
 
-                    ui.scope(|ui| {
+                        ctx.needs_save |= mc.spec != previous_spec;
+
+                        ui.scope(|ui| {
                         ui.style_mut().spacing.interact_size.x = 30.;
                         let dark = ui.visuals().dark_mode;
                         match mc.priority.cmp(&0) {
@@ -652,160 +664,178 @@ impl App {
                         );
                     });
 
-                    if ui
-                        .button("📋")
-                        .on_hover_text_at_pointer("copy URL")
-                        .clicked()
-                    {
-                        ui.ctx().copy_text(mc.spec.url.to_string());
-                    }
-
-                    if enabled {
-                        let missing_deps = info
-                            .suggested_dependencies
-                            .iter()
-                            .filter(|d| {
-                                !enabled_specs.iter().any(|(_, s)| s.satisfies_dependency(d))
-                            })
-                            .collect::<Vec<_>>();
-
-                        if !missing_deps.is_empty() {
-                            let mut msg = "Add missing dependencies:".to_string();
-                            for dep in &missing_deps {
-                                msg.push('\n');
-                                msg.push_str(&dep.url);
-                            }
-                            if ui
-                                .button(
-                                    egui::RichText::new("\u{26A0}")
-                                        .color(ui.visuals().warn_fg_color),
-                                )
-                                .on_hover_text(msg)
-                                .clicked()
-                            {
-                                ctx.add_deps = Some(missing_deps.into_iter().cloned().collect());
-                            }
-                        }
-                    }
-
-                    match info.provider {
-                        "modio" => {
-                            let texture: &egui::TextureHandle =
-                                self.modio_texture_handle.get_or_insert_with(|| {
-                                    let image = image::load_from_memory(MODIO_LOGO_PNG).unwrap();
-                                    let size = [image.width() as _, image.height() as _];
-                                    let image_buffer = image.to_rgba8();
-                                    let pixels = image_buffer.as_flat_samples();
-                                    let image = egui::ColorImage::from_rgba_unmultiplied(
-                                        size,
-                                        pixels.as_slice(),
-                                    );
-
-                                    ui.ctx()
-                                        .load_texture("modio-logo", image, Default::default())
-                                });
-                            let mut img =
-                                egui::Image::new(texture).fit_to_exact_size([16.0, 16.0].into());
-                            if !enabled {
-                                img = img.tint(Color32::LIGHT_RED);
-                            }
-                            ui.add(img);
-                        }
-                        "http" => {
-                            ui.label("🌐");
-                        }
-                        "file" => {
-                            ui.label("📁");
-                        }
-                        _ => unimplemented!("unimplemented provider kind"),
-                    }
-
-                    let search = searchable_text(&info.name, &self.search_string, {
-                        TextFormat {
-                            color: ui.visuals().hyperlink_color,
-                            ..Default::default()
-                        }
-                    });
-
-                    let res = ui.hyperlink_to(search.job, &mc.spec.url);
-                    if search.is_match && self.scroll_to_match {
-                        res.scroll_to_me(None);
-                        ctx.scroll_to_match = false;
-                    }
-
-                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                        if let Some(description) = mc.description.as_deref().filter(|text| !text.trim().is_empty()) {
-                            description_help_button(ui, description);
-                        }
-                        ui_mod_tags(ctx, ui, info);
-                    });
-                } else {
-                    if ui
-                        .button("📋")
-                        .on_hover_text_at_pointer("Copy URL")
-                        .clicked()
-                    {
-                        ui.ctx().copy_text(mc.spec.url.to_string());
-                    }
-
-                    let search = searchable_text(&mc.spec.url, &self.search_string, {
-                        TextFormat {
-                            color: ui.visuals().hyperlink_color,
-                            ..Default::default()
-                        }
-                    });
-
-                    let res = ui.hyperlink_to(search.job, &mc.spec.url);
-                    if search.is_match && self.scroll_to_match {
-                        res.scroll_to_me(None);
-                        ctx.scroll_to_match = false;
-                    }
-                    if let Some(description) = mc.description.as_deref().filter(|text| !text.trim().is_empty()) {
-                        description_help_button(ui, description);
-                    }
-                }
-            };
-
-            let mut ui_item =
-                |ctx: &mut Ctx, ui: &mut Ui, mc: &mut ModOrGroup, row_index: usize| {
-                    ui.scope(|ui| {
-                        ui.visuals_mut().widgets.hovered.weak_bg_fill = colors::DARK_RED;
-                        ui.visuals_mut().widgets.active.weak_bg_fill = colors::DARKER_RED;
                         if ui
-                            .add(Button::new(" 🗑 "))
-                            .on_hover_text_at_pointer("Delete mod")
+                            .button("📋")
+                            .on_hover_text_at_pointer("copy URL")
                             .clicked()
                         {
-                            ctx.btn_remove = Some((None, row_index));
-                        };
-                    });
-
-                    match mc {
-                        ModOrGroup::Individual(mc) => {
-                            ui.push_id(("mod", row_index), |ui| {
-                                ui_mod(ctx, ui, None, row_index, mc, None);
-                            });
+                            ui.ctx().copy_text(mc.spec.url.to_string());
                         }
-                        ModOrGroup::Group {
-                            group_name,
-                            enabled,
-                            member_overrides,
-                            ..
-                        } => {
-                            if ui
-                                .add(toggle_switch(enabled))
-                                .on_hover_text_at_pointer("Enabled?")
-                                .changed()
-                            {
-                                ctx.needs_save = true;
+
+                        if enabled {
+                            let missing_deps = info
+                                .suggested_dependencies
+                                .iter()
+                                .filter(|d| {
+                                    !enabled_specs.iter().any(|(_, s)| s.satisfies_dependency(d))
+                                })
+                                .collect::<Vec<_>>();
+
+                            if !missing_deps.is_empty() {
+                                let mut msg = "Add missing dependencies:".to_string();
+                                for dep in &missing_deps {
+                                    msg.push('\n');
+                                    msg.push_str(&dep.url);
+                                }
+                                if ui
+                                    .button(
+                                        egui::RichText::new("\u{26A0}")
+                                            .color(ui.visuals().warn_fg_color),
+                                    )
+                                    .on_hover_text(msg)
+                                    .clicked()
+                                {
+                                    ctx.add_deps =
+                                        Some(missing_deps.into_iter().cloned().collect());
+                                }
                             }
-                            let open = !self.groups_to_open.is_empty()
-                                && self.groups_to_open.remove(&(profile_name.to_owned(), group_name.clone()));
-                            let group_description = groups.get(group_name)
-                                .and_then(|group| group.description.clone())
-                                .filter(|text| !text.trim().is_empty());
-                            // egui::CollapsingState::body requires a vertical layout for indentation.
-                            let (header_response, body_response, fully_closed) = ui.vertical(|ui| {
+                        }
+
+                        match info.provider {
+                            "modio" => {
+                                let texture: &egui::TextureHandle =
+                                    self.modio_texture_handle.get_or_insert_with(|| {
+                                        let image =
+                                            image::load_from_memory(MODIO_LOGO_PNG).unwrap();
+                                        let size = [image.width() as _, image.height() as _];
+                                        let image_buffer = image.to_rgba8();
+                                        let pixels = image_buffer.as_flat_samples();
+                                        let image = egui::ColorImage::from_rgba_unmultiplied(
+                                            size,
+                                            pixels.as_slice(),
+                                        );
+
+                                        ui.ctx().load_texture(
+                                            "modio-logo",
+                                            image,
+                                            Default::default(),
+                                        )
+                                    });
+                                let mut img = egui::Image::new(texture)
+                                    .fit_to_exact_size([16.0, 16.0].into());
+                                if !enabled {
+                                    img = img.tint(Color32::LIGHT_RED);
+                                }
+                                ui.add(img);
+                            }
+                            "http" => {
+                                ui.label("🌐");
+                            }
+                            "file" => {
+                                ui.label("📁");
+                            }
+                            _ => unimplemented!("unimplemented provider kind"),
+                        }
+
+                        let search = searchable_text(&info.name, &self.search_string, {
+                            TextFormat {
+                                color: ui.visuals().hyperlink_color,
+                                ..Default::default()
+                            }
+                        });
+
+                        let res = ui.hyperlink_to(search.job, &mc.spec.url);
+                        if search.is_match && self.scroll_to_match {
+                            res.scroll_to_me(None);
+                            ctx.scroll_to_match = false;
+                        }
+
+                        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                            if let Some(description) = mc
+                                .description
+                                .as_deref()
+                                .filter(|text| !text.trim().is_empty())
+                            {
+                                description_help_button(ui, description);
+                            }
+                            ui_mod_tags(ctx, ui, info);
+                        });
+                    } else {
+                        if ui
+                            .button("📋")
+                            .on_hover_text_at_pointer("Copy URL")
+                            .clicked()
+                        {
+                            ui.ctx().copy_text(mc.spec.url.to_string());
+                        }
+
+                        let search = searchable_text(&mc.spec.url, &self.search_string, {
+                            TextFormat {
+                                color: ui.visuals().hyperlink_color,
+                                ..Default::default()
+                            }
+                        });
+
+                        let res = ui.hyperlink_to(search.job, &mc.spec.url);
+                        if search.is_match && self.scroll_to_match {
+                            res.scroll_to_me(None);
+                            ctx.scroll_to_match = false;
+                        }
+                        if let Some(description) = mc
+                            .description
+                            .as_deref()
+                            .filter(|text| !text.trim().is_empty())
+                        {
+                            description_help_button(ui, description);
+                        }
+                    }
+                };
+
+            let mut ui_item = |ctx: &mut Ctx,
+                               ui: &mut Ui,
+                               mc: &mut ModOrGroup,
+                               row_index: usize| {
+                ui.scope(|ui| {
+                    ui.visuals_mut().widgets.hovered.weak_bg_fill = colors::DARK_RED;
+                    ui.visuals_mut().widgets.active.weak_bg_fill = colors::DARKER_RED;
+                    if ui
+                        .add(Button::new(" 🗑 "))
+                        .on_hover_text_at_pointer("Delete mod")
+                        .clicked()
+                    {
+                        ctx.btn_remove = Some((None, row_index));
+                    };
+                });
+
+                match mc {
+                    ModOrGroup::Individual(mc) => {
+                        ui.push_id(("mod", row_index), |ui| {
+                            ui_mod(ctx, ui, None, row_index, mc, None);
+                        });
+                    }
+                    ModOrGroup::Group {
+                        group_name,
+                        enabled,
+                        member_overrides,
+                        ..
+                    } => {
+                        if ui
+                            .add(toggle_switch(enabled))
+                            .on_hover_text_at_pointer("Enabled?")
+                            .changed()
+                        {
+                            ctx.needs_save = true;
+                        }
+                        let open = !self.groups_to_open.is_empty()
+                            && self
+                                .groups_to_open
+                                .remove(&(profile_name.to_owned(), group_name.clone()));
+                        let group_description = groups
+                            .get(group_name)
+                            .and_then(|group| group.description.clone())
+                            .filter(|text| !text.trim().is_empty());
+                        // egui::CollapsingState::body requires a vertical layout for indentation.
+                        let (header_response, body_response, fully_closed) = ui.vertical(|ui| {
                             // Keep the group title clickable and render its help icon
                             // independently, on the same header row.
                             let mut collapse = egui::collapsing_header::CollapsingState::load_with_default_open(
@@ -863,33 +893,56 @@ impl App {
                             let body_response = body_response.map(|body| body.response);
                                 (header_response, body_response, fully_closed)
                             }).inner;
-                            if group_controls::hover_open(ui, &header_response,
-                                fully_closed, profile_name, sorting_config.is_none())
-                            {
-                                self.groups_to_open.insert((profile_name.to_owned(), group_name.clone()));
-                                ui.ctx().request_repaint();
-                            }
-                            let mut area = header_response.rect;
-                            if let Some(body) = &body_response {
-                                area = area.union(body.rect);
-                            }
-                            if ui.rect_contains_pointer(area) {
-                                ctx.file_group = Some((group_name.clone(), fully_closed));
-                            }
-                            if header_response.dnd_hover_payload::<Drag>().is_some_and(|d| !d.is_group)
-                                || (ctx.file_group.as_ref().is_some_and(|(name, _)| name == group_name) && ui.input(|i| !i.raw.hovered_files.is_empty()))
-                            {
-                                ui.painter().hline(area.x_range(), area.top(), (2.0, ui.visuals().selection.stroke.color));
-                            }
-                            if sorting_config.is_none()
-                                && header_response.dnd_hover_payload::<Drag>().is_some_and(|d| !d.is_group)
-                                && let Some(source) = header_response.dnd_release_payload::<Drag>()
-                            {
-                                ctx.drag = Some(((*source).clone(), Target { group: Some(group_name.clone()), slot: if fully_closed { 0 } else { usize::MAX } }));
-                            }
+                        if group_controls::hover_open(
+                            ui,
+                            &header_response,
+                            fully_closed,
+                            profile_name,
+                            sorting_config.is_none(),
+                        ) {
+                            self.groups_to_open
+                                .insert((profile_name.to_owned(), group_name.clone()));
+                            ui.ctx().request_repaint();
+                        }
+                        let mut area = header_response.rect;
+                        if let Some(body) = &body_response {
+                            area = area.union(body.rect);
+                        }
+                        if ui.rect_contains_pointer(area) {
+                            ctx.file_group = Some((group_name.clone(), fully_closed));
+                        }
+                        if header_response
+                            .dnd_hover_payload::<Drag>()
+                            .is_some_and(|d| !d.is_group)
+                            || (ctx
+                                .file_group
+                                .as_ref()
+                                .is_some_and(|(name, _)| name == group_name)
+                                && ui.input(|i| !i.raw.hovered_files.is_empty()))
+                        {
+                            ui.painter().hline(
+                                area.x_range(),
+                                area.top(),
+                                (2.0, ui.visuals().selection.stroke.color),
+                            );
+                        }
+                        if sorting_config.is_none()
+                            && header_response
+                                .dnd_hover_payload::<Drag>()
+                                .is_some_and(|d| !d.is_group)
+                            && let Some(source) = header_response.dnd_release_payload::<Drag>()
+                        {
+                            ctx.drag = Some((
+                                (*source).clone(),
+                                Target {
+                                    group: Some(group_name.clone()),
+                                    slot: if fully_closed { 0 } else { usize::MAX },
+                                },
+                            ));
                         }
                     }
-                };
+                }
+            };
 
             if sorting_config.is_some() {
                 let order = sorted_mod_indices(
@@ -918,16 +971,18 @@ impl App {
                     if index % 2 == 1 {
                         frame.fill = ui.visuals().faint_bg_color;
                     }
-                    let row = Drag::paint_row(ui, profile_name, None, index, |ui| frame.show(ui, |ui| {
-                        ui.horizontal(|ui| {
-                            let (key, is_group) = match item {
-                                ModOrGroup::Individual(mc) => (mc.id.as_str(), false),
-                                ModOrGroup::Group { id, .. } => (id.as_str(), true),
-                            };
-                            Drag::handle(ui, profile_name, None, index, key, is_group);
-                            ui_item(&mut ctx, ui, item, index);
-                        });
-                    }));
+                    let row = Drag::paint_row(ui, profile_name, None, index, |ui| {
+                        frame.show(ui, |ui| {
+                            ui.horizontal(|ui| {
+                                let (key, is_group) = match item {
+                                    ModOrGroup::Individual(mc) => (mc.id.as_str(), false),
+                                    ModOrGroup::Group { id, .. } => (id.as_str(), true),
+                                };
+                                Drag::handle(ui, profile_name, None, index, key, is_group);
+                                ui_item(&mut ctx, ui, item, index);
+                            });
+                        })
+                    });
                     group_controls::row_target(ui, &row.response, &mut ctx.drag, None, index);
                 }
                 if egui::DragAndDrop::payload::<Drag>(ui.ctx()).is_some() {
@@ -951,7 +1006,11 @@ impl App {
                 let removed = groups.get_mut(&name).unwrap().mods.remove(index);
                 if let Some(id) = removed.member_id {
                     for item in profiles.values_mut().flat_map(|p| &mut p.mods) {
-                        if let ModOrGroup::Group { group_name, member_overrides, .. } = item
+                        if let ModOrGroup::Group {
+                            group_name,
+                            member_overrides,
+                            ..
+                        } = item
                             && *group_name == name
                         {
                             member_overrides.forget(&id);
@@ -975,12 +1034,14 @@ impl App {
                     }
                     match self.state.mod_data.save() {
                         Ok(()) => {
-                            self.undo_group_move = Some(group_controls::UndoMove::new(before, &self.state.mod_data));
+                            self.undo_group_move =
+                                Some(group_controls::UndoMove::new(before, &self.state.mod_data));
                             ctx.needs_save = false;
                         }
                         Err(error) => {
                             *self.state.mod_data.deref_mut().deref_mut() = before;
-                            self.last_action = Some(LastAction::failure(format!("Could not save move: {error}")));
+                            self.last_action =
+                                Some(LastAction::failure(format!("Could not save move: {error}")));
                         }
                     }
                 }
@@ -1797,7 +1858,10 @@ fn sorted_mod_indices<'a>(
 }
 
 type ModListEntry<'a> = (&'a ModConfig, Option<&'a ModInfo>);
-fn sort_mods<'a>(config: &'a SortingConfig, overrides: Option<&'a MemberOverrides>) -> impl Fn(ModListEntry, ModListEntry) -> Ordering + 'a {
+fn sort_mods<'a>(
+    config: &'a SortingConfig,
+    overrides: Option<&'a MemberOverrides>,
+) -> impl Fn(ModListEntry, ModListEntry) -> Ordering + 'a {
     move |(mc_a, info_a), (mc_b, info_b)| {
         fn map_cmp<V, M, F>(a: &V, b: &V, map: F) -> Ordering
         where
@@ -1942,12 +2006,12 @@ impl eframe::App for App {
                 self.cache_install_rid = None;
                 if let Some(action) = self.last_action.take() {
                     self.last_action = Some(match action.status {
-                        LastActionStatus::Success(_) => LastAction::success(
-                            "Cache updated; installation complete".to_string(),
-                        ),
-                        LastActionStatus::Failure(reason) => LastAction::failure(
-                            format!("Cache updated; installation failed: {reason}"),
-                        ),
+                        LastActionStatus::Success(_) => {
+                            LastAction::success("Cache updated; installation complete".to_string())
+                        }
+                        LastActionStatus::Failure(reason) => LastAction::failure(format!(
+                            "Cache updated; installation failed: {reason}"
+                        )),
                     });
                 }
             }
@@ -1955,9 +2019,10 @@ impl eframe::App for App {
                 && cache_was_running
                 && self.update_rid.is_none()
                 && self.integrate_rid.is_none()
-                && self.last_action.as_ref().is_some_and(|action| {
-                    matches!(&action.status, LastActionStatus::Success(_))
-                })
+                && self
+                    .last_action
+                    .as_ref()
+                    .is_some_and(|action| matches!(&action.status, LastActionStatus::Success(_)))
             {
                 // Use the same profile ordering and integration as the Install Mods button.
                 if let Some(fsd_pak) = self.state.config.drg_pak_path.clone() {
@@ -2244,7 +2309,10 @@ impl eframe::App for App {
                 }
 
                 (group_changed, group_success) = group_controls::controls(
-                    ui, mod_data, &mut self.new_group_name, self.pending_group_files > 0,
+                    ui,
+                    mod_data,
+                    &mut self.new_group_name,
+                    self.pending_group_files > 0,
                 );
 
                 // TODO find better icon, flesh out multiple-view usage, fix GUI locking
@@ -2265,14 +2333,16 @@ impl eframe::App for App {
                 self.state.mod_data.deref_mut().deref_mut(),
                 Some(buttons),
                 self.resolve_mod_rid.is_none() && self.pending_group_files == 0,
-            ) || group_changed {
+            ) || group_changed
+            {
                 self.state.mod_data.save().unwrap();
             }
             if let Some(message) = group_success {
                 self.last_action = Some(LastAction::success(message));
             }
 
-            if self.undo_group_move.is_some() && ui.button("Undo move").clicked()
+            if self.undo_group_move.is_some()
+                && ui.button("Undo move").clicked()
                 && let Some(undo) = self.undo_group_move.take()
             {
                 match undo.apply(&mut self.state.mod_data) {
@@ -2394,23 +2464,35 @@ impl eframe::App for App {
                     && self.update_rid.is_none()
                 {
                     if let Some((group, prepend)) = &file_group {
-                        let paths = i.raw.dropped_files.iter().filter_map(|f| f.path.clone()).collect();
-                        group_controls::drop_files(self, ctx, profile.clone(), group.clone(), *prepend, paths);
+                        let paths = i
+                            .raw
+                            .dropped_files
+                            .iter()
+                            .filter_map(|f| f.path.clone())
+                            .collect();
+                        group_controls::drop_files(
+                            self,
+                            ctx,
+                            profile.clone(),
+                            group.clone(),
+                            *prepend,
+                            paths,
+                        );
                     } else {
-                    let mut mods = String::new();
-                    for f in i
-                        .raw
-                        .dropped_files
-                        .iter()
-                        .filter_map(|f| f.path.as_ref().map(|p| p.to_string_lossy()))
-                    {
-                        mods.push_str(&f);
-                        mods.push('\n');
-                    }
+                        let mut mods = String::new();
+                        for f in i
+                            .raw
+                            .dropped_files
+                            .iter()
+                            .filter_map(|f| f.path.as_ref().map(|p| p.to_string_lossy()))
+                        {
+                            mods.push_str(&f);
+                            mods.push('\n');
+                        }
 
-                    self.resolve_mod = mods.trim().to_string();
-                    message::ResolveMods::send(self, ctx, self.parse_mods(), false);
-                    self.problematic_mod_id = None;
+                        self.resolve_mod = mods.trim().to_string();
+                        message::ResolveMods::send(self, ctx, self.parse_mods(), false);
+                        self.problematic_mod_id = None;
                     }
                 }
                 for e in &i.events {

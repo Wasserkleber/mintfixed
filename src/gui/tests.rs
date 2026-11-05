@@ -99,18 +99,23 @@ fn all_sort_categories_support_both_directions_and_missing_metadata() {
         for direction in [false, true] {
             let config = sorting(category, direction);
             let calls = std::cell::Cell::new(0);
-            let order = sorted_mod_indices(None, [Some(&zulu), Some(&alpha)], Some(&config), |spec| {
-                calls.set(calls.get() + 1);
-                metadata(spec)
-            });
+            let order =
+                sorted_mod_indices(None, [Some(&zulu), Some(&alpha)], Some(&config), |spec| {
+                    calls.set(calls.get() + 1);
+                    metadata(spec)
+                });
             assert_eq!(
                 order,
                 if direction { [0, 1] } else { [1, 0] },
                 "{category:?}"
             );
             assert_eq!(calls.get(), 2);
-            let order =
-                sorted_mod_indices(None, [Some(&zulu), None, Some(&alpha)], Some(&config), |_| None);
+            let order = sorted_mod_indices(
+                None,
+                [Some(&zulu), None, Some(&alpha)],
+                Some(&config),
+                |_| None,
+            );
             assert_eq!(order, [0, 1, 2]);
             assert!(sorted_mod_indices(None, [], Some(&config), |_| None).is_empty());
             assert_eq!(
@@ -166,7 +171,8 @@ fn adjacent_mods_sort_with_one_missing_metadata() {
     ] {
         for (direction, expected) in [(false, normal), (true, reversed)] {
             for mods in [[&known, &missing], [&missing, &known]] {
-                let order = sorted_mod_indices(None,
+                let order = sorted_mod_indices(
+                    None,
                     mods.map(Some),
                     Some(&sorting(category, direction)),
                     |spec| (spec.url == known.spec.url).then(|| metadata.clone()),
@@ -206,10 +212,12 @@ fn adjacent_mods_sort_with_both_missing_metadata() {
     ] {
         for (direction, expected) in [(false, normal), (true, reversed)] {
             for mods in [[&alpha, &zulu], [&zulu, &alpha]] {
-                let order =
-                    sorted_mod_indices(None, mods.map(Some), Some(&sorting(category, direction)), |_| {
-                        None
-                    });
+                let order = sorted_mod_indices(
+                    None,
+                    mods.map(Some),
+                    Some(&sorting(category, direction)),
+                    |_| None,
+                );
                 let sorted_urls: Vec<_> = order
                     .iter()
                     .map(|&index| mods[index].spec.url.as_str())
@@ -236,8 +244,11 @@ impl TestApp {
         let context = egui::Context::default();
         let dirs = Dirs::from_path(directory.path()).unwrap();
         // UI fixtures must not depend on the build's optional first-run preset.
-        std::fs::write(dirs.config_dir.join("mod_data.json"),
-            serde_json::to_vec(&crate::state::VersionAnnotatedModData::default()).unwrap()).unwrap();
+        std::fs::write(
+            dirs.config_dir.join("mod_data.json"),
+            serde_json::to_vec(&crate::state::VersionAnnotatedModData::default()).unwrap(),
+        )
+        .unwrap();
         let app = App::new(
             &eframe::CreationContext::_new_kittest(context.clone()),
             dirs,
@@ -402,7 +413,11 @@ fn sorted_group_toggle_preserves_identical_standalone_entry() {
         },
     );
     let second_profile = test.app.state.mod_data.profiles["default"].duplicate();
-    test.app.state.mod_data.profiles.insert("second".into(), second_profile);
+    test.app
+        .state
+        .mod_data
+        .profiles
+        .insert("second".into(), second_profile);
     test.app.update_sorting_config(Some(SortBy::Name), false);
     test.open_group("Group");
     let output = test.frame(vec![]);
@@ -472,17 +487,41 @@ fn dropping_files_on_closed_group_prepends_batch_and_opens_it() {
     let existing = test.local_mod("existing.pak");
     let a = test.local_mod("a.pak").spec;
     let b = test.local_mod("b.pak").spec;
-    test.app.state.mod_data.groups.insert("Tools".into(), ModGroup { id: crate::state::new_id(), description: None, mods: vec![existing] });
-    test.app.state.mod_data.profiles.get_mut("default").unwrap().mods = vec![ModOrGroup::Group {
+    test.app.state.mod_data.groups.insert(
+        "Tools".into(),
+        ModGroup {
+            id: crate::state::new_id(),
+            description: None,
+            mods: vec![existing],
+        },
+    );
+    test.app
+        .state
+        .mod_data
+        .profiles
+        .get_mut("default")
+        .unwrap()
+        .mods = vec![ModOrGroup::Group {
         id: crate::state::new_id(),
-        group_name: "Tools".into(), enabled: true, member_overrides: Default::default(),
+        group_name: "Tools".into(),
+        enabled: true,
+        member_overrides: Default::default(),
     }];
     test.frame(vec![]);
-    group_controls::add_files(&mut test.app, "default".into(), "Tools".into(), true,
-        Ok(vec![a.clone(), b.clone()]));
+    group_controls::add_files(
+        &mut test.app,
+        "default".into(),
+        "Tools".into(),
+        true,
+        Ok(vec![a.clone(), b.clone()]),
+    );
     let mods = &test.app.state.mod_data.groups["Tools"].mods;
     assert_eq!((&mods[0].spec, &mods[1].spec), (&a, &b));
-    assert!(test.app.groups_to_open.contains(&("default".into(), "Tools".into())));
+    assert!(
+        test.app
+            .groups_to_open
+            .contains(&("default".into(), "Tools".into()))
+    );
     test.frame(vec![]);
     assert!(test.app.groups_to_open.is_empty());
 }

@@ -28,7 +28,11 @@ impl<C: ConfigTrait> ConfigWrapper<C> {
 
     /// Create wrapper that lives only in memory and has no file backing
     pub fn memory(config: C) -> Self {
-        Self { save_revision: Default::default(), config, path: None }
+        Self {
+            save_revision: Default::default(),
+            config,
+            path: None,
+        }
     }
 
     /// Try our best to ensure that the config written is complete to protect against partial
@@ -42,12 +46,14 @@ impl<C: ConfigTrait> ConfigWrapper<C> {
         if let Some(final_path) = &self.path {
             write_atomic(final_path, &self.config)?;
         }
-        self.save_revision.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        self.save_revision
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         Ok(())
     }
 
     pub fn revision(&self) -> u64 {
-        self.save_revision.load(std::sync::atomic::Ordering::Relaxed)
+        self.save_revision
+            .load(std::sync::atomic::Ordering::Relaxed)
     }
 }
 

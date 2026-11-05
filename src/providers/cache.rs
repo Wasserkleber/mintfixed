@@ -165,7 +165,10 @@ pub(crate) fn read_cache_metadata_or_default(
                 // HACK: workaround a serde issue relating to flattening with tags involving
                 // numeric keys in hashmaps, see <https://github.com/serde-rs/serde/issues/1183>.
                 match serde_json::from_slice::<HashMap<String, Box<dyn ModProviderCache>>>(&buf) {
-                    Ok(c) => MaybeVersionedCache::Legacy(Cache_v0_0_0 { cache: c, revision: 0 }),
+                    Ok(c) => MaybeVersionedCache::Legacy(Cache_v0_0_0 {
+                        cache: c,
+                        revision: 0,
+                    }),
                     Err(e) => Err(e).context(DeserializeLegacyCacheFailedSnafu)?,
                 }
             }

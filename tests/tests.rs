@@ -1,2 +1,2 @@
-mod lint;
 mod cache_cleanup;
+mod lint;
