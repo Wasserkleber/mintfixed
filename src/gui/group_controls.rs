@@ -193,6 +193,15 @@ struct RenameEditor {
     selected: String,
     name: String,
     error: Option<String>,
+    picker_open: bool,
+}
+
+#[derive(Clone, Default)]
+struct DeleteEditor {
+    selected: String,
+    picker_open: bool,
+    confirming: bool,
+    error: Option<String>,
 }
 
 /// Renaming changes the shared collection's label, never its contents or order.
@@ -214,6 +223,18 @@ fn rename_group(data: &mut Data, old: &str, requested: &str) -> Result<bool, &'s
     Ok(true)
 }
 
+/// Delete the shared collection and detach it from every profile.
+/// Standalone mods and other groups are untouched.
+fn delete_group(data: &mut Data, name: &str) -> Result<(), &'static str> {
+    if data.groups.remove(name).is_none() {
+        return Err("That group no longer exists");
+    }
+    for profile in data.profiles.values_mut() {
+        profile.mods.retain(|item| !matches!(item, ModOrGroup::Group { group_name, .. } if group_name == name));
+    }
+    Ok(())
+}
+
 pub(super) fn controls(ui: &mut Ui, data: &mut Data, name: &mut String, files_pending: bool) -> bool {
     let profile = data.profiles.get_mut(&data.active_profile).unwrap();
     let mut changed = false;
@@ -223,9 +244,15 @@ pub(super) fn controls(ui: &mut Ui, data: &mut Data, name: &mut String, files_pe
     let button = ui.add(Button::image(image)).on_hover_text("Groups");
     let popup = button.id.with("groups-menu");
     let editor_id = popup.with("rename-editor");
+    let delete_id = popup.with("delete-editor");
     let mut editor = ui.ctx().data_mut(|d| d.get_temp::<RenameEditor>(editor_id)).unwrap_or_default();
+    let mut delete_editor = ui.ctx().data_mut(|d| d.get_temp::<DeleteEditor>(delete_id)).unwrap_or_default();
     let mut requested_rename = None;
+    let mut requested_delete = None;
     if button.clicked() {
+        editor.picker_open = false;
+        delete_editor.picker_open = false;
+        delete_editor.confirming = false;
         ui.memory_mut(|mem| mem.toggle_popup(popup));
     }
     egui::popup_below_widget(ui, popup, &button, egui::PopupCloseBehavior::CloseOnClickOutside, |ui| {
@@ -253,7 +280,8 @@ pub(super) fn controls(ui: &mut Ui, data: &mut Data, name: &mut String, files_pe
             egui::CollapsingHeader::new("Add existing group")
                 .id_salt(("attach-existing", &data.active_profile))
                 .show(ui, |ui| {
-                    egui::ScrollArea::vertical().max_height(200.0).show(ui, |ui| {
+                    // Keep the expanded list compact; additional groups remain scrollable.
+                    egui::ScrollArea::vertical().max_height(140.0).show(ui, |ui| {
                         for key in eligible {
                             if ui.button(key.as_str()).clicked() {
                                 attach(profile, key);
@@ -271,21 +299,47 @@ pub(super) fn controls(ui: &mut Ui, data: &mut Data, name: &mut String, files_pe
                 ui.label("No groups to rename.");
                 return;
             }
-            if !data.groups.contains_key(&editor.selected) {
-                editor.selected = data.groups.keys().next().unwrap().clone();
-                editor.name = editor.selected.clone();
+            // Don't select the first group automatically. Require an explicit choice.
+            if !editor.selected.is_empty() && !data.groups.contains_key(&editor.selected) {
+                editor.selected.clear();
+                editor.name.clear();
                 editor.error = None;
+                editor.picker_open = false;
             }
-            let previous = editor.selected.clone();
-            egui::ComboBox::from_id_salt("rename-group-picker")
-                .selected_text(&editor.selected).show_ui(ui, |ui| {
+            // A compact button, not an input field or a nested popup.
+            // Draw the chevron ourselves so it works with fonts lacking arrow glyphs.
+            let response = ui.add(
+                Button::new(format!("{}    ", if editor.selected.is_empty() {
+                    "Choose group"
+                } else {
+                    editor.selected.as_str()
+                }))
+                    .min_size(egui::vec2(110.0, ui.spacing().interact_size.y)),
+            ).on_hover_text("Choose a group to rename");
+            if response.clicked() {
+                editor.picker_open = !editor.picker_open;
+            }
+            let x = response.rect.right() - 12.0;
+            let y = response.rect.center().y;
+            let arrow = if editor.picker_open {
+                vec![egui::pos2(x - 4.0, y + 2.0), egui::pos2(x + 4.0, y + 2.0), egui::pos2(x, y - 2.0)]
+            } else {
+                vec![egui::pos2(x - 4.0, y - 2.0), egui::pos2(x + 4.0, y - 2.0), egui::pos2(x, y + 2.0)]
+            };
+            ui.painter().add(egui::Shape::convex_polygon(
+                arrow, ui.visuals().text_color(), egui::Stroke::NONE,
+            ));
+            if editor.picker_open {
+                egui::ScrollArea::vertical().max_height(140.0).show(ui, |ui| {
                     for key in data.groups.keys() {
-                        ui.selectable_value(&mut editor.selected, key.clone(), key.as_str());
+                        if ui.selectable_label(editor.selected == key.as_str(), key.as_str()).clicked() {
+                            editor.selected = key.clone();
+                            editor.name = key.clone();
+                            editor.error = None;
+                            editor.picker_open = false;
+                        }
                     }
                 });
-            if editor.selected != previous {
-                editor.name = editor.selected.clone();
-                editor.error = None;
             }
             ui.label("New name");
             if ui.text_edit_singleline(&mut editor.name).changed() { editor.error = None; }
@@ -294,7 +348,7 @@ pub(super) fn controls(ui: &mut Ui, data: &mut Data, name: &mut String, files_pe
                 ui.label("Wait for dropped files to finish before renaming.");
             }
             let trimmed = editor.name.trim();
-            let available = !trimmed.is_empty() && trimmed != editor.selected
+            let available = !editor.selected.is_empty() && !trimmed.is_empty() && trimmed != editor.selected
                 && !data.groups.contains_key(trimmed);
             if !trimmed.is_empty() && trimmed != editor.selected && data.groups.contains_key(trimmed) {
                 ui.colored_label(ui.visuals().warn_fg_color, "A group with that name already exists.");
@@ -304,12 +358,84 @@ pub(super) fn controls(ui: &mut Ui, data: &mut Data, name: &mut String, files_pe
             }
             if let Some(error) = &editor.error { ui.colored_label(ui.visuals().warn_fg_color, error); }
         });
+        ui.separator();
+        egui::CollapsingHeader::new("Delete group")
+            .id_salt("delete-group-section")
+            .show(ui, |ui| {
+                if data.groups.is_empty() {
+                    ui.label("No groups to delete.");
+                    return;
+                }
+                if !delete_editor.selected.is_empty() && !data.groups.contains_key(&delete_editor.selected) {
+                    delete_editor = DeleteEditor::default();
+                }
+                // The selector stays inside the Groups popup, avoiding nested popup issues.
+                let response = ui.add(
+                    Button::new(format!("{}    ", if delete_editor.selected.is_empty() {
+                        "Choose group"
+                    } else {
+                        delete_editor.selected.as_str()
+                    }))
+                    .min_size(egui::vec2(110.0, ui.spacing().interact_size.y)),
+                ).on_hover_text("Choose a group to delete");
+                if response.clicked() {
+                    delete_editor.picker_open = !delete_editor.picker_open;
+                    delete_editor.confirming = false;
+                }
+                let x = response.rect.right() - 12.0;
+                let y = response.rect.center().y;
+                let arrow = if delete_editor.picker_open {
+                    vec![egui::pos2(x - 4.0, y + 2.0), egui::pos2(x + 4.0, y + 2.0), egui::pos2(x, y - 2.0)]
+                } else {
+                    vec![egui::pos2(x - 4.0, y - 2.0), egui::pos2(x + 4.0, y - 2.0), egui::pos2(x, y + 2.0)]
+                };
+                ui.painter().add(egui::Shape::convex_polygon(
+                    arrow, ui.visuals().text_color(), egui::Stroke::NONE,
+                ));
+                if delete_editor.picker_open {
+                    egui::ScrollArea::vertical().max_height(140.0).show(ui, |ui| {
+                        for key in data.groups.keys() {
+                            if ui.selectable_label(delete_editor.selected == key.as_str(), key.as_str()).clicked() {
+                                delete_editor.selected = key.clone();
+                                delete_editor.picker_open = false;
+                                delete_editor.confirming = false;
+                                delete_editor.error = None;
+                            }
+                        }
+                    });
+                }
+                if files_pending {
+                    ui.label("Wait for dropped files to finish before deleting.");
+                }
+                if delete_editor.confirming {
+                    ui.colored_label(ui.visuals().warn_fg_color,
+                        format!("Delete \"{}\" from every profile? All mods within this shared group will be removed from the profiles.", delete_editor.selected));
+                    ui.horizontal(|ui| {
+                        if ui.button("Cancel").clicked() {
+                            delete_editor.confirming = false;
+                        }
+                        if ui.add_enabled(!files_pending, Button::new("Confirm delete")).clicked() {
+                            requested_delete = Some(delete_editor.selected.clone());
+                        }
+                    });
+                } else if ui.add_enabled(!delete_editor.selected.is_empty() && !files_pending,
+                    Button::new("Delete group")).clicked() {
+                    delete_editor.confirming = true;
+                }
+                if let Some(error) = &delete_editor.error {
+                    ui.colored_label(ui.visuals().warn_fg_color, error);
+                }
+            });
     });
     if let Some((old, new)) = requested_rename {
         match rename_group(data, &old, &new) {
             Ok(renamed) => {
                 changed |= renamed;
                 editor.selected = new.clone();
+                if delete_editor.selected == old {
+                    delete_editor.selected = new.clone();
+                    delete_editor.confirming = false;
+                }
                 editor.name = new;
                 editor.error = None;
                 egui::DragAndDrop::clear_payload(ui.ctx());
@@ -318,7 +444,27 @@ pub(super) fn controls(ui: &mut Ui, data: &mut Data, name: &mut String, files_pe
             Err(error) => editor.error = Some(error.to_owned()),
         }
     }
-    ui.ctx().data_mut(|d| d.insert_temp(editor_id, editor));
+    if let Some(target) = requested_delete {
+        match delete_group(data, &target) {
+            Ok(()) => {
+                changed = true;
+                delete_editor = DeleteEditor::default();
+                if editor.selected == target {
+                    editor = RenameEditor::default();
+                }
+                egui::DragAndDrop::clear_payload(ui.ctx());
+                ui.memory_mut(|mem| mem.close_popup());
+            }
+            Err(error) => {
+                delete_editor.confirming = false;
+                delete_editor.error = Some(error.to_owned());
+            }
+        }
+    }
+    ui.ctx().data_mut(|d| {
+        d.insert_temp(editor_id, editor);
+        d.insert_temp(delete_id, delete_editor);
+    });
     changed
 }
 
@@ -552,6 +698,25 @@ mod rename_tests {
         let mut restored: Data = serde_json::from_value(serde_json::to_value(&data).unwrap()).unwrap();
         rename_group(&mut restored, "Utilities", "Tools").unwrap();
         assert_eq!(serde_json::to_value(&restored).unwrap(), before);
+    }
+
+    #[test]
+    fn delete_shared_group_removes_references_from_all_profiles() {
+        let mut data = fixture();
+        delete_group(&mut data, "Tools").unwrap();
+        assert!(!data.groups.contains_key("Tools"));
+        assert!(data.groups.contains_key("Other"));
+        assert_eq!(data.profiles["A"].mods.len(), 1);
+        assert!(matches!(data.profiles["A"].mods[0], ModOrGroup::Individual(_)));
+        assert!(data.profiles["B"].mods.is_empty());
+    }
+
+    #[test]
+    fn delete_missing_group_does_not_change_data() {
+        let mut data = fixture();
+        let before = serde_json::to_value(&data).unwrap();
+        assert!(delete_group(&mut data, "Missing").is_err());
+        assert_eq!(serde_json::to_value(&data).unwrap(), before);
     }
 
     #[test]
