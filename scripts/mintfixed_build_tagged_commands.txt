@@ -1,0 +1,100 @@
+MINTFIXED - TAG-NAMED EXECUTABLE: COMMAND CHEAT SHEET
+===================================================
+Run these commands in PowerShell from your repository folder:
+  C:\Users\Wasserkleber\mint
+
+1) BUILD AND CREATE THE AUTOMATICALLY NAMED .EXE
+-------------------------------------------------
+  powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\build_tagged.ps1
+
+This runs cargo build --release, then copies target\release\mint.exe to
+another .exe with a version-derived filename in target\release\.
+Normal Cargo builds still produce mint.exe.
+
+2) VIEW THE GENERATED EXECUTABLES
+---------------------------------
+  Get-ChildItem .\target\release\mintfixed*.exe
+
+Check the version embedded in the original Cargo binary:
+  .\target\release\mint.exe --version
+
+3) CHECK YOUR CURRENT GIT VERSION
+---------------------------------
+  git status --short
+  git log -1 --oneline
+  git tag --points-at HEAD
+  git fetch origin --tags
+
+An exact release tag on HEAD and a clean working tree are required
+for a release-tagged filename. Otherwise the script produces a dev filename.
+
+Example filenames:
+  Tagged clean HEAD:     mintfixed_1.4.exe
+  Tagged beta clean:     mintfixed_1.4-beta.1.exe
+  Untagged HEAD:         mintfixed_dev_<short-sha>.exe
+  Modified working tree: mintfixed_dev_<short-sha>_modified.exe
+
+4) PREPARE A RELEASE (ONLY WHEN READY)
+--------------------------------------
+Review your changes:
+  git status
+  git diff
+
+Stage ONLY the intended files, for example:
+  git add .github/workflows/release.yml mint_lib/ src/ scripts/ tests/
+
+Commit, then push your current beta branch:
+  git commit -m "Prepare mintfixed v1.4"
+  git push origin beta
+
+IMPORTANT: If other files or changes are already staged, review them
+with 'git diff --cached' before committing. Ensure 'git status --short'
+is empty before tagging/building an official release.
+
+5) CREATE AND PUSH AN ANNOTATED RELEASE TAG
+-------------------------------------------
+Stable release (example):
+  git tag -a mintfixed_1.4 -m "mintfixed v1.4"
+  git push origin mintfixed_1.4
+
+OR beta release (example; use this instead of the stable tag):
+  git tag -a mintfixed_1.4-beta.1 -m "mintfixed v1.4 Beta 1"
+  git push origin mintfixed_1.4-beta.1
+
+Confirm the tag is on your current commit:
+  git tag --points-at HEAD
+
+Then build the named executable:
+  powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\build_tagged.ps1
+
+6) OPTIONAL SCRIPT ARGUMENTS
+----------------------------
+Build and place the named executable in a separate dist folder:
+  powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\build_tagged.ps1 -OutputDirectory dist
+
+Package an ALREADY COMPILED exact-tag binary (used by CI):
+  powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\build_tagged.ps1 -NoBuild -Tag mintfixed_1.4 -OutputDirectory dist
+
+Note: -NoBuild does NOT rebuild the binary. The existing mint.exe must
+already contain the exact tag version, matching HEAD. The script checks
+this and rejects a mismatch. To build with an explicit release tag:
+  powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\build_tagged.ps1 -Tag mintfixed_1.4
+
+7) PUBLISH ON GITHUB
+--------------------
+After pushing your tag, create and PUBLISH a GitHub Release for that tag:
+  https://github.com/Wasserkleber/mintfixed/releases/new
+
+The current workflow is intended to run on release publication, not
+on tag push alone. Mark beta releases as pre-releases.
+
+8) COMMON NOTES
+---------------
+- The copied executable is in target\release\ unless -OutputDirectory is set.
+- Cargo itself always builds target\release\mint.exe; the script copies it.
+- Uncommitted changes show as _modified in the DEV filename.
+- New commits after a tag are DEV builds until you tag that commit.
+- You do not need 'cargo clean' after creating a new tag.
+- Old named .exe files are NOT deleted automatically by this script.
+- Keep scripts/build_tagged.ps1 tracked in Git; do not put it in .gitignore.
+- For signed-script restrictions, use the 'powershell -ExecutionPolicy Bypass -File' commands above.

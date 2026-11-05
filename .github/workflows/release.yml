@@ -70,8 +70,11 @@ jobs:
         shell: pwsh
         run: |
           $asset = "${env:MINTFIXED_RELEASE_TAG}_windows_x86_64.zip"
-          Compress-Archive -Path 'target/release/mint.exe' -DestinationPath $asset -Force
+          & ./scripts/build_tagged.ps1 -NoBuild -Tag $env:MINTFIXED_RELEASE_TAG -OutputDirectory 'dist'
+          $executable = "dist/$($env:MINTFIXED_RELEASE_TAG).exe"
+          Compress-Archive -Path $executable -DestinationPath $asset -Force
           "RELEASE_ASSET=$asset" >> $env:GITHUB_ENV
+          "RELEASE_EXECUTABLE=$executable" >> $env:GITHUB_ENV
 
       - name: Package Linux executable
         if: runner.os == 'Linux'
@@ -83,4 +86,9 @@ jobs:
 
       - name: Upload executable to the existing published release
         shell: bash
-        run: gh release upload "$MINTFIXED_RELEASE_TAG" "$RELEASE_ASSET" --clobber --repo "$GITHUB_REPOSITORY"
+        run: |
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            gh release upload "$MINTFIXED_RELEASE_TAG" "$RELEASE_ASSET" "$RELEASE_EXECUTABLE" --clobber --repo "$GITHUB_REPOSITORY"
+          else
+            gh release upload "$MINTFIXED_RELEASE_TAG" "$RELEASE_ASSET" --clobber --repo "$GITHUB_REPOSITORY"
+          fi
