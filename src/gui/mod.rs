@@ -559,7 +559,7 @@ impl App {
 
                     if issues.duplicate(group, row_index)
                         && ui
-                            .button(egui::RichText::new("âš ").color(ui.visuals().warn_fg_color))
+                            .button(egui::RichText::new("⚠").color(ui.visuals().warn_fg_color))
                             .on_hover_text("Remove this duplicate entry")
                             .clicked()
                     {
@@ -1347,7 +1347,7 @@ impl App {
 
                         for provider_factory in ModStore::get_provider_factories() {
                             ui.label(provider_factory.id);
-                            if ui.add_enabled(!provider_factory.parameters.is_empty(), egui::Button::new("âš™"))
+                            if ui.add_enabled(!provider_factory.parameters.is_empty(), egui::Button::new("⚙"))
                                     .on_hover_text(format!("Open \"{}\" settings", provider_factory.id))
                                     .clicked() {
                                 self.window_provider_parameters = Some(
@@ -1549,7 +1549,7 @@ impl App {
                                 if let Some(conflicting_mods) = &report.conflicting_mods
                                     && !conflicting_mods.is_empty() {
                                         CollapsingHeader::new(
-                                            RichText::new("âš  Mods(s) with conflicting asset modifications detected")
+                                            RichText::new("⚠ Mods(s) with conflicting asset modifications detected")
                                                 .color(AMBER),
                                         )
                                         .default_open(true)
@@ -1557,7 +1557,7 @@ impl App {
                                             conflicting_mods.iter().for_each(|(path, mods)| {
                                                 CollapsingHeader::new(
                                                     RichText::new(format!(
-                                                        "âš  Conflicting modification of asset `{path}`"
+                                                        "⚠ Conflicting modification of asset `{path}`"
                                                     ))
                                                     .color(AMBER),
                                                 )
@@ -1604,7 +1604,7 @@ impl App {
                                     && !shader_file_mods.is_empty() {
                                         CollapsingHeader::new(
                                             RichText::new(
-                                                "âš  Mods(s) with shader files included detected",
+                                                "⚠ Mods(s) with shader files included detected",
                                             )
                                             .color(AMBER),
                                         )
@@ -1614,7 +1614,7 @@ impl App {
                                                 |(r#mod, shader_files)| {
                                                     CollapsingHeader::new(
                                                         RichText::new(format!(
-                                                            "âš  {} includes one or more shader files",
+                                                            "⚠ {} includes one or more shader files",
                                                             r#mod.url
                                                         ))
                                                         .color(AMBER),
@@ -1633,7 +1633,7 @@ impl App {
                                     && !outdated_pak_version_mods.is_empty() {
                                         CollapsingHeader::new(
                                             RichText::new(
-                                                "âš  Mod(s) with outdated pak version detected",
+                                                "⚠ Mod(s) with outdated pak version detected",
                                             )
                                             .color(AMBER),
                                         )
@@ -1643,7 +1643,7 @@ impl App {
                                                 |(r#mod, version)| {
                                                     ui.label(
                                                         RichText::new(format!(
-                                                            "âš  {} includes outdated pak version {}",
+                                                            "⚠ {} includes outdated pak version {}",
                                                             r#mod.url, version
                                                         ))
                                                         .color(AMBER),
@@ -1657,7 +1657,7 @@ impl App {
                                     && !empty_archive_mods.is_empty() {
                                         CollapsingHeader::new(
                                             RichText::new(
-                                                "âš  Mod(s) with empty archives detected",
+                                                "⚠ Mod(s) with empty archives detected",
                                             )
                                             .color(AMBER),
                                         )
@@ -1666,7 +1666,7 @@ impl App {
                                             empty_archive_mods.iter().for_each(|r#mod| {
                                                 ui.label(
                                                     RichText::new(format!(
-                                                        "âš  {} contains an empty archive",
+                                                        "⚠ {} contains an empty archive",
                                                         r#mod.url
                                                     ))
                                                     .color(AMBER),
@@ -1679,7 +1679,7 @@ impl App {
                                     && !archive_with_only_non_pak_files_mods.is_empty() {
                                         CollapsingHeader::new(
                                             RichText::new(
-                                                "âš  Mod(s) with only non-`.pak` files detected",
+                                                "⚠ Mod(s) with only non-`.pak` files detected",
                                             )
                                             .color(AMBER),
                                         )
@@ -1688,7 +1688,7 @@ impl App {
                                             archive_with_only_non_pak_files_mods.iter().for_each(|r#mod| {
                                                 ui.label(
                                                     RichText::new(format!(
-                                                        "âš  {} contains only non-`.pak` files, perhaps the author forgot to pack it?",
+                                                        "⚠ {} contains only non-`.pak` files, perhaps the author forgot to pack it?",
                                                         r#mod.url
                                                     ))
                                                     .color(AMBER),
@@ -1701,7 +1701,7 @@ impl App {
                                     && !archive_with_multiple_paks_mods.is_empty() {
                                         CollapsingHeader::new(
                                             RichText::new(
-                                                "âš  Mod(s) with multiple `.pak`s detected",
+                                                "⚠ Mod(s) with multiple `.pak`s detected",
                                             )
                                             .color(AMBER),
                                         )
@@ -1709,7 +1709,7 @@ impl App {
                                         .show(ui, |ui| {
                                             archive_with_multiple_paks_mods.iter().for_each(|r#mod| {
                                                 ui.label(RichText::new(format!(
-                                                    "âš  {} contains multiple `.pak`s, only the first encountered `.pak` will be loaded",
+                                                    "⚠ {} contains multiple `.pak`s, only the first encountered `.pak` will be loaded",
                                                     r#mod.url
                                                 ))
                                                 .color(AMBER));
@@ -1721,7 +1721,7 @@ impl App {
                                     && !non_asset_file_mods.is_empty() {
                                         CollapsingHeader::new(
                                             RichText::new(
-                                                "âš  Mod(s) with non-asset files detected",
+                                                "⚠ Mod(s) with non-asset files detected",
                                             )
                                             .color(AMBER),
                                         )
@@ -1730,7 +1730,7 @@ impl App {
                                             non_asset_file_mods.iter().for_each(|(r#mod, files)| {
                                                 CollapsingHeader::new(
                                                     RichText::new(format!(
-                                                        "âš  {} includes non-asset files",
+                                                        "⚠ {} includes non-asset files",
                                                         r#mod.url
                                                     ))
                                                     .color(AMBER),
@@ -1748,7 +1748,7 @@ impl App {
                                     && !split_asset_pairs_mods.is_empty() {
                                         CollapsingHeader::new(
                                             RichText::new(
-                                                "âš  Mod(s) with split {uexp, uasset} pairs detected",
+                                                "⚠ Mod(s) with split {uexp, uasset} pairs detected",
                                             )
                                             .color(AMBER),
                                         )
@@ -1757,7 +1757,7 @@ impl App {
                                             split_asset_pairs_mods.iter().for_each(|(r#mod, files)| {
                                                 CollapsingHeader::new(
                                                     RichText::new(format!(
-                                                        "âš  {} includes split {{uexp, uasset}} pairs",
+                                                        "⚠ {} includes split {{uexp, uasset}} pairs",
                                                         r#mod.url
                                                     ))
                                                     .color(AMBER),
@@ -1782,7 +1782,7 @@ impl App {
                                     && !unmodified_game_assets_mods.is_empty() {
                                         CollapsingHeader::new(
                                             RichText::new(
-                                                "âš  Mod(s) with unmodified game assets detected",
+                                                "⚠ Mod(s) with unmodified game assets detected",
                                             )
                                             .color(AMBER),
                                         )
@@ -1791,7 +1791,7 @@ impl App {
                                             unmodified_game_assets_mods.iter().for_each(|(r#mod, files)| {
                                                 CollapsingHeader::new(
                                                     RichText::new(format!(
-                                                        "âš  {} includes unmodified game assets",
+                                                        "⚠ {} includes unmodified game assets",
                                                         r#mod.url
                                                     ))
                                                     .color(AMBER),
@@ -2212,7 +2212,7 @@ impl eframe::App for App {
                 {
                     self.lints_toggle_window = Some(WindowLintsToggle);
                 }
-                if ui.button("âš™").on_hover_text("Open settings").clicked() {
+                if ui.button("⚙").on_hover_text("Open settings").clicked() {
                     self.settings_window = Some(WindowSettings::new(&self.state));
                 }
                 if let Some(available_update) = &self.available_update
