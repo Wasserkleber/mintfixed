@@ -4,7 +4,6 @@
 //! It does not contact GitHub and does not change the Cargo/package/update version.
 
 use std::cmp::Ordering;
-use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
@@ -72,7 +71,6 @@ impl ReleaseNumber {
 #[derive(Debug)]
 struct Candidate {
     name: String,
-    commit: String,
     distance: u64,
     release: Option<ReleaseNumber>,
 }
@@ -198,7 +196,7 @@ fn collect_candidates(repo: &Path, sha: &str, shallow: bool) -> Vec<Candidate> {
             .and_then(|value| value.parse::<u64>().ok()) else {
             continue;
         };
-        candidates.push(Candidate { name: name.to_owned(), commit, distance, release });
+        candidates.push(Candidate { name: name.to_owned(), distance, release });
     }
     candidates
 }
@@ -248,7 +246,7 @@ pub fn resolve(working_dir: &Path, cargo_version: &str, release_tag: Option<&str
             return Err(format!("release tag {tag:?} resolves to {tag_sha}, but HEAD is {sha}"));
         }
         Some(Candidate {
-            name: tag.to_owned(), commit: tag_sha, distance: 0,
+            name: tag.to_owned(), distance: 0,
             release: ReleaseNumber::from_tag(tag),
         })
     } else {
@@ -363,6 +361,7 @@ pub fn write_generated(out_dir: &Path, info: &BuildVersion) -> std::io::Result<(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::env;
     use std::time::{SystemTime, UNIX_EPOCH};
 
     struct Repo(PathBuf);

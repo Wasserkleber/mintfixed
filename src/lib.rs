@@ -1,5 +1,3 @@
-#![feature(if_let_guard)]
-
 pub mod gui;
 pub mod integrate;
 mod preinstall;
