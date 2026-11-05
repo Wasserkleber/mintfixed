@@ -204,6 +204,14 @@ struct DeleteEditor {
     error: Option<String>,
 }
 
+#[derive(Clone, Default)]
+struct DuplicateEditor {
+    selected: String,
+    name: String,
+    picker_open: bool,
+    error: Option<String>,
+}
+
 /// Renaming changes the shared collection's label, never its contents or order.
 fn rename_group(data: &mut Data, old: &str, requested: &str) -> Result<bool, &'static str> {
     let name = requested.trim();
@@ -235,6 +243,37 @@ fn delete_group(data: &mut Data, name: &str) -> Result<(), &'static str> {
     Ok(())
 }
 
+/// Create a separate shared group with the same members and their settings.
+/// Only the active profile gets a reference to the new group.
+fn duplicate_group(data: &mut Data, source: &str, requested: &str) -> Result<String, &'static str> {
+    let name = requested.trim();
+    if name.is_empty() { return Err("Enter a name for the duplicate group"); }
+    if data.groups.contains_key(name) { return Err("A group with that name already exists"); }
+    let copy = data.groups.get(source).ok_or("That group no longer exists")?.clone();
+
+    // Keep this profile's switches when the source group is attached here.
+    let reference = data.profiles[&data.active_profile].mods.iter().find_map(|item| {
+        if let ModOrGroup::Group { group_name, enabled, member_overrides } = item
+            && group_name == source
+        {
+            Some(ModOrGroup::Group {
+                group_name: name.to_owned(),
+                enabled: *enabled,
+                member_overrides: member_overrides.clone(),
+            })
+        } else {
+            None
+        }
+    }).unwrap_or(ModOrGroup::Group {
+        group_name: name.to_owned(),
+        enabled: true,
+        member_overrides: Default::default(),
+    });
+    data.groups.insert(name.to_owned(), copy);
+    data.profiles.get_mut(&data.active_profile).unwrap().mods.insert(0, reference);
+    Ok(name.to_owned())
+}
+
 pub(super) fn controls(ui: &mut Ui, data: &mut Data, name: &mut String, files_pending: bool) -> bool {
     let profile = data.profiles.get_mut(&data.active_profile).unwrap();
     let mut changed = false;
@@ -244,13 +283,17 @@ pub(super) fn controls(ui: &mut Ui, data: &mut Data, name: &mut String, files_pe
     let button = ui.add(Button::image(image)).on_hover_text("Groups");
     let popup = button.id.with("groups-menu");
     let editor_id = popup.with("rename-editor");
+    let duplicate_id = popup.with("duplicate-editor");
     let delete_id = popup.with("delete-editor");
     let mut editor = ui.ctx().data_mut(|d| d.get_temp::<RenameEditor>(editor_id)).unwrap_or_default();
+    let mut duplicate_editor = ui.ctx().data_mut(|d| d.get_temp::<DuplicateEditor>(duplicate_id)).unwrap_or_default();
     let mut delete_editor = ui.ctx().data_mut(|d| d.get_temp::<DeleteEditor>(delete_id)).unwrap_or_default();
     let mut requested_rename = None;
+    let mut requested_duplicate = None;
     let mut requested_delete = None;
     if button.clicked() {
         editor.picker_open = false;
+        duplicate_editor.picker_open = false;
         delete_editor.picker_open = false;
         delete_editor.confirming = false;
         ui.memory_mut(|mem| mem.toggle_popup(popup));
@@ -359,6 +402,72 @@ pub(super) fn controls(ui: &mut Ui, data: &mut Data, name: &mut String, files_pe
             if let Some(error) = &editor.error { ui.colored_label(ui.visuals().warn_fg_color, error); }
         });
         ui.separator();
+        egui::CollapsingHeader::new("Duplicate group")
+            .id_salt("duplicate-group-section")
+            .show(ui, |ui| {
+                if data.groups.is_empty() {
+                    ui.label("No groups to duplicate.");
+                    return;
+                }
+                if !duplicate_editor.selected.is_empty() && !data.groups.contains_key(&duplicate_editor.selected) {
+                    duplicate_editor = DuplicateEditor::default();
+                }
+                let response = ui.add(
+                    Button::new(format!("{}    ", if duplicate_editor.selected.is_empty() {
+                        "Choose group"
+                    } else {
+                        duplicate_editor.selected.as_str()
+                    }))
+                    .min_size(egui::vec2(110.0, ui.spacing().interact_size.y)),
+                ).on_hover_text("Choose a group to duplicate");
+                if response.clicked() {
+                    duplicate_editor.picker_open = !duplicate_editor.picker_open;
+                }
+                let x = response.rect.right() - 12.0;
+                let y = response.rect.center().y;
+                let arrow = if duplicate_editor.picker_open {
+                    vec![egui::pos2(x - 4.0, y + 2.0), egui::pos2(x + 4.0, y + 2.0), egui::pos2(x, y - 2.0)]
+                } else {
+                    vec![egui::pos2(x - 4.0, y - 2.0), egui::pos2(x + 4.0, y - 2.0), egui::pos2(x, y + 2.0)]
+                };
+                ui.painter().add(egui::Shape::convex_polygon(
+                    arrow, ui.visuals().text_color(), egui::Stroke::NONE,
+                ));
+                if duplicate_editor.picker_open {
+                    egui::ScrollArea::vertical().max_height(140.0).show(ui, |ui| {
+                        for key in data.groups.keys() {
+                            if ui.selectable_label(duplicate_editor.selected == key.as_str(), key.as_str()).clicked() {
+                                duplicate_editor.selected = key.clone();
+                                duplicate_editor.name.clear();
+                                duplicate_editor.error = None;
+                                duplicate_editor.picker_open = false;
+                            }
+                        }
+                    });
+                }
+                ui.label("Name for duplicate");
+                if ui.add(egui::TextEdit::singleline(&mut duplicate_editor.name)
+                    .hint_text("New group name")).changed() {
+                    duplicate_editor.error = None;
+                }
+                ui.label("Creates a separate copy in the active profile.");
+                if files_pending {
+                    ui.label("Wait for dropped files to finish before duplicating.");
+                }
+                let trimmed = duplicate_editor.name.trim();
+                if !trimmed.is_empty() && data.groups.contains_key(trimmed) {
+                    ui.colored_label(ui.visuals().warn_fg_color, "A group with that name already exists.");
+                }
+                let available = !duplicate_editor.selected.is_empty() && !trimmed.is_empty()
+                    && !data.groups.contains_key(trimmed) && !files_pending;
+                if ui.add_enabled(available, Button::new("Duplicate group")).clicked() {
+                    requested_duplicate = Some((duplicate_editor.selected.clone(), trimmed.to_owned()));
+                }
+                if let Some(error) = &duplicate_editor.error {
+                    ui.colored_label(ui.visuals().warn_fg_color, error);
+                }
+            });
+        ui.separator();
         egui::CollapsingHeader::new("Delete group")
             .id_salt("delete-group-section")
             .show(ui, |ui| {
@@ -432,6 +541,9 @@ pub(super) fn controls(ui: &mut Ui, data: &mut Data, name: &mut String, files_pe
             Ok(renamed) => {
                 changed |= renamed;
                 editor.selected = new.clone();
+                if duplicate_editor.selected == old {
+                    duplicate_editor.selected = new.clone();
+                }
                 if delete_editor.selected == old {
                     delete_editor.selected = new.clone();
                     delete_editor.confirming = false;
@@ -444,6 +556,17 @@ pub(super) fn controls(ui: &mut Ui, data: &mut Data, name: &mut String, files_pe
             Err(error) => editor.error = Some(error.to_owned()),
         }
     }
+    if let Some((source, new_name)) = requested_duplicate {
+        match duplicate_group(data, &source, &new_name) {
+            Ok(_) => {
+                changed = true;
+                duplicate_editor = DuplicateEditor::default();
+                egui::DragAndDrop::clear_payload(ui.ctx());
+                ui.memory_mut(|mem| mem.close_popup());
+            }
+            Err(error) => duplicate_editor.error = Some(error.to_owned()),
+        }
+    }
     if let Some(target) = requested_delete {
         match delete_group(data, &target) {
             Ok(()) => {
@@ -451,6 +574,9 @@ pub(super) fn controls(ui: &mut Ui, data: &mut Data, name: &mut String, files_pe
                 delete_editor = DeleteEditor::default();
                 if editor.selected == target {
                     editor = RenameEditor::default();
+                }
+                if duplicate_editor.selected == target {
+                    duplicate_editor = DuplicateEditor::default();
                 }
                 egui::DragAndDrop::clear_payload(ui.ctx());
                 ui.memory_mut(|mem| mem.close_popup());
@@ -463,6 +589,7 @@ pub(super) fn controls(ui: &mut Ui, data: &mut Data, name: &mut String, files_pe
     }
     ui.ctx().data_mut(|d| {
         d.insert_temp(editor_id, editor);
+        d.insert_temp(duplicate_id, duplicate_editor);
         d.insert_temp(delete_id, delete_editor);
     });
     changed
@@ -698,6 +825,34 @@ mod rename_tests {
         let mut restored: Data = serde_json::from_value(serde_json::to_value(&data).unwrap()).unwrap();
         rename_group(&mut restored, "Utilities", "Tools").unwrap();
         assert_eq!(serde_json::to_value(&restored).unwrap(), before);
+    }
+
+    #[test]
+    fn duplicate_group_keeps_mods_and_switches_but_not_other_profile_references() {
+        let mut data = fixture();
+        let source = serde_json::to_value(&data.groups["Tools"]).unwrap();
+        let other_profile = serde_json::to_value(&data.profiles["B"]).unwrap();
+        assert_eq!(duplicate_group(&mut data, "Tools", "  Tools Backup  ").unwrap(), "Tools Backup");
+        assert_eq!(serde_json::to_value(&data.groups["Tools Backup"]).unwrap(), source);
+        assert_eq!(serde_json::to_value(&data.groups["Tools"]).unwrap(), source);
+        assert_eq!(serde_json::to_value(&data.profiles["B"]).unwrap(), other_profile);
+        assert!(matches!(&data.profiles["A"].mods[0], ModOrGroup::Group {
+            group_name, enabled: true, member_overrides,
+        } if group_name == "Tools Backup" && !member_overrides.enabled(&data.groups["Tools Backup"].mods[0])));
+        data.groups.get_mut("Tools Backup").unwrap().mods[0].priority = 99;
+        assert_eq!(data.groups["Tools"].mods[0].priority, 7);
+    }
+
+    #[test]
+    fn duplicate_group_rejects_invalid_names_without_changes() {
+        let mut data = fixture();
+        let before = serde_json::to_value(&data).unwrap();
+        for (source, name) in [("Missing", "New"), ("Tools", "  "),
+            ("Tools", "Other"), ("Tools", "Tools")]
+        {
+            assert!(duplicate_group(&mut data, source, name).is_err());
+        }
+        assert_eq!(serde_json::to_value(&data).unwrap(), before);
     }
 
     #[test]
