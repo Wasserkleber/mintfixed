@@ -1,0 +1,10 @@
+{
+  "enabled": false,
+  "profile": "default",
+  "items": [
+    {
+      "type": "mod",
+      "url": "https://mod.io/g/drg/m/unified-ui"
+    }
+  ]
+}

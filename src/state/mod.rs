@@ -534,6 +534,8 @@ pub enum StateError {
     ModDataDeserializationFailed { source: serde_json::Error },
     #[snafu(display("failed to deserialize legacy profiles"))]
     LegacyProfilesDeserializationFailed { source: serde_json::Error },
+    #[snafu(display("invalid bundled mod.io preset: {reason}"))]
+    InvalidBundledPreset { reason: String },
 }
 
 pub struct State {
@@ -558,9 +560,20 @@ impl State {
 
         let legacy_mod_profiles_path = dirs.config_dir.join("profiles.json");
         let mod_data_path = dirs.config_dir.join("mod_data.json");
-        let mod_data = read_mod_data_or_default(&mod_data_path, legacy_mod_profiles_path)?;
+        // Apply embedded defaults only for a genuinely new mod list.
+        let fresh = !mod_data_path.exists() && !legacy_mod_profiles_path.exists();
+        let mut mod_data = read_mod_data_or_default(&mod_data_path, legacy_mod_profiles_path)?;
+        if fresh {
+            match &mut mod_data {
+                VersionAnnotatedModData::V0_1_0(data) => {
+                    crate::preinstall::apply(data)
+                        .map_err(|reason| StateError::InvalidBundledPreset { reason })?;
+                }
+                VersionAnnotatedModData::V0_0_0(_) => unreachable!("mod data should be upgraded"),
+            }
+        }
         let mod_data = ConfigWrapper::<VersionAnnotatedModData>::new(mod_data_path, mod_data);
-        mod_data.save().unwrap();
+        mod_data.save()?;
 
         let store = ModStore::new(&dirs.cache_dir, &config.provider_parameters)?.into();
 

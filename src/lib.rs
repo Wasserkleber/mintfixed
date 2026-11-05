@@ -2,6 +2,7 @@
 
 pub mod gui;
 pub mod integrate;
+mod preinstall;
 mod mod_identity;
 pub mod mod_lints;
 pub mod providers;

@@ -43,6 +43,11 @@ struct ModIoModUrl<'n> {
     modfile_id: Option<u32>,
 }
 
+/// Validate bundled mod.io links with the provider's normal parser.
+pub(crate) fn is_valid_modio_url(url: &str) -> bool {
+    parse_url(url).is_ok()
+}
+
 /// A DRG mod.io mod and its exact file. A pin carries both IDs even offline.
 pub(crate) fn pinned_file(url: &str) -> Option<(u32, u32)> {
     let parsed = parse_url(url).ok()?;
