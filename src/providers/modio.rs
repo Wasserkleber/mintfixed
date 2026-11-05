@@ -102,11 +102,32 @@ impl<M: DrgModio + 'static> ModioProvider<M> {
     }
 }
 
+// typetag/Serde can buffer a provider as generic content before deserializing
+// it. JSON object keys then arrive as strings, so a plain HashMap<u32, _>
+// rejects otherwise valid mod.io IDs (e.g. "123"). Parse the keys explicitly.
+fn deserialize_modio_id_map<'de, D, V>(deserializer: D) -> Result<HashMap<u32, V>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    V: Deserialize<'de>,
+{
+    let entries = HashMap::<String, V>::deserialize(deserializer)?;
+    entries
+        .into_iter()
+        .map(|(key, value)| {
+            let id = key.parse::<u32>().map_err(serde::de::Error::custom)?;
+            Ok((id, value))
+        })
+        .collect()
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ModioCache {
     mod_id_map: HashMap<String, u32>,
+    #[serde(deserialize_with = "deserialize_modio_id_map")]
     modfile_blobs: HashMap<u32, BlobRef>,
+    #[serde(deserialize_with = "deserialize_modio_id_map")]
     dependencies: HashMap<u32, Vec<u32>>,
+    #[serde(deserialize_with = "deserialize_modio_id_map")]
     mods: HashMap<u32, ModioMod>,
     last_update_time: Option<SystemTime>,
 }

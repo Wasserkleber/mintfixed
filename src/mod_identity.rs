@@ -319,12 +319,14 @@ mod tests {
     #[test]
     fn readding_latest_or_its_pin_promotes_disabled_standalone_but_other_versions_remain_distinct() {
         let dir = tempfile::tempdir().unwrap();
-        let cache = serde_json::json!({"modio": {
+        // Use the current versioned format so numeric mod IDs are decoded via
+        // the cache reader's numeric-key compatibility path.
+        let cache = serde_json::json!({"version": "0.0.0", "cache": {"modio": {
             "type": "ModioCache", "mod_id_map": {"speedometer": 123},
             "modfile_blobs": {}, "dependencies": {}, "last_update_time": null,
             "mods": {"123": {"name_id": "speedometer", "name": "Speedometer",
                 "latest_modfile": 10, "modfiles": [], "tags": []}}
-        }});
+        }}});
         std::fs::write(dir.path().join("cache.json"), serde_json::to_vec(&cache).unwrap()).unwrap();
         let store = ModStore::new(dir.path(), &HashMap::new()).unwrap();
         let latest = "https://mod.io/g/drg/m/speedometer";
