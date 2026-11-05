@@ -1958,12 +1958,27 @@ impl eframe::App for App {
                         if ui
                             .button("Update cache")
                             .on_hover_text(
-                                "Checks for updates for all mods and updates local cache",
+                                "Archives unused cache entries, then checks for mod updates",
                             )
                             .clicked()
                         {
-                            message::UpdateCache::send(self);
-                            self.problematic_mod_id = None;
+                            let referenced = crate::mod_identity::all_specs(&self.state.mod_data);
+                            match self.state.store.archive_unreferenced(&referenced) {
+                                Ok(archived) => {
+                                    message::UpdateCache::send(self);
+                                    if archived > 0 {
+                                        self.last_action = Some(LastAction::success(format!(
+                                            "Archived {archived} unused cached mods; updating cache"
+                                        )));
+                                    }
+                                    self.problematic_mod_id = None;
+                                }
+                                Err(error) => {
+                                    self.last_action = Some(LastAction::failure(format!(
+                                        "Cache cleanup failed: {error}"
+                                    )));
+                                }
+                            }
                         }
                     },
                 );

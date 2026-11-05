@@ -3,6 +3,7 @@ pub mod http;
 pub mod modio;
 #[macro_use]
 pub mod cache;
+mod cache_cleanup;
 pub mod mod_store;
 
 use snafu::prelude::*;
@@ -78,6 +79,8 @@ pub enum ProviderError {
     },
     #[snafu(transparent)]
     CacheError { source: CacheError },
+    #[snafu(display("cache cleanup failed: {reason}"))]
+    CacheCleanupFailed { reason: String },
     #[snafu(transparent)]
     DrgModioError { source: DrgModioError },
     #[snafu(display("mod.io-related error encountered while working on mod {mod_id}: {source}"))]
