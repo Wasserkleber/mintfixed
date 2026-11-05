@@ -105,14 +105,46 @@ where
         ui.scope(|ui| {
             ui.visuals_mut().widgets.hovered.weak_bg_fill = colors::DARK_RED;
             ui.visuals_mut().widgets.active.weak_bg_fill = colors::DARKER_RED;
-            if ui
+            let response = ui
                 .button(" 🗑 ")
-                .on_hover_text_at_pointer(format!("Delete {name}"))
-                .clicked()
-            {
-                entries.remove_selected();
-                *modified = true;
+                .on_hover_text_at_pointer(format!("Delete {name}"));
+            let popup_id = ui.make_persistent_id(format!("delete-{name}"));
+            let target_id = popup_id.with("target");
+            if response.clicked() {
+                ui.data_mut(|data| {
+                    data.insert_temp(target_id, entries.selected_name().to_owned());
+                });
+                ui.memory_mut(|mem| mem.open_popup(popup_id));
             }
+            custom_popup_above_or_below_widget(
+                ui,
+                popup_id,
+                &response,
+                egui::AboveOrBelow::Below,
+                |ui| {
+                    ui.set_min_width(240.0);
+                    let target: Option<String> = ui.data(|data| data.get_temp(target_id));
+                    if let Some(target) = target {
+                        ui.label(format!("Delete {name} \"{target}\"?"));
+                        ui.label("This cannot be undone.");
+                        ui.horizontal(|ui| {
+                            if ui.button("Cancel").clicked() {
+                                ui.memory_mut(|mem| mem.close_popup());
+                            }
+                            if ui.button("Delete").clicked() {
+                                // Never delete a different profile if selection changed.
+                                if entries.selected_name() == target && entries.len() > 1 {
+                                    entries.remove_selected();
+                                    *modified = true;
+                                }
+                                ui.memory_mut(|mem| mem.close_popup());
+                            }
+                        });
+                    } else {
+                        ui.memory_mut(|mem| mem.close_popup());
+                    }
+                },
+            );
         });
     });
 }
