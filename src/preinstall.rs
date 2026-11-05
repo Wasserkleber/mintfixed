@@ -76,6 +76,7 @@ fn clean_description(description: Option<String>) -> Option<String> {
 
 fn config(url: String, enabled: bool, required: bool, priority: i32, description: Option<String>) -> ModConfig {
     ModConfig {
+        id: crate::state::new_id(),
         spec: ModSpecification::new(url),
         description: clean_description(description),
         member_id: None,
@@ -137,10 +138,12 @@ fn apply_json(raw: &str, data: &mut ModData) -> Result<bool, String> {
             }
             PresetItem::Group { name, description, enabled, mods } => {
                 groups.insert(name.clone(), ModGroup {
+                    id: crate::state::new_id(),
                     description: clean_description(description),
                     mods: mods.into_iter().map(|m| config(m.url, m.enabled, m.required, m.priority, m.description)).collect(),
                 });
                 profile.mods.push(ModOrGroup::Group {
+                    id: crate::state::new_id(),
                     group_name: name,
                     enabled,
                     member_overrides: MemberOverrides::default(),

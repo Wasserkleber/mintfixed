@@ -1,4 +1,10 @@
 pub mod config;
+mod migration;
+
+/// Persisted identity; independent of names, list positions and mod URLs.
+pub fn new_id() -> String {
+    format!("{:032x}", rand::random::<u128>())
+}
 
 use std::{
     collections::{BTreeMap, HashMap},
@@ -23,6 +29,8 @@ use mint_lib::{DRGInstallation, mod_info::MetaConfig};
 /// Mod configuration, holds ModSpecification as well as other metadata
 #[derive(Debug, Clone, Hash, Serialize, Deserialize)]
 pub struct ModConfig {
+    #[serde(default = "new_id")]
+    pub id: String,
     pub spec: ModSpecification,
     /// Optional build-preset help text; saved with the mod, not the provider cache.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -74,8 +82,10 @@ fn is_zero(value: &i32) -> bool {
     *value == 0
 }
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ModGroup {
+    #[serde(default = "new_id")]
+    pub id: String,
     /// Optional description of this shared collection.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
@@ -85,8 +95,11 @@ pub struct ModGroup {
 #[obake::versioned]
 #[obake(version("0.0.0"))]
 #[obake(version("0.1.0"))]
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ModProfile {
+    #[obake(cfg("0.1.0"))]
+    #[serde(default = "new_id")]
+    pub id: String,
     #[obake(cfg("0.0.0"))]
     pub mods: Vec<ModConfig>,
 
@@ -99,6 +112,8 @@ pub struct ModProfile {
 #[serde(untagged)]
 pub enum ModOrGroup {
     Group {
+        #[serde(default = "new_id")]
+        id: String,
         group_name: String,
         enabled: bool,
         #[serde(default, skip_serializing_if = "MemberOverrides::is_empty")]
@@ -207,7 +222,7 @@ impl ModData!["0.1.0"] {
         for item in &self.profiles[profile].mods {
             match item {
                 ModOrGroup::Individual(mc) if mc.enabled => f(mc),
-                ModOrGroup::Group { group_name, enabled: true, member_overrides } => {
+                ModOrGroup::Group { group_name, enabled: true, member_overrides, .. } => {
                     for mc in &self.groups[group_name].mods {
                         if member_overrides.enabled(mc) {
                             f(mc);
@@ -291,7 +306,7 @@ impl ModData!["0.1.0"] {
                     mc.enabled = true;
                     return true;
                 }
-                ModOrGroup::Group { group_name, enabled, member_overrides } => {
+                ModOrGroup::Group { group_name, enabled, member_overrides, .. } => {
                     let group = self.groups.get_mut(group_name).unwrap();
                     if let Some(mc) = group.mods.iter_mut().find(|mc| mc.spec.satisfies_dependency(spec)) {
                         *enabled = true;
@@ -325,6 +340,7 @@ impl From<ModData!["0.0.0"]> for ModData!["0.1.0"] {
         let mut new_profiles = Vec::new();
         for (name, profile) in legacy.profiles {
             let new_profile = ModProfile_v0_1_0 {
+                id: crate::state::new_id(),
                 mods: profile
                     .mods
                     .into_iter()
@@ -348,16 +364,12 @@ pub enum VersionAnnotatedModData {
     #[serde(rename = "0.0.0")]
     V0_0_0(ModData!["0.0.0"]),
     // The notag fork (Strappazzon/drg-mint-notag) writes this same layout as "0.2.0"; read it too, so a
-    // notag install opens here. We still write our own "0.1.0".
+    // notag install opens here. New writes use the stable-ID schema below.
     #[serde(rename = "0.1.0", alias = "0.2.0")]
     V0_1_0(ModData!["0.1.0"]),
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-#[serde(untagged)]
-pub enum MaybeVersionedModData {
-    Versioned(VersionAnnotatedModData),
-    Legacy(ModData!["0.0.0"]),
+    // Keep the internal obake type name for source compatibility. The disk schema is 0.3.0.
+    #[serde(rename = "0.3.0")]
+    V0_3_0(ModData!["0.1.0"]),
 }
 
 impl Default for ModData!["0.0.0"] {
@@ -371,15 +383,9 @@ impl Default for ModData!["0.0.0"] {
     }
 }
 
-impl Default for MaybeVersionedModData {
-    fn default() -> Self {
-        MaybeVersionedModData::Versioned(Default::default())
-    }
-}
-
 impl Default for VersionAnnotatedModData {
     fn default() -> Self {
-        VersionAnnotatedModData::V0_1_0(Default::default())
+        VersionAnnotatedModData::V0_3_0(Default::default())
     }
 }
 
@@ -389,7 +395,7 @@ impl Deref for VersionAnnotatedModData {
     fn deref(&self) -> &Self::Target {
         match self {
             VersionAnnotatedModData::V0_0_0(_) => unreachable!(),
-            VersionAnnotatedModData::V0_1_0(md) => md,
+            VersionAnnotatedModData::V0_1_0(md) | VersionAnnotatedModData::V0_3_0(md) => md,
         }
     }
 }
@@ -398,7 +404,7 @@ impl DerefMut for VersionAnnotatedModData {
     fn deref_mut(&mut self) -> &mut Self::Target {
         match self {
             VersionAnnotatedModData::V0_0_0(_) => unreachable!(),
-            VersionAnnotatedModData::V0_1_0(md) => md,
+            VersionAnnotatedModData::V0_1_0(md) | VersionAnnotatedModData::V0_3_0(md) => md,
         }
     }
 }
@@ -538,6 +544,10 @@ pub enum StateError {
     ProviderError { source: ProviderError },
     #[snafu(display("failed to deserialize mod data"))]
     ModDataDeserializationFailed { source: serde_json::Error },
+    #[snafu(display("unsupported mod data version: {version}"))]
+    UnsupportedModDataVersion { version: String },
+    #[snafu(display("invalid mod data: {reason}"))]
+    InvalidModData { reason: String },
     #[snafu(display("failed to deserialize legacy profiles"))]
     LegacyProfilesDeserializationFailed { source: serde_json::Error },
     #[snafu(display("invalid bundled mod.io preset: {reason}"))]
@@ -571,15 +581,16 @@ impl State {
         let mut mod_data = read_mod_data_or_default(&mod_data_path, legacy_mod_profiles_path)?;
         if fresh {
             match &mut mod_data {
-                VersionAnnotatedModData::V0_1_0(data) => {
+                VersionAnnotatedModData::V0_1_0(data) | VersionAnnotatedModData::V0_3_0(data) => {
                     crate::preinstall::apply(data)
                         .map_err(|reason| StateError::InvalidBundledPreset { reason })?;
                 }
                 VersionAnnotatedModData::V0_0_0(_) => unreachable!("mod data should be upgraded"),
             }
         }
+        if fresh { config::write_atomic(&mod_data_path, &mod_data)?; }
         let mod_data = ConfigWrapper::<VersionAnnotatedModData>::new(mod_data_path, mod_data);
-        mod_data.save()?;
+        // The loader commits migrations before creating an auto-saving wrapper.
 
         let store = ModStore::new(&dirs.cache_dir, &config.provider_parameters)?.into();
 
@@ -620,35 +631,7 @@ fn read_mod_data_or_default(
     mod_data_path: &PathBuf,
     legacy_mod_profiles_path: PathBuf,
 ) -> Result<VersionAnnotatedModData, StateError> {
-    let mod_data = match fs::read(mod_data_path) {
-        Ok(buf) => serde_json::from_slice::<MaybeVersionedModData>(&buf)
-            .context(ModDataDeserializationFailedSnafu)?,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-            match fs::read(&legacy_mod_profiles_path) {
-                Ok(buf) => {
-                    let mod_data = serde_json::from_slice::<MaybeVersionedModData>(&buf)
-                        .context(LegacyProfilesDeserializationFailedSnafu)?;
-                    fs::remove_file(&legacy_mod_profiles_path)?;
-                    mod_data
-                }
-                Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-                    MaybeVersionedModData::default()
-                }
-                Err(e) => Err(e)?,
-            }
-        }
-        Err(e) => Err(e)?,
-    };
-
-    let mod_data = match mod_data {
-        MaybeVersionedModData::Legacy(legacy) => VersionAnnotatedModData::V0_1_0(legacy.into()),
-        MaybeVersionedModData::Versioned(v) => match v {
-            VersionAnnotatedModData::V0_0_0(md) => VersionAnnotatedModData::V0_1_0(md.into()),
-            VersionAnnotatedModData::V0_1_0(md) => VersionAnnotatedModData::V0_1_0(md),
-        },
-    };
-
-    Ok(mod_data)
+    migration::load(mod_data_path, &legacy_mod_profiles_path)
 }
 
 #[cfg(test)]
@@ -689,6 +672,7 @@ mod mod_data_tests {
     #[test]
     fn test_for_each_mod() {
         let mod_1 = ModConfig {
+            id: crate::state::new_id(),
             description: None,
             member_id: None,
             spec: ModSpecification::new("a".to_string()),
@@ -698,6 +682,7 @@ mod mod_data_tests {
         };
 
         let mod_2 = ModConfig {
+            id: crate::state::new_id(),
             description: None,
             member_id: None,
             spec: ModSpecification::new("b".to_string()),
@@ -707,6 +692,7 @@ mod mod_data_tests {
         };
 
         let mod_3 = ModConfig {
+            id: crate::state::new_id(),
             description: None,
             member_id: None,
             spec: ModSpecification::new("c".to_string()),
@@ -720,9 +706,11 @@ mod mod_data_tests {
             profiles: [(
                 "default".to_string(),
                 ModProfile {
+                    id: crate::state::new_id(),
                     mods: vec![
                         ModOrGroup::Individual(mod_1),
                         ModOrGroup::Group {
+                            id: crate::state::new_id(),
                             member_overrides: Default::default(),
                             group_name: "mg1".to_string(),
                             enabled: false,
@@ -734,6 +722,7 @@ mod mod_data_tests {
             groups: [(
                 "mg1".to_string(),
                 ModGroup {
+                    id: crate::state::new_id(),
                     description: None,
                     mods: vec![mod_2, mod_3],
                 },
@@ -751,6 +740,7 @@ mod mod_data_tests {
     #[test]
     fn test_for_each_enabled_mod() {
         let mod_1 = ModConfig {
+            id: crate::state::new_id(),
             description: None,
             member_id: None,
             spec: ModSpecification::new("a".to_string()),
@@ -760,6 +750,7 @@ mod mod_data_tests {
         };
 
         let mod_2 = ModConfig {
+            id: crate::state::new_id(),
             description: None,
             member_id: None,
             spec: ModSpecification::new("b".to_string()),
@@ -769,6 +760,7 @@ mod mod_data_tests {
         };
 
         let mod_3 = ModConfig {
+            id: crate::state::new_id(),
             description: None,
             member_id: None,
             spec: ModSpecification::new("c".to_string()),
@@ -782,9 +774,11 @@ mod mod_data_tests {
             profiles: [(
                 "default".to_string(),
                 ModProfile {
+                    id: crate::state::new_id(),
                     mods: vec![
                         ModOrGroup::Individual(mod_1),
                         ModOrGroup::Group {
+                            id: crate::state::new_id(),
                             member_overrides: Default::default(),
                             group_name: "mg1".to_string(),
                             enabled: true,
@@ -796,6 +790,7 @@ mod mod_data_tests {
             groups: [(
                 "mg1".to_string(),
                 ModGroup {
+                    id: crate::state::new_id(),
                     description: None,
                     mods: vec![mod_2, mod_3],
                 },
@@ -813,6 +808,7 @@ mod mod_data_tests {
     #[test]
     fn test_any_mod() {
         let mod_1 = ModConfig {
+            id: crate::state::new_id(),
             description: None,
             member_id: None,
             spec: ModSpecification::new("a".to_string()),
@@ -822,6 +818,7 @@ mod mod_data_tests {
         };
 
         let mod_2 = ModConfig {
+            id: crate::state::new_id(),
             description: None,
             member_id: None,
             spec: ModSpecification::new("b".to_string()),
@@ -831,6 +828,7 @@ mod mod_data_tests {
         };
 
         let mod_3 = ModConfig {
+            id: crate::state::new_id(),
             description: None,
             member_id: None,
             spec: ModSpecification::new("c".to_string()),
@@ -844,9 +842,11 @@ mod mod_data_tests {
             profiles: [(
                 "default".to_string(),
                 ModProfile {
+                    id: crate::state::new_id(),
                     mods: vec![
                         ModOrGroup::Individual(mod_1),
                         ModOrGroup::Group {
+                            id: crate::state::new_id(),
                             member_overrides: Default::default(),
                             group_name: "mg1".to_string(),
                             enabled: true,
@@ -858,6 +858,7 @@ mod mod_data_tests {
             groups: [(
                 "mg1".to_string(),
                 ModGroup {
+                    id: crate::state::new_id(),
                     description: None,
                     mods: vec![mod_2, mod_3],
                 },
@@ -867,5 +868,49 @@ mod mod_data_tests {
 
         let any_required = mod_data.any_mod("default", |mc, _| mc.required);
         assert!(any_required);
+    }
+}
+
+impl Default for ModGroup {
+    fn default() -> Self { Self { id: new_id(), description: None, mods: Vec::new() } }
+}
+impl Default for ModProfile_v0_0_0 {
+    fn default() -> Self { Self { mods: Vec::new() } }
+}
+impl Default for ModProfile_v0_1_0 {
+    fn default() -> Self { Self { id: new_id(), mods: Vec::new() } }
+}
+impl ModOrGroup {
+    pub fn id(&self) -> &str {
+        match self {
+            Self::Group { id, .. } => id,
+            Self::Individual(member) => &member.id,
+        }
+    }
+}
+impl ModProfile_v0_1_0 {
+    /// Copy occurrences, but keep references pointing at the same shared groups.
+    pub fn duplicate(&self) -> Self {
+        let mut copy = self.clone();
+        copy.id = new_id();
+        for row in &mut copy.mods {
+            match row {
+                ModOrGroup::Group { id, .. } => *id = new_id(),
+                ModOrGroup::Individual(member) => {
+                    member.id = new_id();
+                    member.member_id = None;
+                }
+            }
+        }
+        copy
+    }
+}
+
+impl ModConfig {
+    pub fn duplicate(&self) -> Self {
+        let mut copy = self.clone();
+        copy.id = new_id();
+        copy.member_id = self.member_id.as_ref().map(|_| new_id());
+        copy
     }
 }

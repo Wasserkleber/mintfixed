@@ -370,6 +370,7 @@ impl App {
                             group_name,
                             enabled,
                             member_overrides,
+                            ..
                         } => Box::new(
                             enabled
                                 .then(|| groups.get(group_name))
@@ -789,6 +790,7 @@ impl App {
                             group_name,
                             enabled,
                             member_overrides,
+                            ..
                         } => {
                             if ui
                                 .add(toggle_switch(enabled))
@@ -840,7 +842,7 @@ impl App {
                                     let member = Drag::paint_row(ui, profile_name, Some(group_name), index, |ui| ui.push_id(("group", group_name.as_str(), index), |ui| {
                                         ui.horizontal(|ui| {
                                             if sorting_config.is_none() {
-                                                Drag::handle(ui, profile_name, Some(group_name), index, &group.mods[index].spec.url, false);
+                                                Drag::handle(ui, profile_name, Some(group_name), index, &group.mods[index].id, false);
                                             }
                                             ui_mod(
                                                 ctx,
@@ -919,8 +921,8 @@ impl App {
                     let row = Drag::paint_row(ui, profile_name, None, index, |ui| frame.show(ui, |ui| {
                         ui.horizontal(|ui| {
                             let (key, is_group) = match item {
-                                ModOrGroup::Individual(mc) => (mc.spec.url.as_str(), false),
-                                ModOrGroup::Group { group_name, .. } => (group_name.as_str(), true),
+                                ModOrGroup::Individual(mc) => (mc.id.as_str(), false),
+                                ModOrGroup::Group { id, .. } => (id.as_str(), true),
                             };
                             Drag::handle(ui, profile_name, None, index, key, is_group);
                             ui_item(&mut ctx, ui, item, index);

@@ -74,11 +74,11 @@ impl Drag {
             Some(name) => data.groups.get(name).and_then(|g| g.mods.get(self.index)),
             None => match list.get(self.index) {
                 Some(ModOrGroup::Individual(mc)) if !self.is_group => Some(mc),
-                Some(ModOrGroup::Group { group_name, .. }) if self.is_group && *group_name == self.key => None,
+                Some(ModOrGroup::Group { id, .. }) if self.is_group && *id == self.key => None,
                 _ => return Err("The dragged row has changed"),
             },
         };
-        if !self.is_group && member.is_none_or(|m| m.spec.url != self.key) {
+        if !self.is_group && member.is_none_or(|m| m.id != self.key) {
             return Err("The dragged mod has changed");
         }
         let same_list = self.group == dest.group;
@@ -109,7 +109,7 @@ impl Drag {
             let mc = member.unwrap();
             let enabled = if let Some(source) = &self.group {
                 let refs: Vec<_> = list.iter().filter_map(|item| match item {
-                    ModOrGroup::Group { group_name, enabled, member_overrides } if group_name == source =>
+                    ModOrGroup::Group { group_name, enabled, member_overrides, .. } if group_name == source =>
                         Some(*enabled && member_overrides.enabled(mc)),
                     _ => None,
                 }).collect();
@@ -291,6 +291,7 @@ fn parse_mod_list_txt(text: &str, group_name: &str) -> Result<std::collections::
     let mods = text.lines().map(str::trim).filter(|line| !line.is_empty())
         .filter(|line| seen.insert((*line).to_owned()))
         .map(|url| ModConfig {
+            id: crate::state::new_id(),
             description: None,
             spec: ModSpecification::new(url.to_owned()),
             enabled: true,
@@ -301,7 +302,7 @@ fn parse_mod_list_txt(text: &str, group_name: &str) -> Result<std::collections::
     if mods.is_empty() {
         return Err("The mod list is empty".into());
     }
-    Ok(std::collections::BTreeMap::from([(group_name.to_owned(), crate::state::ModGroup { mods, description: None })]))
+    Ok(std::collections::BTreeMap::from([(group_name.to_owned(), crate::state::ModGroup { id: crate::state::new_id(), mods, description: None })]))
 }
 
 fn read_group_export(path: &std::path::Path) -> Result<std::collections::BTreeMap<String, crate::state::ModGroup>, String> {
@@ -331,7 +332,7 @@ fn import_groups(data: &mut Data, incoming: std::collections::BTreeMap<String, c
     // Prepare and validate everything before mutating the saved state.
     let mut reserved: HashSet<String> = data.groups.keys().cloned().collect();
     let mut prepared = Vec::new();
-    for (name, group) in incoming {
+    for (name, mut group) in incoming {
         let base = name.trim();
         if base.is_empty() || group.mods.iter().any(|m| m.spec.url.trim().is_empty()) {
             return Err("Import contains an empty group name or mod URL".into());
@@ -346,6 +347,9 @@ fn import_groups(data: &mut Data, incoming: std::collections::BTreeMap<String, c
             }
         }
         reserved.insert(candidate.clone());
+        // Imports are new objects, even when importing our own export repeatedly.
+        group.id = crate::state::new_id();
+        group.mods = group.mods.iter().map(ModConfig::duplicate).collect();
         prepared.push((candidate, group));
     }
     let names = prepared.iter().map(|(name, _)| name.clone()).collect::<Vec<_>>();
@@ -384,7 +388,8 @@ mod group_import_export_tests {
 
     #[test]
     fn json_roundtrip_preserves_group_settings() {
-        let group = crate::state::ModGroup { description: None, mods: vec![ModConfig {
+        let group = crate::state::ModGroup { id: crate::state::new_id(), description: None, mods: vec![ModConfig {
+            id: crate::state::new_id(),
             description: None,
             spec: ModSpecification::new("https://mod.io/g/drg/m/example#123".into()),
             enabled: false, required: true, member_id: Some("member1".into()), priority: 14,
@@ -415,6 +420,26 @@ mod group_import_export_tests {
         assert_eq!(data.groups["Example (imported)"].mods.len(), 1);
         assert!(data.profiles["A"].mods.iter().any(|item|
             matches!(item, ModOrGroup::Group { group_name, .. } if group_name == "Example (imported)")));
+    }
+
+    #[test]
+    fn repeated_json_import_allocates_fresh_ids_and_preserves_descriptions() {
+        let mut data = Data::default();
+        let mut incoming = parse_mod_list_txt("https://mod.io/g/drg/m/example", "Tools").unwrap();
+        incoming.get_mut("Tools").unwrap().description = Some("Group help".into());
+        incoming.get_mut("Tools").unwrap().mods[0].description = Some("Mod help".into());
+        let bundle = GroupExportFile { format: GROUP_EXPORT_FORMAT.into(), version: GROUP_EXPORT_VERSION, groups: incoming };
+        let text = serde_json::to_string(&bundle).unwrap();
+        for _ in 0..2 { import_groups(&mut data, parse_groups_json(&text).unwrap()).unwrap(); }
+        let a = &data.groups["Tools"];
+        let b = &data.groups["Tools (imported)"];
+        assert_ne!(a.id, b.id);
+        assert_ne!(a.mods[0].id, b.mods[0].id);
+        assert_ne!(a.id, bundle.groups["Tools"].id);
+        assert_ne!(a.mods[0].id, bundle.groups["Tools"].mods[0].id);
+        assert_eq!(a.description.as_deref(), Some("Group help"));
+        assert_eq!(b.mods[0].description.as_deref(), Some("Mod help"));
+        assert_ne!(data.profiles["default"].mods[0].id(), data.profiles["default"].mods[1].id());
     }
 
     #[test]
@@ -461,22 +486,33 @@ fn duplicate_group(data: &mut Data, source: &str, requested: &str) -> Result<Str
     let name = requested.trim();
     if name.is_empty() { return Err("Enter a name for the duplicate group"); }
     if data.groups.contains_key(name) { return Err("A group with that name already exists"); }
-    let copy = data.groups.get(source).ok_or("That group no longer exists")?.clone();
+    let original = data.groups.get(source).ok_or("That group no longer exists")?;
+    let mut copy = original.clone();
+    copy.id = crate::state::new_id();
+    copy.mods = original.mods.iter().map(ModConfig::duplicate).collect();
 
     // Keep this profile's switches when the source group is attached here.
     let reference = data.profiles[&data.active_profile].mods.iter().find_map(|item| {
-        if let ModOrGroup::Group { group_name, enabled, member_overrides } = item
+        if let ModOrGroup::Group { group_name, enabled, member_overrides, .. } = item
             && group_name == source
         {
             Some(ModOrGroup::Group {
+                id: crate::state::new_id(),
                 group_name: name.to_owned(),
                 enabled: *enabled,
-                member_overrides: member_overrides.clone(),
+                member_overrides: {
+                    let mut overrides = crate::state::MemberOverrides::default();
+                    for (old, new) in original.mods.iter().zip(&mut copy.mods) {
+                        overrides.set(new, member_overrides.enabled(old));
+                    }
+                    overrides
+                },
             })
         } else {
             None
         }
     }).unwrap_or(ModOrGroup::Group {
+        id: crate::state::new_id(),
         group_name: name.to_owned(),
         enabled: true,
         member_overrides: Default::default(),
@@ -1028,13 +1064,43 @@ pub(super) fn controls(ui: &mut Ui, data: &mut Data, name: &mut String, files_pe
 
 fn attach(profile: &mut Profile, name: &str) {
     profile.mods.insert(0, ModOrGroup::Group {
+        id: crate::state::new_id(),
         group_name: name.into(),
         enabled: true,
         member_overrides: Default::default(),
     });
 }
 
+/// Capture object identities, never fall back to a newly-created namesake.
+#[derive(Debug)]
+pub(super) struct GroupDestination {
+    profile_id: String,
+    group_id: String,
+    reference_id: String,
+}
+impl GroupDestination {
+    fn capture(data: &Data, profile: &str, group: &str) -> Option<Self> {
+        let profile = data.profiles.get(profile)?;
+        let reference = profile.mods.iter().find(|row|
+            matches!(row, ModOrGroup::Group { group_name, .. } if group_name == group))?;
+        Some(Self { profile_id: profile.id.clone(), group_id: data.groups.get(group)?.id.clone(),
+            reference_id: reference.id().to_owned() })
+    }
+    pub(super) fn resolve(&self, data: &Data) -> Option<(String, String)> {
+        let (profile_name, profile) = data.profiles.iter().find(|(_, p)| p.id == self.profile_id)?;
+        let (group_name, _) = data.groups.iter().find(|(_, g)| g.id == self.group_id)?;
+        profile.mods.iter().any(|row| matches!(row,
+            ModOrGroup::Group { id, group_name: name, .. }
+                if id == &self.reference_id && name == group_name))
+            .then(|| (profile_name.clone(), group_name.clone()))
+    }
+}
+
 pub(super) fn drop_files(app: &mut App, ctx: &egui::Context, profile: String, group: String, prepend: bool, paths: Vec<PathBuf>) {
+    let Some(target) = GroupDestination::capture(&app.state.mod_data, &profile, &group) else {
+        app.last_action = Some(LastAction::failure("The group destination no longer exists.".into()));
+        return;
+    };
     app.pending_group_files += 1;
     let tx = app.tx.clone();
     let ctx = ctx.clone();
@@ -1060,7 +1126,7 @@ pub(super) fn drop_files(app: &mut App, ctx: &egui::Context, profile: String, gr
             store.refresh_local_files(&identity_specs);
             Ok(specs)
         }).await.unwrap_or_else(|e| Err(e.to_string()));
-        if tx.send(message::Message::GroupFiles { profile, group, prepend, files }).await.is_ok() {
+        if tx.send(message::Message::GroupFiles { target, prepend, files }).await.is_ok() {
             ctx.request_repaint();
         }
     });
@@ -1084,6 +1150,7 @@ pub(super) fn add_files(app: &mut App, profile: String, group: String, prepend: 
         }
         let slot = if prepend { 0 } else { target.mods.len() };
         target.mods.splice(slot..slot, files.into_iter().map(|spec| ModConfig {
+            id: crate::state::new_id(),
             description: None,
             spec, enabled: true, member_id: None, required: false, priority: 0,
         }));
@@ -1265,12 +1332,19 @@ mod rename_tests {
         let source = serde_json::to_value(&data.groups["Tools"]).unwrap();
         let other_profile = serde_json::to_value(&data.profiles["B"]).unwrap();
         assert_eq!(duplicate_group(&mut data, "Tools", "  Tools Backup  ").unwrap(), "Tools Backup");
-        assert_eq!(serde_json::to_value(&data.groups["Tools Backup"]).unwrap(), source);
+        let copy = &data.groups["Tools Backup"];
+        let original = &data.groups["Tools"];
+        assert_ne!(copy.id, original.id);
+        assert_eq!(copy.mods.len(), original.mods.len());
+        for (a, b) in copy.mods.iter().zip(&original.mods) {
+            assert_ne!(a.id, b.id);
+            if b.member_id.is_some() { assert_ne!(a.member_id, b.member_id); }
+            assert_eq!((&a.spec, a.enabled, a.required, a.priority), (&b.spec, b.enabled, b.required, b.priority));
+        }
         assert_eq!(serde_json::to_value(&data.groups["Tools"]).unwrap(), source);
         assert_eq!(serde_json::to_value(&data.profiles["B"]).unwrap(), other_profile);
         assert!(matches!(&data.profiles["A"].mods[0], ModOrGroup::Group {
-            group_name, enabled: true, member_overrides,
-        } if group_name == "Tools Backup" && !member_overrides.enabled(&data.groups["Tools Backup"].mods[0])));
+            group_name, enabled: true, member_overrides, .. } if group_name == "Tools Backup" && !member_overrides.enabled(&data.groups["Tools Backup"].mods[0])));
         data.groups.get_mut("Tools Backup").unwrap().mods[0].priority = 99;
         assert_eq!(data.groups["Tools"].mods[0].priority, 7);
     }
@@ -1344,9 +1418,9 @@ mod move_switch_tests {
         })).unwrap()
     }
 
-    fn drag() -> Drag {
+    fn drag(data: &Data) -> Drag {
         Drag { profile: "A".into(), group: Some("Source".into()), index: 0,
-            key: "moving".into(), is_group: false }
+            key: data.groups["Source"].mods[0].id.clone(), is_group: false }
     }
 
     fn enabled(data: &Data, profile: &str, url: &str) -> bool {
@@ -1361,10 +1435,11 @@ mod move_switch_tests {
         let store = ModStore::new(dir.path(), &Default::default()).unwrap();
         let mut data = data(false, true);
         let before = data.clone();
-        drag().apply(&mut data, "A", Target { group: None, slot: 0 }, &store).unwrap();
+        drag(&data).apply(&mut data, "A", Target { group: None, slot: 0 }, &store).unwrap();
         assert!(!enabled(&data, "A", "moving"));
         let ModOrGroup::Individual(mc) = &data.profiles["A"].mods[0] else { panic!() };
         assert_eq!(mc.priority, 7);
+        assert_eq!(mc.id, before.groups["Source"].mods[0].id);
         assert!(!mc.enabled);
         let undo = UndoMove::new(before.clone(), &data);
         undo.apply(&mut data).unwrap();
@@ -1376,7 +1451,7 @@ mod move_switch_tests {
         let dir = tempfile::tempdir().unwrap();
         let store = ModStore::new(dir.path(), &Default::default()).unwrap();
         let mut data = data(false, true);
-        drag().apply(&mut data, "A", Target { group: Some("Destination".into()), slot: 1 }, &store).unwrap();
+        drag(&data).apply(&mut data, "A", Target { group: Some("Destination".into()), slot: 1 }, &store).unwrap();
         assert!(!enabled(&data, "A", "moving"));
         assert!(enabled(&data, "B", "moving"));
         assert!(!enabled(&data, "B", "staying"));
@@ -1391,7 +1466,34 @@ mod move_switch_tests {
         let store = ModStore::new(dir.path(), &Default::default()).unwrap();
         let mut data = data(true, false);
         let before = serde_json::to_value(&data).unwrap();
-        assert!(drag().apply(&mut data, "A", Target { group: Some("Destination".into()), slot: 0 }, &store).is_err());
+        assert!(drag(&data).apply(&mut data, "A", Target { group: Some("Destination".into()), slot: 0 }, &store).is_err());
         assert_eq!(serde_json::to_value(data).unwrap(), before);
     }
+    #[test]
+    fn group_destination_survives_rename_but_rejects_replacement_reference() {
+        let mut data = data(false, true);
+        let target = GroupDestination::capture(&data, "A", "Source").unwrap();
+        rename_group(&mut data, "Source", "Renamed").unwrap();
+        let profile = data.profiles.remove("A").unwrap();
+        data.profiles.insert("Renamed Profile".into(), profile);
+        assert_eq!(target.resolve(&data), Some(("Renamed Profile".into(), "Renamed".into())));
+        if let ModOrGroup::Group { id, .. } = &mut data.profiles.get_mut("Renamed Profile").unwrap().mods[0] {
+            *id = crate::state::new_id();
+        }
+        assert!(target.resolve(&data).is_none());
+    }
+
+    #[test]
+    fn replacing_dragged_mod_with_same_url_is_rejected() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = ModStore::new(dir.path(), &Default::default()).unwrap();
+        let mut data = data(false, true);
+        let drag = drag(&data);
+        let replacement = data.groups["Source"].mods[0].duplicate();
+        data.groups.get_mut("Source").unwrap().mods[0] = replacement;
+        let before = serde_json::to_value(&data).unwrap();
+        assert!(drag.apply(&mut data, "A", Target { group: None, slot: 0 }, &store).is_err());
+        assert_eq!(serde_json::to_value(&data).unwrap(), before);
+    }
+
 }

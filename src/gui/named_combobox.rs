@@ -55,7 +55,7 @@ impl NamedEntries<ModProfile> for ModData {
         self.active_profile = new_name;
     }
     fn duplicate_selected(&mut self, new_name: String) {
-        let new = self.get_active_profile().clone();
+        let new = self.get_active_profile().duplicate();
         self.profiles.insert(new_name.clone(), new);
         self.active_profile = new_name;
     }

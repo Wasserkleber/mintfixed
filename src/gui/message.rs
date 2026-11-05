@@ -45,8 +45,7 @@ pub struct MessageHandle<S> {
 #[derive(Debug)]
 pub enum Message {
     GroupFiles {
-        profile: String,
-        group: String,
+        target: super::group_controls::GroupDestination,
         prepend: bool,
         files: Result<Vec<ModSpecification>, String>,
     },
@@ -65,9 +64,12 @@ pub enum Message {
 impl Message {
     pub fn handle(self, app: &mut App) {
         match self {
-            Self::GroupFiles { profile, group, prepend, files } => {
+            Self::GroupFiles { target, prepend, files } => {
                 app.pending_group_files = app.pending_group_files.saturating_sub(1);
-                super::group_controls::add_files(app, profile, group, prepend, files);
+                match target.resolve(&app.state.mod_data) {
+                    Some((profile, group)) => super::group_controls::add_files(app, profile, group, prepend, files),
+                    None => app.last_action = Some(LastAction::failure("Addition cancelled: the original group destination no longer exists.".into())),
+                }
             }
             Self::ResolveMods(msg) => msg.receive(app),
             Self::Integrate(msg) => msg.receive(app),
@@ -100,6 +102,7 @@ impl Message {
 pub struct ResolveMods {
     rid: RequestID,
     profile: String,
+    profile_id: String,
     input: String,
     specs: Vec<ModSpecification>,
     result: Result<HashMap<ModSpecification, ModInfo>, ProviderError>,
@@ -118,6 +121,7 @@ impl ResolveMods {
             return;
         }
         let profile = app.state.mod_data.active_profile.clone();
+        let profile_id = app.state.mod_data.profiles[&profile].id.clone();
         let input = app.resolve_mod.clone();
         let rid = app.request_counter.next();
         let store = app.state.store.clone();
@@ -143,6 +147,7 @@ impl ResolveMods {
             tx.send(Message::ResolveMods(Self {
                 rid,
                 profile,
+                profile_id,
                 input,
                 specs,
                 result,
@@ -160,13 +165,16 @@ impl ResolveMods {
         });
     }
 
-    fn receive(self, app: &mut App) {
+    fn receive(mut self, app: &mut App) {
         if Some(self.rid) == app.resolve_mod_rid.as_ref().map(|r| r.rid) {
-            if !app.state.mod_data.profiles.contains_key(&self.profile) {
+            let destination = app.state.mod_data.profiles.iter()
+                .find(|(_, profile)| profile.id == self.profile_id).map(|(name, _)| name.clone());
+            let Some(destination) = destination else {
                 app.resolve_mod_rid = None;
                 app.last_action = Some(LastAction::failure("Addition cancelled: the original profile no longer exists.".into()));
                 return;
-            }
+            };
+            self.profile = destination;
             match self.result {
                 Ok(mut resolved_mods) => {
                     let before = app.state.mod_data.deref().deref().clone();
@@ -230,6 +238,7 @@ impl ResolveMods {
                             profiles.get_mut(&self.profile).unwrap().mods.insert(
                                 insertion_index,
                                 ModOrGroup::Individual(ModConfig {
+                                    id: crate::state::new_id(),
                                     description: None,
                                     member_id: None,
                                     spec: if crate::providers::modio::pinned_file(&resolved_spec.url).is_some() {
@@ -895,8 +904,11 @@ mod addition_destination_tests {
 
     fn app() -> (tempfile::TempDir, App) {
         let dir = tempfile::tempdir().unwrap();
+        let dirs = Dirs::from_path(dir.path()).unwrap();
+        std::fs::write(dirs.config_dir.join("mod_data.json"),
+            serde_json::to_vec(&crate::state::VersionAnnotatedModData::default()).unwrap()).unwrap();
         let app = App::new(&eframe::CreationContext::_new_kittest(egui::Context::default()),
-            Dirs::from_path(dir.path()).unwrap(), None).unwrap();
+            dirs, None).unwrap();
         (dir, app)
     }
 
@@ -907,7 +919,7 @@ mod addition_destination_tests {
         let info = ModInfo { provider: "file", name: "Test".into(), spec: spec.clone(), versions: vec![],
             resolution: ModResolution::resolvable("test-mod".to_owned().into()),
             suggested_require: false, suggested_dependencies: vec![], modio_id: None, modio_tags: None };
-        ResolveMods { rid, profile: "default".into(), input: "submitted input".into(),
+        ResolveMods { rid, profile_id: app.state.mod_data.profiles["default"].id.clone(), profile: "default".into(), input: "submitted input".into(),
             specs: vec![spec.clone()], result: Ok(HashMap::from([(spec, info)])), is_dependency: false }
     }
 
@@ -946,4 +958,25 @@ mod addition_destination_tests {
         assert!(app.state.mod_data.profiles["Other"].mods.is_empty());
         assert!(app.resolve_mod_rid.is_none());
     }
+    #[tokio::test]
+    async fn renamed_profile_receives_pending_addition_by_id() {
+        let (_dir, mut app) = app();
+        let result = result(&mut app);
+        let profile = app.state.mod_data.profiles.remove("default").unwrap();
+        app.state.mod_data.profiles.insert("Renamed".into(), profile);
+        app.state.mod_data.active_profile = "Renamed".into();
+        result.receive(&mut app);
+        assert_eq!(app.state.mod_data.profiles["Renamed"].mods.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn replacement_profile_with_same_name_does_not_receive_old_request() {
+        let (_dir, mut app) = app();
+        let result = result(&mut app);
+        app.state.mod_data.profiles.insert("default".into(), Default::default());
+        result.receive(&mut app);
+        assert!(app.state.mod_data.profiles["default"].mods.is_empty());
+        assert!(app.resolve_mod_rid.is_none());
+    }
+
 }

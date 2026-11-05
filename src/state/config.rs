@@ -40,14 +40,7 @@ impl<C: ConfigTrait> ConfigWrapper<C> {
     /// See <https://stackoverflow.com/questions/70362352/atomic-file-create-write>.
     pub fn save(&self) -> Result<(), StateError> {
         if let Some(final_path) = &self.path {
-            let mut temp_file = tempfile::NamedTempFile::new_in(final_path.parent().unwrap())?;
-            temp_file
-                .write_all(
-                    &serde_json::to_vec_pretty(&self.config)
-                        .context(CfgSerializationFailedSnafu)?,
-                )
-                .context(CfgSaveFailedSnafu)?;
-            temp_file.persist(final_path)?;
+            write_atomic(final_path, &self.config)?;
         }
         self.save_revision.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         Ok(())
@@ -75,4 +68,14 @@ impl<C: ConfigTrait> Drop for ConfigWrapper<C> {
     fn drop(&mut self) {
         self.save().unwrap();
     }
+}
+
+/// Sync the complete temporary file before atomically replacing the destination.
+pub(super) fn write_atomic(path: &Path, value: &impl Serialize) -> Result<(), StateError> {
+    let mut file = tempfile::NamedTempFile::new_in(path.parent().unwrap())?;
+    file.write_all(&serde_json::to_vec_pretty(value).context(CfgSerializationFailedSnafu)?)
+        .context(CfgSaveFailedSnafu)?;
+    file.as_file().sync_all()?;
+    file.persist(path)?;
+    Ok(())
 }

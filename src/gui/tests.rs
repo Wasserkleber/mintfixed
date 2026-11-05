@@ -4,6 +4,7 @@ use crate::state::ModGroup;
 
 fn mod_config(name: &str) -> ModConfig {
     ModConfig {
+        id: crate::state::new_id(),
         description: None,
         member_id: None,
         spec: ModSpecification::new(name.to_owned()),
@@ -233,9 +234,13 @@ impl TestApp {
     fn new() -> Self {
         let directory = tempfile::tempdir().unwrap();
         let context = egui::Context::default();
+        let dirs = Dirs::from_path(directory.path()).unwrap();
+        // UI fixtures must not depend on the build's optional first-run preset.
+        std::fs::write(dirs.config_dir.join("mod_data.json"),
+            serde_json::to_vec(&crate::state::VersionAnnotatedModData::default()).unwrap()).unwrap();
         let app = App::new(
             &eframe::CreationContext::_new_kittest(context.clone()),
-            Dirs::from_path(directory.path()).unwrap(),
+            dirs,
             None,
         )
         .unwrap();
@@ -314,14 +319,16 @@ fn grouped_profile_renders_every_sort_mode_after_reload() {
         .get_mut("default")
         .unwrap()
         .mods = vec![
-        ModOrGroup::Individual(zulu.clone()),
-        ModOrGroup::Individual(alpha.clone()),
+        ModOrGroup::Individual(zulu.duplicate()),
+        ModOrGroup::Individual(alpha.duplicate()),
         ModOrGroup::Group {
+            id: crate::state::new_id(),
             member_overrides: Default::default(),
             group_name: "Group".into(),
             enabled: true,
         },
         ModOrGroup::Group {
+            id: crate::state::new_id(),
             member_overrides: Default::default(),
             group_name: "Empty".into(),
             enabled: false,
@@ -330,6 +337,7 @@ fn grouped_profile_renders_every_sort_mode_after_reload() {
     test.app.state.mod_data.groups.insert(
         "Group".into(),
         ModGroup {
+            id: crate::state::new_id(),
             description: None,
             mods: vec![zulu, alpha],
         },
@@ -378,20 +386,22 @@ fn sorted_group_toggle_preserves_identical_standalone_entry() {
         .unwrap()
         .mods = vec![
         ModOrGroup::Group {
+            id: crate::state::new_id(),
             member_overrides: Default::default(),
             group_name: "Group".into(),
             enabled: true,
         },
-        ModOrGroup::Individual(alpha.clone()),
+        ModOrGroup::Individual(alpha.duplicate()),
     ];
     test.app.state.mod_data.groups.insert(
         "Group".into(),
         ModGroup {
+            id: crate::state::new_id(),
             description: None,
             mods: vec![zulu, alpha],
         },
     );
-    let second_profile = test.app.state.mod_data.profiles["default"].clone();
+    let second_profile = test.app.state.mod_data.profiles["default"].duplicate();
     test.app.state.mod_data.profiles.insert("second".into(), second_profile);
     test.app.update_sorting_config(Some(SortBy::Name), false);
     test.open_group("Group");
@@ -462,8 +472,9 @@ fn dropping_files_on_closed_group_prepends_batch_and_opens_it() {
     let existing = test.local_mod("existing.pak");
     let a = test.local_mod("a.pak").spec;
     let b = test.local_mod("b.pak").spec;
-    test.app.state.mod_data.groups.insert("Tools".into(), ModGroup { description: None, mods: vec![existing] });
+    test.app.state.mod_data.groups.insert("Tools".into(), ModGroup { id: crate::state::new_id(), description: None, mods: vec![existing] });
     test.app.state.mod_data.profiles.get_mut("default").unwrap().mods = vec![ModOrGroup::Group {
+        id: crate::state::new_id(),
         group_name: "Tools".into(), enabled: true, member_overrides: Default::default(),
     }];
     test.frame(vec![]);

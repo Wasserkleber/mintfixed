@@ -163,7 +163,7 @@ impl ProfileIssues {
         for (index, item) in data.profiles[profile].mods.iter().enumerate() {
             match item {
                 ModOrGroup::Individual(mc) => visit(&mc.spec, None, index, mc.enabled),
-                ModOrGroup::Group { group_name, enabled, member_overrides } => {
+                ModOrGroup::Group { group_name, enabled, member_overrides, .. } => {
                     if let Some(group) = data.groups.get(group_name) {
                         for (i, mc) in group.mods.iter().enumerate() {
                             visit(&mc.spec, Some(group_name), i, *enabled && member_overrides.enabled(mc));
@@ -229,7 +229,7 @@ mod tests {
     }
 
     fn member(url: &str) -> ModConfig {
-        ModConfig { description: None, spec: spec(url), required: false, member_id: None, enabled: true, priority: 0 }
+        ModConfig { id: crate::state::new_id(), description: None, spec: spec(url), required: false, member_id: None, enabled: true, priority: 0 }
     }
 
     fn info(url: &str) -> ModInfo {
@@ -258,14 +258,14 @@ mod tests {
         let b = "https://mod.io/g/drg/m/a#123/11";
         let data = Data {
             active_profile: "p".into(),
-            profiles: BTreeMap::from([("p".into(), ModProfile_v0_1_0 { mods: vec![
+            profiles: BTreeMap::from([("p".into(), ModProfile_v0_1_0 { id: crate::state::new_id(), mods: vec![
                 ModOrGroup::Individual(member(a)),
-                ModOrGroup::Group { group_name: "same".into(), enabled: true, member_overrides: MemberOverrides::default() },
-                ModOrGroup::Group { group_name: "other".into(), enabled: false, member_overrides: MemberOverrides::default() },
+                ModOrGroup::Group { id: crate::state::new_id(), group_name: "same".into(), enabled: true, member_overrides: MemberOverrides::default() },
+                ModOrGroup::Group { id: crate::state::new_id(), group_name: "other".into(), enabled: false, member_overrides: MemberOverrides::default() },
             ] })]),
             groups: BTreeMap::from([
-                ("same".into(), ModGroup { description: None, mods: vec![member(a)] }),
-                ("other".into(), ModGroup { description: None, mods: vec![member(b), member(b)] }),
+                ("same".into(), ModGroup { id: crate::state::new_id(), description: None, mods: vec![member(a)] }),
+                ("other".into(), ModGroup { id: crate::state::new_id(), description: None, mods: vec![member(b), member(b)] }),
             ]),
         };
         let issues = ProfileIssues::collect(&data, "p", &store);
@@ -306,7 +306,7 @@ mod tests {
         let store = ModStore::new(dir.path(), &HashMap::new()).unwrap();
         let data = Data {
             active_profile: "p".into(), groups: BTreeMap::new(),
-            profiles: BTreeMap::from([("p".into(), ModProfile_v0_1_0 { mods: vec![
+            profiles: BTreeMap::from([("p".into(), ModProfile_v0_1_0 { id: crate::state::new_id(), mods: vec![
                 ModOrGroup::Individual(member("https://mod.io/g/drg/m/example")),
                 ModOrGroup::Individual(member("https://mod.io/g/drg/m/example-2")),
             ] })]),
@@ -333,7 +333,7 @@ mod tests {
         let pin = "https://mod.io/g/drg/m/speedometer#123/10";
         let mut existing = member(latest);
         existing.enabled = false;
-        let mut profile = ModProfile_v0_1_0 { mods: vec![ModOrGroup::Individual(existing)] };
+        let mut profile = ModProfile_v0_1_0 { id: crate::state::new_id(), mods: vec![ModOrGroup::Individual(existing)] };
         assert!(promote_standalone(&mut profile, &spec(pin), &store));
         assert!(promote_standalone(&mut profile, &spec(latest), &store));
         assert_eq!(profile.mods.len(), 1);
@@ -362,14 +362,14 @@ mod tests {
         store.refresh_local_files(&[a.clone(), b.clone()]);
         let revision = store.metadata_revision();
         assert_eq!(Artifact::cached(&store, &a), Artifact::cached(&store, &b));
-        let mut profile = ModProfile_v0_1_0 { mods: vec![ModOrGroup::Individual(member(&a.url))] };
+        let mut profile = ModProfile_v0_1_0 { id: crate::state::new_id(), mods: vec![ModOrGroup::Individual(member(&a.url))] };
         assert!(promote_standalone(&mut profile, &b, &store));
         // Same length, different bytes: no filename/length-based assumption.
         std::fs::write(&b.url, b"pak content two").unwrap();
         store.refresh_local_files(&[a.clone(), b.clone()]);
         assert_ne!(revision, store.metadata_revision());
         assert_ne!(Artifact::cached(&store, &a), Artifact::cached(&store, &b));
-        let mut profile = ModProfile_v0_1_0 { mods: vec![ModOrGroup::Individual(member(&a.url))] };
+        let mut profile = ModProfile_v0_1_0 { id: crate::state::new_id(), mods: vec![ModOrGroup::Individual(member(&a.url))] };
         assert!(!promote_standalone(&mut profile, &b, &store));
         std::fs::remove_file(&b.url).unwrap();
         store.refresh_local_files(&[b.clone()]);
@@ -406,10 +406,10 @@ mod tests {
         old.enabled = false;
         old.priority = 42;
         old.required = true;
-        let mut profile = ModProfile_v0_1_0 { mods: vec![
+        let mut profile = ModProfile_v0_1_0 { id: crate::state::new_id(), mods: vec![
             ModOrGroup::Individual(member("unrelated")),
             ModOrGroup::Individual(old),
-            ModOrGroup::Group { group_name: "Tools".into(), enabled: true, member_overrides: Default::default() },
+            ModOrGroup::Group { id: crate::state::new_id(), group_name: "Tools".into(), enabled: true, member_overrides: Default::default() },
             ModOrGroup::Individual(member(pin)),
             ModOrGroup::Individual(member(different)),
         ] };
