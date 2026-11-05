@@ -1,4 +1,4 @@
-//! Profile Management popup (create, rename, import and delete profiles).
+//! Profile Management popup (create, rename, duplicate, copy, import and delete profiles).
 //! Kept separate from the reusable profile selector and the JSON importer.
 
 use super::is_committed;
@@ -12,10 +12,12 @@ struct ProfileManagementEditor {
     new_name: String,
     rename_name: String,
     rename_target: String,
+    duplicate_target: String,
+    duplicate_name: String,
     delete_target: Option<String>,
 }
 
-/// Four profile actions in one popup. Inline editors avoid nesting egui popups,
+/// Profile actions in one popup. Inline editors avoid nesting egui popups,
 /// which would otherwise close each other or lose their text-field focus.
 pub(super) fn ui<E, N>(
     ui: &mut egui::Ui,
@@ -29,7 +31,7 @@ pub(super) fn ui<E, N>(
 {
     let response = ui
         .button("Profile Management")
-        .on_hover_text("Create, rename, import or delete a profile");
+        .on_hover_text("Create, rename, duplicate, copy, import or delete a profile");
     let popup_id = ui.make_persistent_id(format!("manage-{name}"));
     let state_id = popup_id.with("fields");
     let mut editor: ProfileManagementEditor =
@@ -42,6 +44,8 @@ pub(super) fn ui<E, N>(
             editor = ProfileManagementEditor {
                 rename_name: entries.selected_name().to_owned(),
                 rename_target: entries.selected_name().to_owned(),
+                duplicate_target: entries.selected_name().to_owned(),
+                duplicate_name: format!("{} - Copy", entries.selected_name()),
                 ..Default::default()
             };
             ui.memory_mut(|mem| mem.open_popup(popup_id));
@@ -118,7 +122,38 @@ pub(super) fn ui<E, N>(
                             }
                         });
                     ui.separator();
-                    egui::CollapsingHeader::new("Copy Profile")
+                    egui::CollapsingHeader::new("Duplicate Profile")
+                        .id_salt("manage-duplicate-profile")
+                        .show(ui, |ui| {
+                            let target = editor.duplicate_target.as_str();
+                            ui.label(format!("Duplicating: {target}"));
+                            let field = ui.add(
+                                egui::TextEdit::singleline(&mut editor.duplicate_name)
+                                    .hint_text("Name for duplicated profile"),
+                            );
+                            let requested = editor.duplicate_name.trim().to_owned();
+                            let exists = entries.contains(&requested);
+                            if !requested.is_empty() && exists {
+                                ui.colored_label(
+                                    ui.visuals().warn_fg_color,
+                                    "A profile with that name already exists.",
+                                );
+                            }
+                            let valid = !requested.is_empty()
+                                && !exists
+                                && entries.selected_name() == target;
+                            let clicked = ui
+                                .add_enabled(valid, egui::Button::new("Duplicate Profile"))
+                                .clicked();
+                            if valid && (clicked || is_committed(&field)) {
+                                // Use the same implementation as the old duplicate toolbar icon.
+                                entries.duplicate_selected(requested);
+                                *modified = true;
+                                ui.memory_mut(|mem| mem.close_popup());
+                            }
+                        });
+                    ui.separator();
+                    egui::CollapsingHeader::new("Export Profile")
                         .id_salt("manage-copy-profile")
                         .show(ui, |ui| {
                             if let Some(copy_ui) = copy_ui.take() {
@@ -182,7 +217,7 @@ pub(super) fn copy_options(
     ui: &mut egui::Ui,
     mod_data: &ModData,
 ) -> Option<Result<String, String>> {
-    ui.label("Copy the active profile to the clipboard.");
+    ui.label("Export the active profile by copying it to the clipboard.");
     if ui.button("Copy mod list (TXT)").clicked() {
         let mut mods = String::new();
         let active_profile = mod_data.active_profile.clone();

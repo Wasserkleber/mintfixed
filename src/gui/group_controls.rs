@@ -893,10 +893,8 @@ pub(super) fn controls(
 ) -> (bool, Option<String>) {
     let profile = data.profiles.get_mut(&data.active_profile).unwrap();
     let mut changed = false;
-    let image = egui::Image::new(egui::include_image!("../../assets/groups.svg"))
-        .fit_to_exact_size(egui::vec2(16.0, 16.0))
-        .tint(ui.visuals().text_color());
-    let button = ui.add(Button::image(image)).on_hover_text("Groups");
+    let button = ui.button("Group Management")
+        .on_hover_text("Manage groups");
     let popup = button.id.with("groups-menu");
     let editor_id = popup.with("rename-editor");
     let duplicate_id = popup.with("duplicate-editor");
@@ -1226,82 +1224,6 @@ pub(super) fn controls(
                 duplicate_editor.success = None;
             }
             ui.separator();
-            let delete_section = egui::CollapsingHeader::new("Delete group")
-            .id_salt("delete-group-section")
-            .show(ui, |ui| {
-                if let Some(success) = &delete_editor.success {
-                    ui.colored_label(egui::Color32::from_rgb(100, 200, 120), success);
-                }
-                if data.groups.is_empty() {
-                    ui.label("No groups to delete.");
-                    return;
-                }
-                if !delete_editor.selected.is_empty() && !data.groups.contains_key(&delete_editor.selected) {
-                    delete_editor = DeleteEditor::default();
-                }
-                // The selector stays inside the Groups popup, avoiding nested popup issues.
-                let response = ui.add(
-                    Button::new(format!("{}    ", if delete_editor.selected.is_empty() {
-                        "Choose group"
-                    } else {
-                        delete_editor.selected.as_str()
-                    }))
-                    .min_size(egui::vec2(110.0, ui.spacing().interact_size.y)),
-                ).on_hover_text("Choose a group to delete");
-                if response.clicked() {
-                    delete_editor.picker_open = !delete_editor.picker_open;
-                    delete_editor.confirming = false;
-                }
-                let x = response.rect.right() - 12.0;
-                let y = response.rect.center().y;
-                let arrow = if delete_editor.picker_open {
-                    vec![egui::pos2(x - 4.0, y + 2.0), egui::pos2(x + 4.0, y + 2.0), egui::pos2(x, y - 2.0)]
-                } else {
-                    vec![egui::pos2(x - 4.0, y - 2.0), egui::pos2(x + 4.0, y - 2.0), egui::pos2(x, y + 2.0)]
-                };
-                ui.painter().add(egui::Shape::convex_polygon(
-                    arrow, ui.visuals().text_color(), egui::Stroke::NONE,
-                ));
-                if delete_editor.picker_open {
-                    group_picker_scroll().show(ui, |ui| {
-                        for key in data.groups.keys() {
-                            if group_option_row(ui, key.as_str(), delete_editor.selected == key.as_str()).clicked() {
-                                delete_editor.selected = key.clone();
-                                delete_editor.picker_open = false;
-                                delete_editor.confirming = false;
-                                delete_editor.error = None;
-                                delete_editor.success = None;
-                            }
-                        }
-                    });
-                }
-                if files_pending {
-                    ui.label("Wait for dropped files to finish before deleting.");
-                }
-                if delete_editor.confirming {
-                    ui.colored_label(ui.visuals().warn_fg_color,
-                        format!("Delete \"{}\" from every profile? All mods within this shared group will be removed from the profiles.", delete_editor.selected));
-                    ui.horizontal(|ui| {
-                        if ui.button("Cancel").clicked() {
-                            delete_editor.confirming = false;
-                        }
-                        if ui.add_enabled(!files_pending, Button::new("Confirm delete")).clicked() {
-                            requested_delete = Some(delete_editor.selected.clone());
-                        }
-                    });
-                } else if ui.add_enabled(!delete_editor.selected.is_empty() && !files_pending,
-                    Button::new("Delete group")).clicked() {
-                    delete_editor.confirming = true;
-                    delete_editor.success = None;
-                }
-                if let Some(error) = &delete_editor.error {
-                    ui.colored_label(ui.visuals().warn_fg_color, error);
-                }
-            });
-            if delete_section.header_response.clicked() {
-                delete_editor.success = None;
-            }
-            ui.separator();
             let export_section = egui::CollapsingHeader::new("Export groups")
                 .id_salt("export-groups-section")
                 .show(ui, |ui| {
@@ -1460,6 +1382,82 @@ pub(super) fn controls(
             if import_section.header_response.clicked() {
                 import_editor.success = None;
                 import_editor.error = None;
+            }
+            ui.separator();
+            let delete_section = egui::CollapsingHeader::new("Delete group")
+            .id_salt("delete-group-section")
+            .show(ui, |ui| {
+                if let Some(success) = &delete_editor.success {
+                    ui.colored_label(egui::Color32::from_rgb(100, 200, 120), success);
+                }
+                if data.groups.is_empty() {
+                    ui.label("No groups to delete.");
+                    return;
+                }
+                if !delete_editor.selected.is_empty() && !data.groups.contains_key(&delete_editor.selected) {
+                    delete_editor = DeleteEditor::default();
+                }
+                // The selector stays inside the Groups popup, avoiding nested popup issues.
+                let response = ui.add(
+                    Button::new(format!("{}    ", if delete_editor.selected.is_empty() {
+                        "Choose group"
+                    } else {
+                        delete_editor.selected.as_str()
+                    }))
+                    .min_size(egui::vec2(110.0, ui.spacing().interact_size.y)),
+                ).on_hover_text("Choose a group to delete");
+                if response.clicked() {
+                    delete_editor.picker_open = !delete_editor.picker_open;
+                    delete_editor.confirming = false;
+                }
+                let x = response.rect.right() - 12.0;
+                let y = response.rect.center().y;
+                let arrow = if delete_editor.picker_open {
+                    vec![egui::pos2(x - 4.0, y + 2.0), egui::pos2(x + 4.0, y + 2.0), egui::pos2(x, y - 2.0)]
+                } else {
+                    vec![egui::pos2(x - 4.0, y - 2.0), egui::pos2(x + 4.0, y - 2.0), egui::pos2(x, y + 2.0)]
+                };
+                ui.painter().add(egui::Shape::convex_polygon(
+                    arrow, ui.visuals().text_color(), egui::Stroke::NONE,
+                ));
+                if delete_editor.picker_open {
+                    group_picker_scroll().show(ui, |ui| {
+                        for key in data.groups.keys() {
+                            if group_option_row(ui, key.as_str(), delete_editor.selected == key.as_str()).clicked() {
+                                delete_editor.selected = key.clone();
+                                delete_editor.picker_open = false;
+                                delete_editor.confirming = false;
+                                delete_editor.error = None;
+                                delete_editor.success = None;
+                            }
+                        }
+                    });
+                }
+                if files_pending {
+                    ui.label("Wait for dropped files to finish before deleting.");
+                }
+                if delete_editor.confirming {
+                    ui.colored_label(ui.visuals().warn_fg_color,
+                        format!("Delete \"{}\" from every profile? All mods within this shared group will be removed from the profiles.", delete_editor.selected));
+                    ui.horizontal(|ui| {
+                        if ui.button("Cancel").clicked() {
+                            delete_editor.confirming = false;
+                        }
+                        if ui.add_enabled(!files_pending, Button::new("Confirm delete")).clicked() {
+                            requested_delete = Some(delete_editor.selected.clone());
+                        }
+                    });
+                } else if ui.add_enabled(!delete_editor.selected.is_empty() && !files_pending,
+                    Button::new("Delete group")).clicked() {
+                    delete_editor.confirming = true;
+                    delete_editor.success = None;
+                }
+                if let Some(error) = &delete_editor.error {
+                    ui.colored_label(ui.visuals().warn_fg_color, error);
+                }
+            });
+            if delete_section.header_response.clicked() {
+                delete_editor.success = None;
             }
         },
     );
