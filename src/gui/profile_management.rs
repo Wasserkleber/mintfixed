@@ -3,6 +3,8 @@
 
 use super::is_committed;
 use super::named_combobox::NamedEntries;
+use super::{ModData, ModOrGroup};
+use std::collections::BTreeMap;
 
 // Persistent input state for the single profile management menu.
 #[derive(Debug, Clone, Default)]
@@ -21,6 +23,7 @@ pub(super) fn ui<E, N>(
     entries: &mut N,
     modified: &mut bool,
     import_ui: Option<impl FnOnce(&mut egui::Ui, &mut N, &mut bool)>,
+    copy_ui: Option<impl FnOnce(&mut egui::Ui, &mut N)>,
 ) where
     N: NamedEntries<E>,
 {
@@ -45,12 +48,8 @@ pub(super) fn ui<E, N>(
         }
     }
 
+    let mut copy_ui = copy_ui;
     let mut import_ui = import_ui;
-    // Constrain the popup to the room below the toolbar. Keep it tall on
-    // regular windows, but avoid pushing actions below the visible screen.
-    let available_height = (ui.ctx().screen_rect().bottom() - response.rect.bottom() - 12.0)
-        .max(120.0)
-        .min(520.0);
     egui::popup_below_widget(
         ui,
         popup_id,
@@ -58,14 +57,9 @@ pub(super) fn ui<E, N>(
         egui::PopupCloseBehavior::CloseOnClickOutside,
         |ui| {
             ui.set_min_width(385.0);
-            // The menu reaches farther down than the old 390-point panel.
-            // Extra space remains available when the sections are collapsed;
-            // lengthy import content still scrolls instead of covering buttons.
-            egui::ScrollArea::vertical()
-                .id_salt("profile-management-scroll")
-                .max_height(available_height)
-                .show(ui, |ui| {
-                    ui.set_min_height(available_height - 8.0);
+            // Match the Groups menu: size the popup to its expanded sections.
+            // Only the JSON text editor has its own bounded scroll area.
+            ui.vertical(|ui| {
                     egui::CollapsingHeader::new("New Profile")
                         .id_salt("manage-new-profile")
                         .show(ui, |ui| {
@@ -124,6 +118,14 @@ pub(super) fn ui<E, N>(
                             }
                         });
                     ui.separator();
+                    egui::CollapsingHeader::new("Copy Profile")
+                        .id_salt("manage-copy-profile")
+                        .show(ui, |ui| {
+                            if let Some(copy_ui) = copy_ui.take() {
+                                copy_ui(ui, entries);
+                            }
+                        });
+                    ui.separator();
                     egui::CollapsingHeader::new("Import Profile (JSON)")
                         .id_salt("manage-import-profile")
                         .show(ui, |ui| {
@@ -172,4 +174,56 @@ pub(super) fn ui<E, N>(
         },
     );
     ui.data_mut(|data| data.insert_temp(state_id, editor));
+}
+
+/// Copy the same TXT/JSON payloads as the former Copy Mods toolbar button.
+/// STATUS feedback is returned to mod.rs without borrowing the parent App.
+pub(super) fn copy_options(
+    ui: &mut egui::Ui,
+    mod_data: &ModData,
+) -> Option<Result<String, String>> {
+    ui.label("Copy the active profile to the clipboard.");
+    if ui.button("Copy mod list (TXT)").clicked() {
+        let mut mods = String::new();
+        let active_profile = mod_data.active_profile.clone();
+        mod_data.for_each_enabled_mod(&active_profile, |mc| {
+            mods.push_str(&mc.spec.url);
+            mods.push('\n');
+        });
+        ui.ctx().copy_text(mods);
+        ui.memory_mut(|mem| mem.close_popup());
+        return Some(Ok("Copied mod list (TXT) to clipboard".into()));
+    }
+    if ui.button("Copy profile with groups (JSON)").clicked() {
+        let profile = &mod_data.profiles[&mod_data.active_profile];
+        // Preserve ordering, disabled mods, group references, and member overrides.
+        // Include only the group definitions used by this profile.
+        let groups: BTreeMap<&str, &crate::state::ModGroup> = profile
+            .mods
+            .iter()
+            .filter_map(|entry| match entry {
+                ModOrGroup::Group { group_name, .. } => mod_data
+                    .groups
+                    .get(group_name)
+                    .map(|group| (group_name.as_str(), group)),
+                ModOrGroup::Individual(_) => None,
+            })
+            .collect();
+        let payload = serde_json::json!({
+            "format": "mintfixed-profile-mod-list",
+            "version": 1,
+            "profile_name": &mod_data.active_profile,
+            "mods": &profile.mods,
+            "groups": groups,
+        });
+        return Some(match serde_json::to_string_pretty(&payload) {
+            Ok(json) => {
+                ui.ctx().copy_text(json);
+                ui.memory_mut(|mem| mem.close_popup());
+                Ok("Copied profile with groups (JSON) to clipboard".into())
+            }
+            Err(error) => Err(format!("Could not copy group JSON: {error}")),
+        });
+    }
+    None
 }

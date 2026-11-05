@@ -2293,80 +2293,6 @@ impl eframe::App for App {
             let mut group_changed = false;
             let mut group_success = None;
             let buttons = |ui: &mut Ui, mod_data: &mut ModData| {
-                let image = egui::Image::new(egui::include_image!("../../assets/copy_mods.svg"))
-                    .fit_to_exact_size(egui::vec2(16.0, 16.0))
-                    .tint(ui.visuals().text_color());
-                {
-                    let copy_button = ui
-                        .add(Button::image(image))
-                        .on_hover_text_at_pointer("Copy profile mods");
-                    let copy_popup = copy_button.id.with("copy-profile-mods-menu");
-                    if copy_button.clicked() {
-                        ui.memory_mut(|mem| mem.toggle_popup(copy_popup));
-                    }
-                    egui::popup_below_widget(
-                        ui,
-                        copy_popup,
-                        &copy_button,
-                        egui::PopupCloseBehavior::CloseOnClickOutside,
-                        |ui| {
-                            ui.set_min_width(220.0);
-                            if ui.button("Copy mod list (TXT)").clicked() {
-                                // Keep the original enabled-mod output unchanged.
-                                let mut mods = String::new();
-                                let active_profile = mod_data.active_profile.clone();
-                                mod_data.for_each_enabled_mod(&active_profile, |mc| {
-                                    mods.push_str(&mc.spec.url);
-                                    mods.push('\n');
-                                });
-                                ui.ctx().copy_text(mods);
-                                self.last_action = Some(LastAction::success(
-                                    "Copied mod list (TXT) to clipboard".into(),
-                                ));
-                                ui.memory_mut(|mem| mem.close_popup());
-                            }
-                            if ui.button("Copy profile with groups (JSON)").clicked() {
-                                let profile = &mod_data.profiles[&mod_data.active_profile];
-                                // Store all ordered profile entries (including standalone mods,
-                                // disabled mods, group references, and per-profile overrides),
-                                // plus the shared definitions of groups used by this profile.
-                                let groups: BTreeMap<&str, &crate::state::ModGroup> = profile
-                                    .mods
-                                    .iter()
-                                    .filter_map(|entry| match entry {
-                                        ModOrGroup::Group { group_name, .. } => mod_data
-                                            .groups
-                                            .get(group_name)
-                                            .map(|group| (group_name.as_str(), group)),
-                                        ModOrGroup::Individual(_) => None,
-                                    })
-                                    .collect();
-                                let payload = serde_json::json!({
-                                    "format": "mintfixed-profile-mod-list",
-                                    "version": 1,
-                                    "profile_name": &mod_data.active_profile,
-                                    "mods": &profile.mods,
-                                    "groups": groups,
-                                });
-                                match serde_json::to_string_pretty(&payload) {
-                                    Ok(json) => {
-                                        ui.ctx().copy_text(json);
-                                        self.last_action = Some(LastAction::success(
-                                            "Copied profile with groups (JSON) to clipboard".into(),
-                                        ));
-                                        ui.memory_mut(|mem| mem.close_popup());
-                                    }
-                                    Err(error) => {
-                                        self.last_action = Some(LastAction::failure(
-                                            format!("Could not copy group JSON: {error}"),
-                                        ));
-                                    }
-                                }
-                            }
-                        },
-                    );
-                }
-
                 (group_changed, group_success) = group_controls::controls(
                     ui,
                     mod_data,
@@ -2390,12 +2316,17 @@ impl eframe::App for App {
             let profile_import_button = |ui: &mut Ui, mod_data: &mut ModData, modified: &mut bool| {
                 imported_profile = profile_import::ui_inline(ui, mod_data, modified);
             };
+            let mut copy_feedback: Option<Result<String, String>> = None;
+            let profile_copy_button = |ui: &mut Ui, mod_data: &mut ModData| {
+                copy_feedback = profile_management::copy_options(ui, mod_data);
+            };
             if named_combobox::ui(
                 ui,
                 "profile",
                 self.state.mod_data.deref_mut().deref_mut(),
                 Some(buttons),
                 Some(profile_import_button),
+                Some(profile_copy_button),
                 self.resolve_mod_rid.is_none() && self.pending_group_files == 0,
             ) || group_changed
             {
@@ -2406,6 +2337,12 @@ impl eframe::App for App {
             }
             if let Some(message) = imported_profile {
                 self.last_action = Some(LastAction::success(message));
+            }
+            if let Some(result) = copy_feedback {
+                self.last_action = Some(match result {
+                    Ok(message) => LastAction::success(message),
+                    Err(message) => LastAction::failure(message),
+                });
             }
 
             if self.undo_group_move.is_some()
