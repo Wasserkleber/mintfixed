@@ -334,16 +334,41 @@ struct DuplicateEditor {
     success: Option<String>,
 }
 
+#[derive(Clone, Copy, Default, PartialEq, Eq)]
+enum GroupExportKind {
+    #[default]
+    Json,
+    Txt,
+}
+
+impl GroupExportKind {
+    fn extension(self) -> &'static str {
+        match self {
+            Self::Json => "json",
+            Self::Txt => "txt",
+        }
+    }
+}
+
 #[derive(Clone, Default)]
 struct ExportEditor {
     selected: String,
+    kind: GroupExportKind,
     picker_open: bool,
     success: Option<String>,
     error: Option<String>,
 }
 
+#[derive(Clone)]
+struct PendingGroupImport {
+    suggested_name: Option<String>,
+    group: crate::state::ModGroup,
+}
+
 #[derive(Clone, Default)]
 struct ImportEditor {
+    pending: Option<PendingGroupImport>,
+    name: String,
     success: Option<String>,
     error: Option<String>,
 }
@@ -360,13 +385,14 @@ struct GroupExportFile {
     groups: std::collections::BTreeMap<String, crate::state::ModGroup>,
 }
 
-fn serialize_groups(data: &Data) -> Result<String, String> {
+fn serialize_single_group(data: &Data, name: &str) -> Result<String, String> {
+    let group = data.groups.get(name).ok_or("The selected group no longer exists")?;
     serde_json::to_string_pretty(&GroupExportFile {
         format: GROUP_EXPORT_FORMAT.to_owned(),
         version: GROUP_EXPORT_VERSION,
-        groups: data.groups.clone(),
+        groups: std::collections::BTreeMap::from([(name.to_owned(), group.clone())]),
     })
-    .map_err(|e| format!("Failed to serialize groups: {e}"))
+    .map_err(|e| format!("Failed to serialize group: {e}"))
 }
 
 fn parse_groups_json(
@@ -428,29 +454,70 @@ fn parse_mod_list_txt(
     )]))
 }
 
-fn read_group_export(
-    path: &std::path::Path,
-) -> Result<std::collections::BTreeMap<String, crate::state::ModGroup>, String> {
+/// Read exactly one group and defer insertion until the user confirms its name.
+fn parse_single_group_json(text: &str) -> Result<PendingGroupImport, String> {
+    let value: serde_json::Value =
+        serde_json::from_str(text).map_err(|e| format!("Invalid JSON: {e}"))?;
+
+    let (name, group) = if value.get("groups").is_some() {
+        // Existing mintfixed bundle format. Do not silently import one group
+        // from a file containing several groups.
+        let groups = parse_groups_json(text)?;
+        if groups.len() != 1 {
+            return Err("Select a JSON file containing exactly one group".into());
+        }
+        let (name, group) = groups.into_iter().next().unwrap();
+        (Some(name), group)
+    } else {
+        if let Some(format) = value.get("format") {
+            if format.as_str() != Some("mintfixed-group")
+                || value.get("version").and_then(|v| v.as_u64()) != Some(1)
+            {
+                return Err("Unsupported group export format/version".into());
+            }
+        }
+        // Also accept one bare ModGroup or { "name": "...", "group": {...} }.
+        let content = value.get("group").unwrap_or(&value);
+        if content.get("mods").is_none() {
+            return Err("This JSON file does not contain a group".into());
+        }
+        let group = serde_json::from_value(content.clone())
+            .map_err(|e| format!("Invalid group data: {e}"))?;
+        let name = value.get("name").or_else(|| content.get("name"))
+            .and_then(|name| name.as_str()).map(str::to_owned);
+        (name, group)
+    };
+
+    if group.mods.iter().any(|m: &ModConfig| m.spec.url.trim().is_empty()) {
+        return Err("The group contains an empty mod URL".into());
+    }
+    Ok(PendingGroupImport {
+        suggested_name: name.map(|name| name.trim().to_owned())
+            .filter(|name| !name.is_empty()),
+        group,
+    })
+}
+
+fn read_single_group_import(path: &std::path::Path) -> Result<PendingGroupImport, String> {
     const MAX_BYTES: u64 = 8 * 1024 * 1024;
     let size = std::fs::metadata(path)
-        .map_err(|e| format!("Cannot read file: {e}"))?
-        .len();
+        .map_err(|e| format!("Cannot read file: {e}"))?.len();
     if size > MAX_BYTES {
         return Err("Group import files must not exceed 8 MiB".into());
     }
-    let text = std::fs::read_to_string(path).map_err(|e| format!("Cannot read file: {e}"))?;
-    let ext = path
-        .extension()
-        .and_then(|s| s.to_str())
+    let text = std::fs::read_to_string(path)
+        .map_err(|e| format!("Cannot read file: {e}"))?;
+    let extension = path.extension().and_then(|s| s.to_str())
         .unwrap_or_default();
-    if ext.eq_ignore_ascii_case("txt") {
-        let name = path
-            .file_stem()
-            .and_then(|s| s.to_str())
-            .unwrap_or_default();
-        parse_mod_list_txt(&text, name)
-    } else if ext.eq_ignore_ascii_case("json") {
-        parse_groups_json(&text)
+    if extension.eq_ignore_ascii_case("json") {
+        parse_single_group_json(&text)
+    } else if extension.eq_ignore_ascii_case("txt") {
+        // TXT is a list of URLs/paths; the filename is not group metadata.
+        let mut parsed = parse_mod_list_txt(&text, "Temporary import")?;
+        Ok(PendingGroupImport {
+            suggested_name: None,
+            group: parsed.remove("Temporary import").unwrap(),
+        })
     } else {
         Err("Select a .json group export or a .txt mod list".into())
     }
@@ -619,6 +686,38 @@ mod group_import_export_tests {
     fn unsupported_bundle_version_is_rejected() {
         let invalid = r#"{"format":"mintfixed-groups","version":99,"groups":{"x":{"mods":[]}}}"#;
         assert!(parse_groups_json(invalid).is_err());
+    }
+
+    #[test]
+    fn exporting_one_json_group_preserves_its_name_and_mod_settings() {
+        let mut data = Data::default();
+        let mut group = crate::state::ModGroup::default();
+        group.description = Some("A group description".into());
+        group.mods.push(ModConfig {
+            id: crate::state::new_id(),
+            description: Some("A mod description".into()),
+            spec: ModSpecification::new("https://mod.io/g/drg/m/example#123".into()),
+            enabled: false,
+            required: false,
+            member_id: None,
+            priority: 12,
+        });
+        data.groups.insert("Tools".to_owned(), group);
+        let json = serialize_single_group(&data, "Tools").unwrap();
+        let imported = parse_single_group_json(&json).unwrap();
+        assert_eq!(imported.suggested_name.as_deref(), Some("Tools"));
+        assert_eq!(imported.group.description.as_deref(), Some("A group description"));
+        assert_eq!(imported.group.mods[0].description.as_deref(), Some("A mod description"));
+        assert_eq!(imported.group.mods[0].priority, 12);
+        assert!(!imported.group.mods[0].enabled);
+    }
+
+    #[test]
+    fn nameless_json_requires_a_name_and_multigroup_json_is_rejected() {
+        let imported = parse_single_group_json(r#"{"group":{"mods":[]}}"#).unwrap();
+        assert!(imported.suggested_name.is_none());
+        let invalid = r#"{"format":"mintfixed-groups","version":1,"groups":{"A":{"mods":[]},"B":{"mods":[]}}}"#;
+        assert!(parse_single_group_json(invalid).is_err());
     }
 }
 
@@ -808,8 +907,9 @@ pub(super) fn controls(
     let mut requested_rename = None;
     let mut requested_duplicate = None;
     let mut requested_delete = None;
-    let mut requested_export: Option<(PathBuf, Option<String>)> = None;
+    let mut requested_export: Option<(PathBuf, String, GroupExportKind)> = None;
     let mut requested_import: Option<PathBuf> = None;
+    let mut requested_import_name: Option<String> = None;
     let mut success_message = None;
     if button.clicked() {
         editor.picker_open = false;
@@ -1192,22 +1292,7 @@ pub(super) fn controls(
                     if let Some(error) = &export_editor.error {
                         ui.colored_label(ui.visuals().warn_fg_color, error);
                     }
-                    ui.label("Save all groups with their settings:");
-                    if ui
-                        .add_enabled(
-                            !data.groups.is_empty(),
-                            Button::new("Export all groups (.json)"),
-                        )
-                        .clicked()
-                    {
-                        requested_export = rfd::FileDialog::new()
-                            .add_filter("JSON group export", &["json"])
-                            .set_file_name("mintfixed-groups.json")
-                            .save_file()
-                            .map(|path| (path, None));
-                    }
-                    ui.add_space(5.0);
-                    ui.label("Or save one group's mod URLs as a MINT-style list:");
+                    ui.label("Choose a group to export:");
                     if !data.groups.contains_key(&export_editor.selected) {
                         export_editor.selected.clear();
                     }
@@ -1262,18 +1347,35 @@ pub(super) fn controls(
                             }
                         });
                     }
+                    ui.add_space(8.0);
+                    ui.horizontal(|ui| {
+                        ui.radio_value(&mut export_editor.kind, GroupExportKind::Json, "JSON");
+                        ui.radio_value(&mut export_editor.kind, GroupExportKind::Txt, "TXT");
+                    });
+                    ui.label(match export_editor.kind {
+                        GroupExportKind::Json => "Preserves mod order, settings and descriptions.",
+                        GroupExportKind::Txt => "One mod path or URL per line; no settings.",
+                    });
                     if ui
                         .add_enabled(
-                            !export_editor.selected.is_empty(),
-                            Button::new("Export selected group (.txt)"),
+                            data.groups.contains_key(&export_editor.selected),
+                            Button::new("Export group"),
                         )
                         .clicked()
                     {
+                        let kind = export_editor.kind;
+                        let extension = kind.extension();
+                        let filter = match kind {
+                            GroupExportKind::Json => "JSON group export",
+                            GroupExportKind::Txt => "MINT mod list",
+                        };
                         requested_export = rfd::FileDialog::new()
-                            .add_filter("MINT mod list", &["txt"])
-                            .set_file_name("mintfixed-group.txt")
+                            .add_filter(filter, &[extension])
+                            .set_file_name(format!("mintfixed-group.{extension}"))
                             .save_file()
-                            .map(|path| (path, Some(export_editor.selected.clone())));
+                            .map(|path| {
+                                (path.with_extension(extension), export_editor.selected.clone(), kind)
+                            });
                     }
                 });
             if export_section.header_response.clicked() {
@@ -1290,7 +1392,7 @@ pub(super) fn controls(
                 if let Some(error) = &import_editor.error {
                     ui.colored_label(ui.visuals().warn_fg_color, error);
                 }
-                ui.label("Import a group bundle (.json) or a MINT mod list (.txt).");
+                ui.label("Import one JSON group or a MINT-style TXT mod list.");
                 ui.label("Imported groups are added to the active profile; existing groups are never overwritten.");
                 if files_pending {
                     ui.label("Wait for dropped files to finish before importing.");
@@ -1299,6 +1401,37 @@ pub(super) fn controls(
                     requested_import = rfd::FileDialog::new()
                         .add_filter("Group exports and mod lists", &["json", "txt"])
                         .pick_file();
+                }
+                if let Some(pending) = &import_editor.pending {
+                    if let Some(suggested) = &pending.suggested_name {
+                        ui.label(format!("Group in file: {suggested}"));
+                    } else {
+                        ui.label("This file has no group name. Please enter one.");
+                    }
+                    ui.add_space(6.0);
+                    ui.add(egui::TextEdit::singleline(&mut import_editor.name)
+                        .hint_text("New group name"));
+                    let candidate = import_editor.name.trim().to_owned();
+                    if !candidate.is_empty() && data.groups.contains_key(candidate.as_str()) {
+                        ui.colored_label(
+                            ui.visuals().warn_fg_color,
+                            "A group with that name already exists.",
+                        );
+                    }
+                    ui.horizontal(|ui| {
+                        if ui.button("Cancel").clicked() {
+                            import_editor.pending = None;
+                            import_editor.name.clear();
+                            import_editor.error = None;
+                        }
+                        if ui.add_enabled(
+                            !files_pending && !candidate.is_empty()
+                                && !data.groups.contains_key(candidate.as_str()),
+                            Button::new("Import group"),
+                        ).clicked() {
+                            requested_import_name = Some(candidate);
+                        }
+                    });
                 }
             });
             if import_section.header_response.clicked() {
@@ -1378,18 +1511,17 @@ pub(super) fn controls(
             }
         }
     }
-    if let Some((path, group)) = requested_export {
-        let result = if let Some(group) = group.as_deref() {
-            export_group_mod_list(data, group)
-        } else {
-            serialize_groups(data)
+    if let Some((path, name, kind)) = requested_export {
+        let result = match kind {
+            GroupExportKind::Json => serialize_single_group(data, &name),
+            GroupExportKind::Txt => export_group_mod_list(data, &name),
         }
         .and_then(|contents| {
             std::fs::write(&path, contents).map_err(|e| format!("Failed to save export: {e}"))
         });
         match result {
             Ok(()) => {
-                let message = format!("Exported groups to {}", path.display());
+                let message = format!("Exported group \"{name}\" to {}", path.display());
                 export_editor.success = Some(message.clone());
                 export_editor.error = None;
                 success_message = Some(message);
@@ -1402,23 +1534,42 @@ pub(super) fn controls(
         ui.ctx().request_repaint();
     }
     if let Some(path) = requested_import {
-        let result = read_group_export(&path).and_then(|groups| import_groups(data, groups));
-        match result {
-            Ok(names) => {
-                changed = true;
-                let message = format!(
-                    "Imported {} group(s) into the active profile: {}",
-                    names.len(),
-                    names.join(", ")
-                );
-                import_editor.success = Some(message.clone());
+        match read_single_group_import(&path) {
+            Ok(pending) => {
+                import_editor.name = pending.suggested_name.clone().unwrap_or_default();
+                import_editor.pending = Some(pending);
                 import_editor.error = None;
-                success_message = Some(message);
-                egui::DragAndDrop::clear_payload(ui.ctx());
+                import_editor.success = None;
             }
             Err(error) => {
+                import_editor.pending = None;
+                import_editor.name.clear();
                 import_editor.success = None;
                 import_editor.error = Some(error);
+            }
+        }
+        ui.ctx().request_repaint();
+    }
+    if let Some(name) = requested_import_name {
+        if let Some(pending) = &import_editor.pending {
+            // Explicit name validation. Never silently rename or overwrite a group.
+            if data.groups.contains_key(&name) {
+                import_editor.error = Some("A group with that name already exists".into());
+            } else {
+                let source = std::collections::BTreeMap::from([(name.clone(), pending.group.clone())]);
+                match import_groups(data, source) {
+                    Ok(_) => {
+                        changed = true;
+                        let message = format!("Imported group \"{name}\" into the active profile.");
+                        import_editor.pending = None;
+                        import_editor.name.clear();
+                        import_editor.error = None;
+                        import_editor.success = Some(message.clone());
+                        success_message = Some(message);
+                        egui::DragAndDrop::clear_payload(ui.ctx());
+                    }
+                    Err(error) => import_editor.error = Some(error),
+                }
             }
         }
         ui.ctx().request_repaint();
