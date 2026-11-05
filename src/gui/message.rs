@@ -206,6 +206,7 @@ impl ResolveMods {
                             profiles.get_mut(&self.profile).unwrap().mods.insert(
                                 insertion_index,
                                 ModOrGroup::Individual(ModConfig {
+                                    description: None,
                                     member_id: None,
                                     spec: if crate::providers::modio::pinned_file(&resolved_spec.url).is_some() {
                                         resolved_spec.clone()

@@ -132,6 +132,26 @@ impl SortBy {
 
 const MODIO_LOGO_PNG: &[u8] = include_bytes!("../../assets/modio-cog-blue.png");
 
+// A bordered, hover-only help control for the optional preset description.
+// Using a real widget makes the tooltip discoverable without triggering actions.
+fn description_help_button(ui: &mut Ui, description: &str) {
+    let border = ui.visuals().widgets.inactive.fg_stroke.color;
+    ui.add(
+        Button::new(RichText::new("?").strong())
+            .small()
+            .frame(true)
+            .stroke(Stroke::new(1.0, border))
+            .min_size(egui::vec2(18.0, 18.0))
+            .sense(egui::Sense::hover()),
+    )
+    .on_hover_cursor(egui::CursorIcon::PointingHand)
+    .on_hover_ui_at_pointer(|ui| {
+        ui.set_max_width(320.0);
+        ui.label(RichText::new("Description").strong());
+        ui.label(description);
+    });
+}
+
 pub struct App {
     args: Option<Vec<String>>,
     tx: Sender<message::Message>,
@@ -707,6 +727,9 @@ impl App {
                     }
 
                     ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                        if let Some(description) = mc.description.as_deref().filter(|text| !text.trim().is_empty()) {
+                            description_help_button(ui, description);
+                        }
                         ui_mod_tags(ctx, ui, info);
                     });
                 } else {
@@ -729,6 +752,9 @@ impl App {
                     if search.is_match && self.scroll_to_match {
                         res.scroll_to_me(None);
                         ctx.scroll_to_match = false;
+                    }
+                    if let Some(description) = mc.description.as_deref().filter(|text| !text.trim().is_empty()) {
+                        description_help_button(ui, description);
                     }
                 }
             };
@@ -767,10 +793,36 @@ impl App {
                             }
                             let open = !self.groups_to_open.is_empty()
                                 && self.groups_to_open.remove(&(profile_name.to_owned(), group_name.clone()));
-                            let panel = CollapsingHeader::new(group_name.as_str())
-                                .id_salt((profile_name, group_name.as_str()))
-                                .open(open.then_some(true))
-                                .show(ui, |ui| {
+                            let group_description = groups.get(group_name)
+                                .and_then(|group| group.description.clone())
+                                .filter(|text| !text.trim().is_empty());
+                            // egui::CollapsingState::body requires a vertical layout for indentation.
+                            let (header_response, body_response, fully_closed) = ui.vertical(|ui| {
+                            // Keep the group title clickable and render its help icon
+                            // independently, on the same header row.
+                            let mut collapse = egui::collapsing_header::CollapsingState::load_with_default_open(
+                                ui.ctx(),
+                                ui.make_persistent_id((profile_name, group_name.as_str())),
+                                false,
+                            );
+                            if open {
+                                collapse.set_open(true);
+                            }
+                            let fully_closed = collapse.openness(ui.ctx()) <= 0.0;
+                            let mut title_clicked = false;
+                            let mut header = collapse.show_header(ui, |ui| {
+                                title_clicked = ui
+                                    .add(egui::Label::new(group_name.as_str()).sense(egui::Sense::click()))
+                                    .on_hover_cursor(egui::CursorIcon::PointingHand)
+                                    .clicked();
+                                if let Some(description) = group_description.as_deref() {
+                                    description_help_button(ui, description);
+                                }
+                            });
+                            if title_clicked {
+                                header.toggle();
+                            }
+                            let (_toggle_response, header_contents, body_response) = header.body(|ui| {
                                 let group = groups.get_mut(group_name).unwrap();
                                 let order = sorted_mod_indices(
                                     Some(member_overrides),
@@ -799,29 +851,33 @@ impl App {
                                     }
                                 }
                             });
-                            if group_controls::hover_open(ui, &panel.header_response,
-                                panel.fully_closed(), profile_name, sorting_config.is_none())
+                            let header_response = header_contents.response;
+                            let body_response = body_response.map(|body| body.response);
+                                (header_response, body_response, fully_closed)
+                            }).inner;
+                            if group_controls::hover_open(ui, &header_response,
+                                fully_closed, profile_name, sorting_config.is_none())
                             {
                                 self.groups_to_open.insert((profile_name.to_owned(), group_name.clone()));
                                 ui.ctx().request_repaint();
                             }
-                            let mut area = panel.header_response.rect;
-                            if let Some(body) = &panel.body_response {
+                            let mut area = header_response.rect;
+                            if let Some(body) = &body_response {
                                 area = area.union(body.rect);
                             }
                             if ui.rect_contains_pointer(area) {
-                                ctx.file_group = Some((group_name.clone(), panel.fully_closed()));
+                                ctx.file_group = Some((group_name.clone(), fully_closed));
                             }
-                            if panel.header_response.dnd_hover_payload::<Drag>().is_some_and(|d| !d.is_group)
+                            if header_response.dnd_hover_payload::<Drag>().is_some_and(|d| !d.is_group)
                                 || (ctx.file_group.as_ref().is_some_and(|(name, _)| name == group_name) && ui.input(|i| !i.raw.hovered_files.is_empty()))
                             {
                                 ui.painter().hline(area.x_range(), area.top(), (2.0, ui.visuals().selection.stroke.color));
                             }
                             if sorting_config.is_none()
-                                && panel.header_response.dnd_hover_payload::<Drag>().is_some_and(|d| !d.is_group)
-                                && let Some(source) = panel.header_response.dnd_release_payload::<Drag>()
+                                && header_response.dnd_hover_payload::<Drag>().is_some_and(|d| !d.is_group)
+                                && let Some(source) = header_response.dnd_release_payload::<Drag>()
                             {
-                                ctx.drag = Some(((*source).clone(), Target { group: Some(group_name.clone()), slot: if panel.fully_closed() { 0 } else { usize::MAX } }));
+                                ctx.drag = Some(((*source).clone(), Target { group: Some(group_name.clone()), slot: if fully_closed { 0 } else { usize::MAX } }));
                             }
                         }
                     }

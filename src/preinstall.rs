@@ -36,6 +36,8 @@ fn default_true() -> bool {
 enum PresetItem {
     Mod {
         url: String,
+        #[serde(default)]
+        description: Option<String>,
         #[serde(default = "default_true")]
         enabled: bool,
         #[serde(default)]
@@ -45,6 +47,8 @@ enum PresetItem {
     },
     Group {
         name: String,
+        #[serde(default)]
+        description: Option<String>,
         #[serde(default = "default_true")]
         enabled: bool,
         #[serde(default)]
@@ -56,6 +60,8 @@ enum PresetItem {
 #[serde(deny_unknown_fields)]
 struct PresetMod {
     url: String,
+    #[serde(default)]
+    description: Option<String>,
     #[serde(default = "default_true")]
     enabled: bool,
     #[serde(default)]
@@ -64,9 +70,14 @@ struct PresetMod {
     priority: i32,
 }
 
-fn config(url: String, enabled: bool, required: bool, priority: i32) -> ModConfig {
+fn clean_description(description: Option<String>) -> Option<String> {
+    description.map(|value| value.trim().to_owned()).filter(|value| !value.is_empty())
+}
+
+fn config(url: String, enabled: bool, required: bool, priority: i32, description: Option<String>) -> ModConfig {
     ModConfig {
         spec: ModSpecification::new(url),
+        description: clean_description(description),
         member_id: None,
         required,
         enabled,
@@ -121,12 +132,13 @@ fn apply_json(raw: &str, data: &mut ModData) -> Result<bool, String> {
     let mut groups = std::collections::BTreeMap::new();
     for item in preset.items {
         match item {
-            PresetItem::Mod { url, enabled, required, priority } => {
-                profile.mods.push(ModOrGroup::Individual(config(url, enabled, required, priority)));
+            PresetItem::Mod { url, description, enabled, required, priority } => {
+                profile.mods.push(ModOrGroup::Individual(config(url, enabled, required, priority, description)));
             }
-            PresetItem::Group { name, enabled, mods } => {
+            PresetItem::Group { name, description, enabled, mods } => {
                 groups.insert(name.clone(), ModGroup {
-                    mods: mods.into_iter().map(|m| config(m.url, m.enabled, m.required, m.priority)).collect(),
+                    description: clean_description(description),
+                    mods: mods.into_iter().map(|m| config(m.url, m.enabled, m.required, m.priority, m.description)).collect(),
                 });
                 profile.mods.push(ModOrGroup::Group {
                     group_name: name,
@@ -188,6 +200,35 @@ mod tests {
         assert_eq!(data.active_profile, "default");
         assert!(data.profiles["default"].mods.is_empty());
         assert!(!data.groups.contains_key("Utilities"));
+    }
+
+
+    #[test]
+    fn descriptions_survive_mod_data_serialization() {
+        let mut data = ModData::default();
+        apply_json(r#"{
+          "profile": "Starter",
+          "items": [
+            {"type":"mod", "url":"https://mod.io/g/drg/m/standalone", "description":"Standalone help"},
+            {"type":"group", "name":"Utilities", "description":"Utilities help", "mods":[
+              {"url":"https://mod.io/g/drg/m/in-group", "description":"Group member help"}
+            ]}
+          ]
+        }"#, &mut data).unwrap();
+        let restored: ModData = serde_json::from_str(&serde_json::to_string(&data).unwrap()).unwrap();
+        let items = &restored.profiles["Starter"].mods;
+        let ModOrGroup::Individual(single) = &items[0] else { panic!("expected standalone mod") };
+        assert_eq!(single.description.as_deref(), Some("Standalone help"));
+        assert_eq!(restored.groups["Utilities"].description.as_deref(), Some("Utilities help"));
+        assert_eq!(restored.groups["Utilities"].mods[0].description.as_deref(), Some("Group member help"));
+    }
+
+    #[test]
+    fn old_mod_configs_without_descriptions_still_deserialize() {
+        let mut data = ModData::default();
+        apply_json(r#"{"items":[{"type":"mod", "url":"https://mod.io/g/drg/m/old"}]}"#, &mut data).unwrap();
+        let ModOrGroup::Individual(mod_config) = &data.profiles["default"].mods[0] else { panic!("expected mod") };
+        assert!(mod_config.description.is_none());
     }
 
     #[test]

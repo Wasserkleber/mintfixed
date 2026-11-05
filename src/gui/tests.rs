@@ -4,6 +4,7 @@ use crate::state::ModGroup;
 
 fn mod_config(name: &str) -> ModConfig {
     ModConfig {
+        description: None,
         member_id: None,
         spec: ModSpecification::new(name.to_owned()),
         enabled: true,
@@ -329,6 +330,7 @@ fn grouped_profile_renders_every_sort_mode_after_reload() {
     test.app.state.mod_data.groups.insert(
         "Group".into(),
         ModGroup {
+            description: None,
             mods: vec![zulu, alpha],
         },
     );
@@ -385,6 +387,7 @@ fn sorted_group_toggle_preserves_identical_standalone_entry() {
     test.app.state.mod_data.groups.insert(
         "Group".into(),
         ModGroup {
+            description: None,
             mods: vec![zulu, alpha],
         },
     );
@@ -459,7 +462,7 @@ fn dropping_files_on_closed_group_prepends_batch_and_opens_it() {
     let existing = test.local_mod("existing.pak");
     let a = test.local_mod("a.pak").spec;
     let b = test.local_mod("b.pak").spec;
-    test.app.state.mod_data.groups.insert("Tools".into(), ModGroup { mods: vec![existing] });
+    test.app.state.mod_data.groups.insert("Tools".into(), ModGroup { description: None, mods: vec![existing] });
     test.app.state.mod_data.profiles.get_mut("default").unwrap().mods = vec![ModOrGroup::Group {
         group_name: "Tools".into(), enabled: true, member_overrides: Default::default(),
     }];

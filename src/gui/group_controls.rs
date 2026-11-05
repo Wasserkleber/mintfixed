@@ -291,6 +291,7 @@ fn parse_mod_list_txt(text: &str, group_name: &str) -> Result<std::collections::
     let mods = text.lines().map(str::trim).filter(|line| !line.is_empty())
         .filter(|line| seen.insert((*line).to_owned()))
         .map(|url| ModConfig {
+            description: None,
             spec: ModSpecification::new(url.to_owned()),
             enabled: true,
             required: false,
@@ -300,7 +301,7 @@ fn parse_mod_list_txt(text: &str, group_name: &str) -> Result<std::collections::
     if mods.is_empty() {
         return Err("The mod list is empty".into());
     }
-    Ok(std::collections::BTreeMap::from([(group_name.to_owned(), crate::state::ModGroup { mods })]))
+    Ok(std::collections::BTreeMap::from([(group_name.to_owned(), crate::state::ModGroup { mods, description: None })]))
 }
 
 fn read_group_export(path: &std::path::Path) -> Result<std::collections::BTreeMap<String, crate::state::ModGroup>, String> {
@@ -383,7 +384,8 @@ mod group_import_export_tests {
 
     #[test]
     fn json_roundtrip_preserves_group_settings() {
-        let group = crate::state::ModGroup { mods: vec![ModConfig {
+        let group = crate::state::ModGroup { description: None, mods: vec![ModConfig {
+            description: None,
             spec: ModSpecification::new("https://mod.io/g/drg/m/example#123".into()),
             enabled: false, required: true, member_id: Some("member1".into()), priority: 14,
         }] };
@@ -1082,6 +1084,7 @@ pub(super) fn add_files(app: &mut App, profile: String, group: String, prepend: 
         }
         let slot = if prepend { 0 } else { target.mods.len() };
         target.mods.splice(slot..slot, files.into_iter().map(|spec| ModConfig {
+            description: None,
             spec, enabled: true, member_id: None, required: false, priority: 0,
         }));
         data.save().map_err(|e| e.to_string())?;

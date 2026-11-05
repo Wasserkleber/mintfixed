@@ -24,6 +24,9 @@ use mint_lib::{DRGInstallation, mod_info::MetaConfig};
 #[derive(Debug, Clone, Hash, Serialize, Deserialize)]
 pub struct ModConfig {
     pub spec: ModSpecification,
+    /// Optional build-preset help text; saved with the mod, not the provider cache.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
     pub required: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub member_id: Option<String>,
@@ -73,6 +76,9 @@ fn is_zero(value: &i32) -> bool {
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct ModGroup {
+    /// Optional description of this shared collection.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
     pub mods: Vec<ModConfig>,
 }
 
@@ -683,6 +689,7 @@ mod mod_data_tests {
     #[test]
     fn test_for_each_mod() {
         let mod_1 = ModConfig {
+            description: None,
             member_id: None,
             spec: ModSpecification::new("a".to_string()),
             required: false,
@@ -691,6 +698,7 @@ mod mod_data_tests {
         };
 
         let mod_2 = ModConfig {
+            description: None,
             member_id: None,
             spec: ModSpecification::new("b".to_string()),
             required: true,
@@ -699,6 +707,7 @@ mod mod_data_tests {
         };
 
         let mod_3 = ModConfig {
+            description: None,
             member_id: None,
             spec: ModSpecification::new("c".to_string()),
             required: false,
@@ -725,6 +734,7 @@ mod mod_data_tests {
             groups: [(
                 "mg1".to_string(),
                 ModGroup {
+                    description: None,
                     mods: vec![mod_2, mod_3],
                 },
             )]
@@ -741,6 +751,7 @@ mod mod_data_tests {
     #[test]
     fn test_for_each_enabled_mod() {
         let mod_1 = ModConfig {
+            description: None,
             member_id: None,
             spec: ModSpecification::new("a".to_string()),
             required: false,
@@ -749,6 +760,7 @@ mod mod_data_tests {
         };
 
         let mod_2 = ModConfig {
+            description: None,
             member_id: None,
             spec: ModSpecification::new("b".to_string()),
             required: true,
@@ -757,6 +769,7 @@ mod mod_data_tests {
         };
 
         let mod_3 = ModConfig {
+            description: None,
             member_id: None,
             spec: ModSpecification::new("c".to_string()),
             required: false,
@@ -783,6 +796,7 @@ mod mod_data_tests {
             groups: [(
                 "mg1".to_string(),
                 ModGroup {
+                    description: None,
                     mods: vec![mod_2, mod_3],
                 },
             )]
@@ -799,6 +813,7 @@ mod mod_data_tests {
     #[test]
     fn test_any_mod() {
         let mod_1 = ModConfig {
+            description: None,
             member_id: None,
             spec: ModSpecification::new("a".to_string()),
             required: false,
@@ -807,6 +822,7 @@ mod mod_data_tests {
         };
 
         let mod_2 = ModConfig {
+            description: None,
             member_id: None,
             spec: ModSpecification::new("b".to_string()),
             required: true,
@@ -815,6 +831,7 @@ mod mod_data_tests {
         };
 
         let mod_3 = ModConfig {
+            description: None,
             member_id: None,
             spec: ModSpecification::new("c".to_string()),
             required: false,
@@ -841,6 +858,7 @@ mod mod_data_tests {
             groups: [(
                 "mg1".to_string(),
                 ModGroup {
+                    description: None,
                     mods: vec![mod_2, mod_3],
                 },
             )]

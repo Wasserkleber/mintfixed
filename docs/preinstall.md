@@ -49,3 +49,31 @@ Other rules:
 - No `preinstall.pending` marker is created. If an older test build left one
   behind, it has no effect on the revised build.
 - Do not put a mod.io access token in the preset or the build.
+
+## Descriptions and info icons
+
+Optionally add `"description"` to **each standalone mod**, **each group**, or
+**each mod inside a group** in `assets/preinstall.json`. For example:
+
+```json
+{
+  "enabled": true,
+  "profile": "Starter",
+  "items": [
+    {"type":"group", "name":"Utilities", "description":"Optional quality-of-life tools",
+     "mods":[{"url":"https://mod.io/g/drg/m/example",
+              "description":"Adds optional utility features"}]},
+    {"type":"mod", "url":"https://mod.io/g/drg/m/example-two",
+     "description":"Standalone performance improvement"}
+  ]
+}
+```
+
+On a fresh installation, mintfixed saves descriptions alongside the mod/group
+entries in `mod_data.json`. Hover the **ⓘ** icon on a mod row or group heading
+to read its description. Descriptions are optional; older installs keep working.
+No provider cache changes are required. No mods download until **Install mods**
+is pressed after configuring a mod.io token.
+
+Rebuilding the preset does not update previously seeded descriptions. To repeat
+the first-run test, reset the isolated test appdata directory.

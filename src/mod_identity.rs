@@ -229,7 +229,7 @@ mod tests {
     }
 
     fn member(url: &str) -> ModConfig {
-        ModConfig { spec: spec(url), required: false, member_id: None, enabled: true, priority: 0 }
+        ModConfig { description: None, spec: spec(url), required: false, member_id: None, enabled: true, priority: 0 }
     }
 
     fn info(url: &str) -> ModInfo {
@@ -264,8 +264,8 @@ mod tests {
                 ModOrGroup::Group { group_name: "other".into(), enabled: false, member_overrides: MemberOverrides::default() },
             ] })]),
             groups: BTreeMap::from([
-                ("same".into(), ModGroup { mods: vec![member(a)] }),
-                ("other".into(), ModGroup { mods: vec![member(b), member(b)] }),
+                ("same".into(), ModGroup { description: None, mods: vec![member(a)] }),
+                ("other".into(), ModGroup { description: None, mods: vec![member(b), member(b)] }),
             ]),
         };
         let issues = ProfileIssues::collect(&data, "p", &store);
