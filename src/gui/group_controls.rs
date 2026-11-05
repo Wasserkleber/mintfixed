@@ -386,7 +386,10 @@ struct GroupExportFile {
 }
 
 fn serialize_single_group(data: &Data, name: &str) -> Result<String, String> {
-    let group = data.groups.get(name).ok_or("The selected group no longer exists")?;
+    let group = data
+        .groups
+        .get(name)
+        .ok_or("The selected group no longer exists")?;
     serde_json::to_string_pretty(&GroupExportFile {
         format: GROUP_EXPORT_FORMAT.to_owned(),
         version: GROUP_EXPORT_VERSION,
@@ -483,16 +486,24 @@ fn parse_single_group_json(text: &str) -> Result<PendingGroupImport, String> {
         }
         let group = serde_json::from_value(content.clone())
             .map_err(|e| format!("Invalid group data: {e}"))?;
-        let name = value.get("name").or_else(|| content.get("name"))
-            .and_then(|name| name.as_str()).map(str::to_owned);
+        let name = value
+            .get("name")
+            .or_else(|| content.get("name"))
+            .and_then(|name| name.as_str())
+            .map(str::to_owned);
         (name, group)
     };
 
-    if group.mods.iter().any(|m: &ModConfig| m.spec.url.trim().is_empty()) {
+    if group
+        .mods
+        .iter()
+        .any(|m: &ModConfig| m.spec.url.trim().is_empty())
+    {
         return Err("The group contains an empty mod URL".into());
     }
     Ok(PendingGroupImport {
-        suggested_name: name.map(|name| name.trim().to_owned())
+        suggested_name: name
+            .map(|name| name.trim().to_owned())
             .filter(|name| !name.is_empty()),
         group,
     })
@@ -501,13 +512,15 @@ fn parse_single_group_json(text: &str) -> Result<PendingGroupImport, String> {
 fn read_single_group_import(path: &std::path::Path) -> Result<PendingGroupImport, String> {
     const MAX_BYTES: u64 = 8 * 1024 * 1024;
     let size = std::fs::metadata(path)
-        .map_err(|e| format!("Cannot read file: {e}"))?.len();
+        .map_err(|e| format!("Cannot read file: {e}"))?
+        .len();
     if size > MAX_BYTES {
         return Err("Group import files must not exceed 8 MiB".into());
     }
-    let text = std::fs::read_to_string(path)
-        .map_err(|e| format!("Cannot read file: {e}"))?;
-    let extension = path.extension().and_then(|s| s.to_str())
+    let text = std::fs::read_to_string(path).map_err(|e| format!("Cannot read file: {e}"))?;
+    let extension = path
+        .extension()
+        .and_then(|s| s.to_str())
         .unwrap_or_default();
     if extension.eq_ignore_ascii_case("json") {
         parse_single_group_json(&text)
@@ -706,8 +719,14 @@ mod group_import_export_tests {
         let json = serialize_single_group(&data, "Tools").unwrap();
         let imported = parse_single_group_json(&json).unwrap();
         assert_eq!(imported.suggested_name.as_deref(), Some("Tools"));
-        assert_eq!(imported.group.description.as_deref(), Some("A group description"));
-        assert_eq!(imported.group.mods[0].description.as_deref(), Some("A mod description"));
+        assert_eq!(
+            imported.group.description.as_deref(),
+            Some("A group description")
+        );
+        assert_eq!(
+            imported.group.mods[0].description.as_deref(),
+            Some("A mod description")
+        );
         assert_eq!(imported.group.mods[0].priority, 12);
         assert!(!imported.group.mods[0].enabled);
     }
@@ -1374,7 +1393,11 @@ pub(super) fn controls(
                             .set_file_name(format!("mintfixed-group.{extension}"))
                             .save_file()
                             .map(|path| {
-                                (path.with_extension(extension), export_editor.selected.clone(), kind)
+                                (
+                                    path.with_extension(extension),
+                                    export_editor.selected.clone(),
+                                    kind,
+                                )
                             });
                     }
                 });
@@ -1556,7 +1579,8 @@ pub(super) fn controls(
             if data.groups.contains_key(&name) {
                 import_editor.error = Some("A group with that name already exists".into());
             } else {
-                let source = std::collections::BTreeMap::from([(name.clone(), pending.group.clone())]);
+                let source =
+                    std::collections::BTreeMap::from([(name.clone(), pending.group.clone())]);
                 match import_groups(data, source) {
                     Ok(_) => {
                         changed = true;

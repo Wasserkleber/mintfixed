@@ -3,6 +3,8 @@ mod group_controls;
 use group_controls::{Drag, Target};
 mod message;
 mod named_combobox;
+mod profile_import;
+mod profile_management;
 mod request_counter;
 mod toggle_switch;
 
@@ -2294,18 +2296,75 @@ impl eframe::App for App {
                 let image = egui::Image::new(egui::include_image!("../../assets/copy_mods.svg"))
                     .fit_to_exact_size(egui::vec2(16.0, 16.0))
                     .tint(ui.visuals().text_color());
-                if ui
-                    .add(Button::image(image))
-                    .on_hover_text_at_pointer("Copy profile mods")
-                    .clicked()
                 {
-                    let mut mods = String::new();
-                    let active_profile = mod_data.active_profile.clone();
-                    mod_data.for_each_enabled_mod(&active_profile, |mc| {
-                        mods.push_str(&mc.spec.url);
-                        mods.push('\n');
-                    });
-                    ui.ctx().copy_text(mods);
+                    let copy_button = ui
+                        .add(Button::image(image))
+                        .on_hover_text_at_pointer("Copy profile mods");
+                    let copy_popup = copy_button.id.with("copy-profile-mods-menu");
+                    if copy_button.clicked() {
+                        ui.memory_mut(|mem| mem.toggle_popup(copy_popup));
+                    }
+                    egui::popup_below_widget(
+                        ui,
+                        copy_popup,
+                        &copy_button,
+                        egui::PopupCloseBehavior::CloseOnClickOutside,
+                        |ui| {
+                            ui.set_min_width(220.0);
+                            if ui.button("Copy mod list (TXT)").clicked() {
+                                // Keep the original enabled-mod output unchanged.
+                                let mut mods = String::new();
+                                let active_profile = mod_data.active_profile.clone();
+                                mod_data.for_each_enabled_mod(&active_profile, |mc| {
+                                    mods.push_str(&mc.spec.url);
+                                    mods.push('\n');
+                                });
+                                ui.ctx().copy_text(mods);
+                                self.last_action = Some(LastAction::success(
+                                    "Copied mod list (TXT) to clipboard".into(),
+                                ));
+                                ui.memory_mut(|mem| mem.close_popup());
+                            }
+                            if ui.button("Copy profile with groups (JSON)").clicked() {
+                                let profile = &mod_data.profiles[&mod_data.active_profile];
+                                // Store all ordered profile entries (including standalone mods,
+                                // disabled mods, group references, and per-profile overrides),
+                                // plus the shared definitions of groups used by this profile.
+                                let groups: BTreeMap<&str, &crate::state::ModGroup> = profile
+                                    .mods
+                                    .iter()
+                                    .filter_map(|entry| match entry {
+                                        ModOrGroup::Group { group_name, .. } => mod_data
+                                            .groups
+                                            .get(group_name)
+                                            .map(|group| (group_name.as_str(), group)),
+                                        ModOrGroup::Individual(_) => None,
+                                    })
+                                    .collect();
+                                let payload = serde_json::json!({
+                                    "format": "mintfixed-profile-mod-list",
+                                    "version": 1,
+                                    "profile_name": &mod_data.active_profile,
+                                    "mods": &profile.mods,
+                                    "groups": groups,
+                                });
+                                match serde_json::to_string_pretty(&payload) {
+                                    Ok(json) => {
+                                        ui.ctx().copy_text(json);
+                                        self.last_action = Some(LastAction::success(
+                                            "Copied profile with groups (JSON) to clipboard".into(),
+                                        ));
+                                        ui.memory_mut(|mem| mem.close_popup());
+                                    }
+                                    Err(error) => {
+                                        self.last_action = Some(LastAction::failure(
+                                            format!("Could not copy group JSON: {error}"),
+                                        ));
+                                    }
+                                }
+                            }
+                        },
+                    );
                 }
 
                 (group_changed, group_success) = group_controls::controls(
@@ -2327,17 +2386,25 @@ impl eframe::App for App {
                 */
             };
 
+            let mut imported_profile = None;
+            let profile_import_button = |ui: &mut Ui, mod_data: &mut ModData, modified: &mut bool| {
+                imported_profile = profile_import::ui_inline(ui, mod_data, modified);
+            };
             if named_combobox::ui(
                 ui,
                 "profile",
                 self.state.mod_data.deref_mut().deref_mut(),
                 Some(buttons),
+                Some(profile_import_button),
                 self.resolve_mod_rid.is_none() && self.pending_group_files == 0,
             ) || group_changed
             {
                 self.state.mod_data.save().unwrap();
             }
             if let Some(message) = group_success {
+                self.last_action = Some(LastAction::success(message));
+            }
+            if let Some(message) = imported_profile {
                 self.last_action = Some(LastAction::success(message));
             }
 
@@ -2378,8 +2445,14 @@ impl eframe::App for App {
                             .hint_text("Add mod..."),
                     );
                     if is_committed(&resolve) {
-                        message::ResolveMods::send(self, ctx, self.parse_mods(), false);
-                        self.problematic_mod_id = None;
+                        if looks_like_structured_json(&self.resolve_mod) {
+                            self.last_action = Some(LastAction::failure(
+                                "JSON cannot be added as mod URLs. Use Profiles > Import Profile (JSON).".into(),
+                            ));
+                        } else {
+                            message::ResolveMods::send(self, ctx, self.parse_mods(), false);
+                            self.problematic_mod_id = None;
+                        }
                     }
                 });
             });
@@ -2503,8 +2576,16 @@ impl eframe::App for App {
                                 && self.lint_rid.is_none()
                                 && !is_anything_focused
                             {
-                                self.resolve_mod = s.trim().to_string();
-                                message::ResolveMods::send(self, ctx, self.parse_mods(), false);
+                                // A global paste with no focused text field is a mod-list shortcut.
+                                // Never feed profile/group JSON keys (such as `id`) to mod providers.
+                                if looks_like_structured_json(s) {
+                                    self.last_action = Some(LastAction::failure(
+                                        "Profile JSON detected. Open Profiles > Import Profile (JSON), click its text field, then paste.".into(),
+                                    ));
+                                } else {
+                                    self.resolve_mod = s.trim().to_string();
+                                    message::ResolveMods::send(self, ctx, self.parse_mods(), false);
+                                }
                             }
                         }
                         egui::Event::Text(text) => {
@@ -2519,6 +2600,39 @@ impl eframe::App for App {
                 }
             });
         });
+    }
+}
+
+// Clipboard JSON is structured data, not a newline-delimited list of mod URLs.
+// Catch incomplete JSON too, so an accidental paste doesn't spam provider errors.
+fn looks_like_structured_json(text: &str) -> bool {
+    let text = text.trim_start();
+    text.starts_with('{') || text.starts_with('[')
+}
+
+#[cfg(test)]
+mod structured_json_paste_tests {
+    use super::looks_like_structured_json;
+
+    #[test]
+    fn rejects_profile_json_before_mod_resolution() {
+        assert!(looks_like_structured_json(
+            "{\n  \"format\": \"mintfixed-profile-mod-list\",\n  \"id\": \"c91ff9fb9d8bfb6192777bdcccc6be60\"\n}"
+        ));
+        assert!(looks_like_structured_json(
+            "  [\n  \"https://mod.io/g/drg/m/example\"\n]"
+        ));
+    }
+
+    #[test]
+    fn accepts_regular_mod_lists() {
+        assert!(!looks_like_structured_json(
+            "https://mod.io/g/drg/m/example#123"
+        ));
+        assert!(!looks_like_structured_json("C:\\mods\\example.pak"));
+        assert!(!looks_like_structured_json(
+            "https://mod.io/g/drg/m/example\nC:\\mods\\example.pak"
+        ));
     }
 }
 
