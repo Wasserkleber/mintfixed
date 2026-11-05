@@ -2051,8 +2051,11 @@ impl eframe::App for App {
 
             let mut group_changed = false;
             let buttons = |ui: &mut Ui, mod_data: &mut ModData| {
+                let image = egui::Image::new(egui::include_image!("../../assets/copy_mods.svg"))
+                    .fit_to_exact_size(egui::vec2(16.0, 16.0))
+                    .tint(ui.visuals().text_color());
                 if ui
-                    .button("📋")
+                    .add(Button::image(image))
                     .on_hover_text_at_pointer("Copy profile mods")
                     .clicked()
                 {

@@ -213,8 +213,11 @@ fn mk_duplicate<E, N>(ui: &mut egui::Ui, name: &str, entries: &mut N, modified: 
 where
     N: NamedEntries<E>,
 {
+    let image = egui::Image::new(egui::include_image!("../../assets/duplicate_profile.svg"))
+        .fit_to_exact_size(egui::vec2(16.0, 16.0))
+        .tint(ui.visuals().text_color());
     let response = ui
-        .button("🗐")
+        .add(egui::Button::image(image))
         .on_hover_text_at_pointer(format!("Duplicate {name}"));
     let popup_id = ui.make_persistent_id(format!("duplicate-{name}"));
     if response.clicked() {
