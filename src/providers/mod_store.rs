@@ -294,6 +294,36 @@ impl ModStore {
         }
         current_lock.revision = current_lock.revision.wrapping_add(1);
         current_lock.save().map_err(|e| fail(e.to_string()))?;
+
+        // Only report entries that were actually removed from the active cache.
+        // Emit logs after the save succeeds, so failed cleanup is never reported
+        // as completed. Both profile and group references were handled by prune.
+        if let (Some(previous), Some(remaining)) = (
+            before.pointer("/cache/modio/mods").and_then(|value| value.as_object()),
+            current_json.pointer("/cache/modio/mods").and_then(|value| value.as_object()),
+        ) {
+            for (id, mod_info) in previous {
+                if remaining.contains_key(id) {
+                    continue;
+                }
+                let name = mod_info
+                    .get("name")
+                    .and_then(|value| value.as_str())
+                    .or_else(|| mod_info.get("name_id").and_then(|value| value.as_str()))
+                    .unwrap_or("Unknown mod");
+                info!("Cache cleanup: deprecated {name} (Mod.io ID: {id})");
+            }
+        }
+        if let (Some(previous), Some(remaining)) = (
+            before.pointer("/cache/http/url_blobs").and_then(|value| value.as_object()),
+            current_json.pointer("/cache/http/url_blobs").and_then(|value| value.as_object()),
+        ) {
+            for url in previous.keys() {
+                if !remaining.contains_key(url) {
+                    info!("Cache cleanup: deprecated HTTP mod {url}");
+                }
+            }
+        }
         info!("archived {moved} unused cached mods to {}", archive_path.display());
         Ok(moved)
     }

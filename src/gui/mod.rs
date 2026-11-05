@@ -145,6 +145,8 @@ pub struct App {
     resolve_mod: String,
     resolve_mod_rid: Option<MessageHandle<()>>,
     integrate_rid: Option<MessageHandle<HashMap<ModSpecification, SpecFetchProgress>>>,
+    // Tracks only installations started by Update Cache, not manual installations.
+    cache_install_rid: Option<RequestID>,
     update_rid: Option<MessageHandle<()>>,
     check_updates_rid: Option<MessageHandle<()>>,
     has_run_init: bool,
@@ -253,6 +255,7 @@ impl App {
             resolve_mod: Default::default(),
             resolve_mod_rid: None,
             integrate_rid: None,
+            cache_install_rid: None,
             update_rid: None,
             check_updates_rid: None,
             has_run_init: false,
@@ -1847,7 +1850,59 @@ impl eframe::App for App {
 
         // message handling
         while let Ok(msg) = self.rx.try_recv() {
+            // Only act on the completion of the currently running cache update.
+            let cache_was_running = self.update_rid.is_some();
+            let is_cache_result = matches!(&msg, message::Message::UpdateCache(_));
+            // Match the exact automatic installation that is completing.
+            let finishing_cache_install = matches!(&msg, message::Message::Integrate(_))
+                && self.cache_install_rid.is_some()
+                && self.cache_install_rid == self.integrate_rid.as_ref().map(|r| r.rid);
             msg.handle(self);
+            if finishing_cache_install && self.integrate_rid.is_none() {
+                self.cache_install_rid = None;
+                if let Some(action) = self.last_action.take() {
+                    self.last_action = Some(match action.status {
+                        LastActionStatus::Success(_) => LastAction::success(
+                            "Cache updated; installation complete".to_string(),
+                        ),
+                        LastActionStatus::Failure(reason) => LastAction::failure(
+                            format!("Cache updated; installation failed: {reason}"),
+                        ),
+                    });
+                }
+            }
+            if is_cache_result
+                && cache_was_running
+                && self.update_rid.is_none()
+                && self.integrate_rid.is_none()
+                && self.last_action.as_ref().is_some_and(|action| {
+                    matches!(&action.status, LastActionStatus::Success(_))
+                })
+            {
+                // Use the same profile ordering and integration as the Install Mods button.
+                if let Some(fsd_pak) = self.state.config.drg_pak_path.clone() {
+                    let data = &self.state.mod_data;
+                    let mods = data.ordered_install_specs(&data.active_profile);
+                    self.integrate_rid = Some(message::Integrate::send(
+                        &mut self.request_counter,
+                        self.state.store.clone(),
+                        mods,
+                        fsd_pak,
+                        self.state.config.deref().into(),
+                        self.tx.clone(),
+                        ctx.clone(),
+                    ));
+                    self.cache_install_rid = self.integrate_rid.as_ref().map(|r| r.rid);
+                    self.problematic_mod_id = None;
+                    self.last_action = Some(LastAction::success(
+                        "Cache updated; installing mods".to_string(),
+                    ));
+                } else {
+                    self.last_action = Some(LastAction::failure(
+                        "cache updated, but DRG install not found".to_string(),
+                    ));
+                }
+            }
         }
 
         // begin draw
@@ -1903,6 +1958,7 @@ impl eframe::App for App {
                                 let mods = data.ordered_install_specs(&data.active_profile);
 
                                 self.last_action = None;
+                                self.cache_install_rid = None;
                                 self.integrate_rid = Some(message::Integrate::send(
                                     &mut self.request_counter,
                                     self.state.store.clone(),
@@ -1958,7 +2014,7 @@ impl eframe::App for App {
                         if ui
                             .button("Update cache")
                             .on_hover_text(
-                                "Archives unused cache entries, then checks for mod updates",
+                                "Archives unused cache entries, checks for mod updates, then installs the active profile",
                             )
                             .clicked()
                         {
@@ -1985,6 +2041,11 @@ impl eframe::App for App {
                 if self.integrate_rid.is_some() {
                     if ui.button("Cancel").clicked() {
                         self.integrate_rid.take().unwrap().handle.abort();
+                        if self.cache_install_rid.take().is_some() {
+                            self.last_action = Some(LastAction::failure(
+                                "Cache updated; installation cancelled".to_string(),
+                            ));
+                        }
                     }
                     ui.spinner();
                 }
