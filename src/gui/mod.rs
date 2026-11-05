@@ -557,7 +557,7 @@ impl App {
                     && let Some(modio_id) = info.modio_id
                     && self.problematic_mod_id.is_some_and(|id| id == modio_id)
                 {
-                    let icon = egui::Button::new(RichText::new("âŒ").color(Color32::WHITE))
+                    let icon = egui::Button::new(RichText::new("❌").color(Color32::WHITE))
                         .fill(Color32::RED);
                     ui.add_enabled(false, icon);
                 }
@@ -652,7 +652,7 @@ impl App {
                     });
 
                     if ui
-                        .button("ðŸ“‹")
+                        .button("📋")
                         .on_hover_text_at_pointer("copy URL")
                         .clicked()
                     {
@@ -711,10 +711,10 @@ impl App {
                             ui.add(img);
                         }
                         "http" => {
-                            ui.label("ðŸŒ");
+                            ui.label("🌐");
                         }
                         "file" => {
-                            ui.label("ðŸ“");
+                            ui.label("📁");
                         }
                         _ => unimplemented!("unimplemented provider kind"),
                     }
@@ -740,7 +740,7 @@ impl App {
                     });
                 } else {
                     if ui
-                        .button("ðŸ“‹")
+                        .button("📋")
                         .on_hover_text_at_pointer("Copy URL")
                         .clicked()
                     {
@@ -771,7 +771,7 @@ impl App {
                         ui.visuals_mut().widgets.hovered.weak_bg_fill = colors::DARK_RED;
                         ui.visuals_mut().widgets.active.weak_bg_fill = colors::DARKER_RED;
                         if ui
-                            .add(Button::new(" ðŸ—‘ "))
+                            .add(Button::new(" 🗑 "))
                             .on_hover_text_at_pointer("Delete mod")
                             .clicked()
                         {
@@ -1513,7 +1513,7 @@ impl App {
                                 if let Some(asset_register_bin_mods) = &report.asset_register_bin_mods
                                     && !asset_register_bin_mods.is_empty() {
                                         CollapsingHeader::new(
-                                            RichText::new("â„¹ Mod(s) with `AssetRegistry.bin` included detected")
+                                            RichText::new("ℹ Mod(s) with `AssetRegistry.bin` included detected")
                                                 .color(Color32::LIGHT_BLUE),
                                         )
                                         .default_open(true)
@@ -1522,7 +1522,7 @@ impl App {
                                                 |(r#mod, paths)| {
                                                     CollapsingHeader::new(
                                                         RichText::new(format!(
-                                                        "â„¹ {} includes one or more `AssetRegistry.bin`",
+                                                        "ℹ {} includes one or more `AssetRegistry.bin`",
                                                         r#mod.url
                                                     ))
                                                         .color(Color32::LIGHT_BLUE),
@@ -2326,7 +2326,7 @@ impl eframe::App for App {
                 for category in SortBy::iter() {
                     let mut radio_label = category.as_str().to_owned();
                     if sort_category == Some(category) {
-                        radio_label.push_str(if is_ascending { " â¶" } else { " â·" });
+                        radio_label.push_str(if is_ascending { " ⏶" } else { " ⏷" });
                     }
                     let resp = ui.radio_value(&mut sort_category, Some(category), radio_label);
                     if resp.clicked() {
