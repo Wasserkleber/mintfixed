@@ -167,6 +167,9 @@ pub struct App {
     integrate_rid: Option<MessageHandle<HashMap<ModSpecification, SpecFetchProgress>>>,
     // Tracks only installations started by Update Cache, not manual installations.
     cache_install_rid: Option<RequestID>,
+    install_phase: message::InstallPhase,
+    cache_recovery_progress: Option<(usize, usize)>,
+    cache_recovery_last_advance: Option<std::time::Instant>,
     update_rid: Option<MessageHandle<()>>,
     check_updates_rid: Option<MessageHandle<()>>,
     has_run_init: bool,
@@ -276,6 +279,9 @@ impl App {
             resolve_mod_rid: None,
             integrate_rid: None,
             cache_install_rid: None,
+            install_phase: message::InstallPhase::Resolving,
+            cache_recovery_progress: None,
+            cache_recovery_last_advance: None,
             update_rid: None,
             check_updates_rid: None,
             has_run_init: false,
@@ -1922,6 +1928,14 @@ impl eframe::App for App {
                 && self.cache_install_rid.is_some()
                 && self.cache_install_rid == self.integrate_rid.as_ref().map(|r| r.rid);
             msg.handle(self);
+            // The shared store already contains the recovered metadata; invalidate
+            // cached profile warnings and redraw names/tags immediately.
+            if is_cache_result && cache_was_running && self.update_rid.is_none() {
+                self.profile_issues.clear();
+                self.cache_recovery_progress = None;
+                self.cache_recovery_last_advance = None;
+                ctx.request_repaint();
+            }
             if finishing_cache_install && self.integrate_rid.is_none() {
                 self.cache_install_rid = None;
                 if let Some(action) = self.last_action.take() {
@@ -1957,10 +1971,10 @@ impl eframe::App for App {
                         ctx.clone(),
                     ));
                     self.cache_install_rid = self.integrate_rid.as_ref().map(|r| r.rid);
+                    self.install_phase = message::InstallPhase::Resolving;
                     self.problematic_mod_id = None;
-                    self.last_action = Some(LastAction::success(
-                        "Cache updated; installing mods".to_string(),
-                    ));
+                    // The install is not yet successful; the live phase label is shown below.
+                    self.last_action = None;
                 } else {
                     self.last_action = Some(LastAction::failure(
                         "cache updated, but DRG install not found".to_string(),
@@ -2023,6 +2037,7 @@ impl eframe::App for App {
 
                                 self.last_action = None;
                                 self.cache_install_rid = None;
+                                self.install_phase = message::InstallPhase::Resolving;
                                 self.integrate_rid = Some(message::Integrate::send(
                                     &mut self.request_counter,
                                     self.state.store.clone(),
@@ -2085,7 +2100,7 @@ impl eframe::App for App {
                             let referenced = crate::mod_identity::all_specs(&self.state.mod_data);
                             match self.state.store.archive_unreferenced(&referenced) {
                                 Ok(archived) => {
-                                    message::UpdateCache::send(self);
+                                    message::UpdateCache::send(self, ctx);
                                     if archived > 0 {
                                         self.last_action = Some(LastAction::success(format!(
                                             "Archived {archived} unused cached mods; updating cache"
@@ -2105,6 +2120,7 @@ impl eframe::App for App {
                 if self.integrate_rid.is_some() {
                     if ui.button("Cancel").clicked() {
                         self.integrate_rid.take().unwrap().handle.abort();
+                        self.install_phase = message::InstallPhase::Resolving;
                         if self.cache_install_rid.take().is_some() {
                             self.last_action = Some(LastAction::failure(
                                 "Cache updated; installation cancelled".to_string(),
@@ -2116,6 +2132,9 @@ impl eframe::App for App {
                 if self.update_rid.is_some() {
                     if ui.button("Cancel").clicked() {
                         self.update_rid.take().unwrap().handle.abort();
+                        self.cache_recovery_progress = None;
+                        self.cache_recovery_last_advance = None;
+                        self.last_action = Some(LastAction::failure("Cache update cancelled".to_string()));
                     }
                     ui.spinner();
                 }
@@ -2142,7 +2161,35 @@ impl eframe::App for App {
                         .open_url(egui::OpenUrl::new_tab(&available_update.html_url));
                 }
                 ui.with_layout(egui::Layout::left_to_right(Align::TOP), |ui| {
-                    if let Some(last_action) = &self.last_action {
+                    if self.update_rid.is_some() {
+                        if let Some((completed, total)) = self.cache_recovery_progress {
+                            // Repaint exactly when the 10-second inactivity threshold expires,
+                            // even when mod.io has not produced another progress event.
+                            let waiting = completed < total
+                                && self.cache_recovery_last_advance.is_some_and(|last| {
+                                    let elapsed = last.elapsed();
+                                    let threshold = std::time::Duration::from_secs(10);
+                                    if elapsed < threshold {
+                                        ui.ctx().request_repaint_after(threshold - elapsed);
+                                        false
+                                    } else {
+                                        true
+                                    }
+                                });
+                            ui.label(format!(
+                                "Recovering mod.io metadata: ({completed}/{total}){}",
+                                if waiting { " (waiting for mod.io)" } else { "" }
+                            ));
+                        } else {
+                            ui.label("Updating provider caches...");
+                        }
+                    } else if self.integrate_rid.is_some() {
+                        ui.label(match self.install_phase {
+                            message::InstallPhase::Resolving => "Resolving mod versions and dependencies...",
+                            message::InstallPhase::Downloading => "Downloading / checking cached mods...",
+                            message::InstallPhase::Integrating => "Writing mods_P.pak...",
+                        });
+                    } else if let Some(last_action) = &self.last_action {
                         let msg = match &last_action.status {
                             LastActionStatus::Success(msg) => {
                                 ui.label(

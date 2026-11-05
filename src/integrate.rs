@@ -496,6 +496,18 @@ pub fn integrate<P: AsRef<Path>>(
 
     bundle.finish()?;
 
+    // Log only after the complete output pak has been written successfully.
+    // This counts the final, deduplicated list, not just downloaded files.
+    for (index, (mod_info, _)) in mods.iter().enumerate() {
+        info!(
+            "installed mod {}/{}: {} ({})",
+            index + 1,
+            mods.len(),
+            mod_info.name,
+            mod_info.resolution.get_resolvable_url_or_name()
+        );
+    }
+
     info!(
         "{} mods installed to {}",
         mods.len(),

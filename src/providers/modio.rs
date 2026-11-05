@@ -225,6 +225,7 @@ impl Middleware for LoggingMiddleware {
         extensions: &mut Extensions,
         next: Next<'_>,
     ) -> reqwest_middleware::Result<Response> {
+        let mut retries = 0_u32;
         loop {
             info!(
                 "request started {} {:?}",
@@ -233,17 +234,36 @@ impl Middleware for LoggingMiddleware {
                 req.url().path()
             );
             let res = next.clone().run(req.try_clone().unwrap(), extensions).await;
-            if let Ok(res) = &res
-                && let Some(retry) = res.headers().get("retry-after")
-            {
-                info!("retrying after: {}...", retry.to_str().unwrap());
-                tokio::time::sleep(tokio::time::Duration::from_secs(
-                    retry.to_str().unwrap().parse::<u64>().unwrap(),
-                ))
-                .await;
-                continue;
-            }
-            return res;
+            let retry_after = match &res {
+                Ok(response)
+                    if response.status() == reqwest::StatusCode::REQUEST_TIMEOUT
+                        || response.status().as_u16() == 425
+                        || response.status() == reqwest::StatusCode::TOO_MANY_REQUESTS
+                        || response.status().is_server_error() =>
+                {
+                    response
+                        .headers()
+                        .get(reqwest::header::RETRY_AFTER)
+                        .and_then(|value| value.to_str().ok())
+                        .and_then(|value| value.parse::<u64>().ok())
+                }
+                Err(reqwest_middleware::Error::Reqwest(error))
+                    if error.is_connect()
+                        || error.is_timeout()
+                        || error.is_body()
+                        || error.is_request() =>
+                {
+                    warn!("transient mod.io request failure at {}: {error}", req.url().path());
+                    None
+                }
+                _ => return res,
+            };
+            retries = retries.saturating_add(1);
+            // Do not hammer mod.io if its Retry-After is zero or malformed.
+            let fallback = (1_u64 << retries.min(6)).min(60);
+            let delay = retry_after.filter(|seconds| *seconds > 0).unwrap_or(fallback);
+            warn!("mod.io request {}: retry {retries} in {delay}s", req.url().path());
+            tokio::time::sleep(tokio::time::Duration::from_secs(delay)).await;
         }
     }
 }
@@ -812,37 +832,90 @@ impl<M: DrgModio + Send + Sync> ModProvider for ModioProvider<M> {
                         .fetch_file(res.url.0.clone(), mod_id, modfile_id)
                         .await?;
 
-                    let size = file.filesize;
-                    let download: modio::download::DownloadAction = file.into();
-
                     info!("downloading mod {url:?}...");
 
                     use futures::stream::TryStreamExt;
                     use tokio::io::AsyncWriteExt;
 
-                    let mut cursor = std::io::Cursor::new(vec![]);
-                    let mut stream = Box::pin(self.modio.download(download).stream());
-                    while let Some(bytes) = stream
-                        .try_next()
-                        .await
-                        .with_context(|_| ModCtxtModioSnafu { mod_id })?
-                    {
-                        cursor
-                            .write_all(&bytes)
-                            .await
-                            .with_context(|_| ModCtxtIoSnafu { mod_id })?;
-                        if let Some(tx) = &tx {
-                            tx.send(FetchProgress::Progress {
-                                resolution: res.clone(),
-                                progress: cursor.get_ref().len() as u64,
-                                size,
-                            })
-                            .await
-                            .unwrap();
+                    let mut file = file;
+                    let mut retries = 0_u32;
+                    // Never write a partial download to the blob cache. Restart with
+                    // fresh mod.io file information if a CDN stream breaks mid-file.
+                    let downloaded = 'download: loop {
+                        let size = file.filesize;
+                        let action: modio::download::DownloadAction = file.into();
+                        let mut cursor = std::io::Cursor::new(Vec::new());
+                        let mut stream = Box::pin(self.modio.download(action).stream());
+                        loop {
+                            match stream.try_next().await {
+                                Ok(Some(bytes)) => {
+                                    cursor
+                                        .write_all(&bytes)
+                                        .await
+                                        .with_context(|_| ModCtxtIoSnafu { mod_id })?;
+                                    if let Some(tx) = &tx {
+                                        tx.send(FetchProgress::Progress {
+                                            resolution: res.clone(),
+                                            progress: cursor.get_ref().len() as u64,
+                                            size,
+                                        })
+                                        .await
+                                        .unwrap();
+                                    }
+                                    continue;
+                                }
+                                Ok(None) if cursor.get_ref().len() as u64 == size => {
+                                    break 'download cursor.into_inner();
+                                }
+                                Ok(None) => {
+                                    warn!(
+                                        "mod.io download {}: received {} of {size} bytes",
+                                        res.url.0,
+                                        cursor.get_ref().len()
+                                    );
+                                }
+                                Err(error) => {
+                                    // The modio error may wrap a reqwest error from
+                                    // the CDN rather than expose its HTTP status directly.
+                                    let status = error.status().or_else(|| {
+                                        std::error::Error::source(&error)
+                                            .and_then(|source| source.downcast_ref::<reqwest::Error>())
+                                            .and_then(|cause| cause.status())
+                                    });
+                                    let transient = status.is_none_or(|code| {
+                                        code == reqwest::StatusCode::REQUEST_TIMEOUT
+                                            || code.as_u16() == 425
+                                            || code == reqwest::StatusCode::TOO_MANY_REQUESTS
+                                            || code.is_server_error()
+                                    });
+                                    if error.is_auth()
+                                        || error.is_builder()
+                                        || error.is_download()
+                                        || error.is_validation()
+                                        || error.is_decode()
+                                        || !transient
+                                    {
+                                        return Err(ProviderError::ModCtxtModioError {
+                                            source: error,
+                                            mod_id,
+                                        });
+                                    }
+                                    warn!("mod.io download {} interrupted: {error}", res.url.0);
+                                }
+                            }
+                            // A partial stream may return EOF or an error: discard the
+                            // partial buffer and obtain a fresh signed download URL.
+                            break;
                         }
-                    }
+                        drop(stream);
+                        retries = retries.saturating_add(1);
+                        let delay = (1_u64 << retries.min(6)).min(60);
+                        warn!("restarting mod.io download {} in {delay}s (attempt {retries})", res.url.0);
+                        tokio::time::sleep(tokio::time::Duration::from_secs(delay)).await;
+                        file = self.modio.fetch_file(res.url.0.clone(), mod_id, modfile_id).await?;
+                    };
 
-                    let blob = blob_cache.write(&cursor.into_inner())?;
+                    let blob = blob_cache.write(&downloaded)?;
                     let path = blob_cache.get_path(&blob).unwrap();
 
                     cache
@@ -889,6 +962,12 @@ impl<M: DrgModio + Send + Sync> ModProvider for ModioProvider<M> {
                     .collect::<HashMap<_, _>>(),
             )
         };
+
+        // A freshly recreated cache has nothing to update yet. Resolving
+        // profile/group references after this step will populate it.
+        if name_map.is_empty() {
+            return Ok(());
+        }
 
         let last_update = last_update
             .and_then(|t| t.duration_since(UNIX_EPOCH).ok())

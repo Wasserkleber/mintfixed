@@ -28,6 +28,13 @@ use mint_lib::error::GenericError;
 use mint_lib::mod_info::MetaConfig;
 use mint_lib::update::GitHubRelease;
 
+#[derive(Debug, Clone, Copy)]
+pub(super) enum InstallPhase {
+    Resolving,
+    Downloading,
+    Integrating,
+}
+
 #[derive(Debug)]
 pub struct MessageHandle<S> {
     pub rid: RequestID,
@@ -46,6 +53,8 @@ pub enum Message {
     ResolveMods(ResolveMods),
     Integrate(Integrate),
     FetchModProgress(FetchModProgress),
+    InstallPhase { rid: RequestID, phase: InstallPhase },
+    CacheRecoveryProgress { rid: RequestID, completed: usize, total: usize },
     UpdateCache(UpdateCache),
     CheckUpdates(CheckUpdates),
     LintMods(Box<LintMods>),
@@ -63,6 +72,21 @@ impl Message {
             Self::ResolveMods(msg) => msg.receive(app),
             Self::Integrate(msg) => msg.receive(app),
             Self::FetchModProgress(msg) => msg.receive(app),
+            Self::InstallPhase { rid, phase } => {
+                if app.integrate_rid.as_ref().is_some_and(|h| h.rid == rid) {
+                    app.install_phase = phase;
+                }
+            }
+            Self::CacheRecoveryProgress { rid, completed, total } => {
+                if app.update_rid.as_ref().is_some_and(|h| h.rid == rid) {
+                    // Only successful counter advances reset the inactivity timer.
+                    // Retries and duplicate progress messages do not count as progress.
+                    if app.cache_recovery_progress.map(|(n, _)| n) != Some(completed) {
+                        app.cache_recovery_last_advance = Some(std::time::Instant::now());
+                    }
+                    app.cache_recovery_progress = Some((completed, total));
+                }
+            }
             Self::UpdateCache(msg) => msg.receive(app),
             Self::CheckUpdates(msg) => msg.receive(app),
             Self::LintMods(msg) => msg.receive(app),
@@ -326,20 +350,55 @@ impl FetchModProgress {
 #[derive(Debug)]
 pub struct UpdateCache {
     rid: RequestID,
-    result: Result<(), ProviderError>,
+    result: Result<usize, ProviderError>,
 }
 
 impl UpdateCache {
-    pub fn send(app: &mut App) {
+    pub fn send(app: &mut App, ctx: &egui::Context) {
         let rid = app.request_counter.next();
         let tx = app.tx.clone();
+        let ctx = ctx.clone();
         let store = app.state.store.clone();
+        let referenced = crate::mod_identity::all_specs(&app.state.mod_data);
         let handle = tokio::spawn(async move {
-            let res = store.update_cache().await;
+            let res = async {
+                store.update_cache().await?;
+                let mut missing = referenced
+                    .into_iter()
+                    .filter(|spec| spec.url.starts_with("https://mod.io/g/drg/m/"))
+                    .filter(|spec| store.get_mod_info(spec).is_none())
+                    .collect::<Vec<_>>();
+                missing.sort_by(|a, b| a.url.cmp(&b.url));
+                info!("recovering metadata for {} mod.io entries", missing.len());
+                tx.send(Message::CacheRecoveryProgress {
+                    rid,
+                    completed: 0,
+                    total: missing.len(),
+                }).await.ok();
+                ctx.request_repaint();
+                for (index, spec) in missing.iter().enumerate() {
+                    info!("recovering metadata {}/{}: {}", index + 1, missing.len(), spec.url);
+                    store.resolve_mod(spec.clone(), false).await?;
+                    tx.send(Message::CacheRecoveryProgress {
+                        rid,
+                        completed: index + 1,
+                        total: missing.len(),
+                    }).await.ok();
+                    ctx.request_repaint();
+                }
+                Ok::<usize, ProviderError>(missing
+                    .iter()
+                    .filter(|spec| store.get_mod_info(spec).is_none())
+                    .count())
+            }
+            .await;
             tx.send(Message::UpdateCache(UpdateCache { rid, result: res }))
                 .await
                 .unwrap();
+            ctx.request_repaint();
         });
+        app.cache_recovery_progress = None;
+        app.cache_recovery_last_advance = None;
         app.last_action = None;
         app.update_rid = Some(MessageHandle {
             rid,
@@ -351,11 +410,17 @@ impl UpdateCache {
     fn receive(self, app: &mut App) {
         if Some(self.rid) == app.update_rid.as_ref().map(|r| r.rid) {
             match self.result {
-                Ok(()) => {
-                    info!("cache update complete");
+                Ok(0) => {
+                    info!("cache update complete; referenced mod.io metadata recovered");
                     app.last_action = Some(LastAction::success(
-                        "successfully updated cache".to_string(),
+                        "Cache updated; referenced mod.io metadata ready".to_string(),
                     ));
+                }
+                Ok(remaining) => {
+                    error!("cache recovery incomplete: {remaining} referenced mod.io entries missing metadata");
+                    app.last_action = Some(LastAction::failure(format!(
+                        "Cache recovery incomplete: {remaining} mod.io entries still lack metadata"
+                    )));
                 }
                 Err(ProviderError::NoProvider { url: _, factory }) => {
                     app.window_provider_parameters =
@@ -438,6 +503,11 @@ async fn integrate_async(
     let mods = store.resolve_mods(&mod_specs, update).await?;
 
     let to_integrate = crate::mod_identity::installation_inputs(&mod_specs, &mods)?;
+    // Report phases from the actual async operation, not from guessed download progress.
+    message_tx.send(Message::InstallPhase { rid, phase: InstallPhase::Downloading }).await.ok();
+    ctx.request_repaint();
+    let stage_tx = message_tx.clone();
+    let stage_ctx = ctx.clone();
     // Index aliases once so every represented row receives fetch progress.
     let identity = |info: &ModInfo| {
         use crate::mod_identity::Artifact;
@@ -481,6 +551,8 @@ async fn integrate_async(
     });
 
     let paths = store.fetch_mods_ordered(&urls, update, Some(tx)).await?;
+    stage_tx.send(Message::InstallPhase { rid, phase: InstallPhase::Integrating }).await.ok();
+    stage_ctx.request_repaint();
 
     tokio::task::spawn_blocking(|| {
         crate::integrate::integrate(
