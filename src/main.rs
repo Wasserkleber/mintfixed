@@ -84,7 +84,7 @@ enum Action {
 }
 
 #[derive(Parser, Debug)]
-#[command(author, version=mint_lib::built_info::GIT_VERSION.unwrap())]
+#[command(author, name = "mintfixed", version = mint_lib::built_info::cli_version())]
 struct Args {
     #[command(subcommand)]
     action: Option<Action>,
@@ -114,6 +114,14 @@ fn main() -> Result<()> {
 
     let _guard = mint_lib::setup_logging(dirs.data_dir.join("mint.log"), "mint")?;
     debug!("logging setup complete");
+    info!("version: {}", mint_lib::built_info::version());
+    info!(
+        "source: commit={:?} tag={:?} distance={:?} modified={}",
+        mint_lib::built_info::COMMIT_SHA,
+        mint_lib::built_info::BASE_TAG,
+        mint_lib::built_info::COMMITS_SINCE_TAG,
+        mint_lib::built_info::MODIFIED,
+    );
 
     info!("config dir = {}", dirs.config_dir.display());
     info!("cache dir = {}", dirs.cache_dir.display());

@@ -14,9 +14,15 @@ use tracing_subscriber::fmt::format::FmtSpan;
 
 pub mod built_info {
     include!(concat!(env!("OUT_DIR"), "/built.rs"));
+    include!(concat!(env!("OUT_DIR"), "/mintfixed_version.rs"));
 
     pub fn version() -> &'static str {
-        GIT_VERSION.unwrap()
+        DISPLAY_VERSION
+    }
+
+    /// CLI shows the command name itself; avoid duplicating the prefix.
+    pub fn cli_version() -> &'static str {
+        version().strip_prefix("mintfixed ").unwrap_or_else(version)
     }
 }
 
