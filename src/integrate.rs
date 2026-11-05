@@ -222,6 +222,7 @@ pub fn integrate<P: AsRef<Path>>(
     config: MetaConfig,
     mods: Vec<(ModInfo, PathBuf)>,
 ) -> Result<(), IntegrationError> {
+    let mods = crate::mod_identity::unique_local_inputs(mods)?;
     let Ok(installation) = DRGInstallation::from_pak_path(&path_pak) else {
         return Err(IntegrationError::DrgInstallationNotFound {
             path: path_pak.as_ref().to_path_buf(),

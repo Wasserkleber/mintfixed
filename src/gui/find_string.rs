@@ -69,7 +69,7 @@ pub(crate) struct SearchJob {
 pub(crate) fn searchable_text(text: &str, search_string: &str, format: TextFormat) -> SearchJob {
     let mut job = LayoutJob::default();
     let mut is_match = false;
-    if !search_string.is_empty() {
+    if !search_string.trim().is_empty() {
         for (m, chunk) in FindString::new(text, search_string) {
             let background = if m {
                 is_match = true;

@@ -24,6 +24,8 @@ pub trait ModProviderCache: Sync + Send + std::fmt::Debug {
 #[obake(version("0.0.0"))]
 #[derive(Debug, Default, Serialize, Deserialize)]
 pub struct Cache {
+    #[serde(skip)]
+    pub(super) revision: u64,
     pub(super) cache: HashMap<String, Box<dyn ModProviderCache>>,
 }
 
@@ -42,6 +44,7 @@ impl Cache {
     }
 
     pub(super) fn get_mut<T: ModProviderCache + 'static>(&mut self, id: &str) -> &mut T {
+        self.revision = self.revision.wrapping_add(1);
         if self.has::<T>(id) {
             self.cache.insert(id.to_owned(), Box::new(T::new()));
         }
@@ -162,7 +165,7 @@ pub(crate) fn read_cache_metadata_or_default(
                 // HACK: workaround a serde issue relating to flattening with tags involving
                 // numeric keys in hashmaps, see <https://github.com/serde-rs/serde/issues/1183>.
                 match serde_json::from_slice::<HashMap<String, Box<dyn ModProviderCache>>>(&buf) {
-                    Ok(c) => MaybeVersionedCache::Legacy(Cache_v0_0_0 { cache: c }),
+                    Ok(c) => MaybeVersionedCache::Legacy(Cache_v0_0_0 { cache: c, revision: 0 }),
                     Err(e) => Err(e).context(DeserializeLegacyCacheFailedSnafu)?,
                 }
             }

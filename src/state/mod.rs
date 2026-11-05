@@ -213,6 +213,13 @@ impl ModData!["0.1.0"] {
         }
     }
 
+    pub fn ordered_install_specs(&self, profile: &str) -> Vec<ModSpecification> {
+        let mut entries = Vec::new();
+        self.for_each_enabled_mod(profile, |mc| entries.push((mc.priority, mc.spec.clone())));
+        entries.sort_by_key(|(priority, _)| std::cmp::Reverse(*priority));
+        entries.into_iter().map(|(_, spec)| spec).collect()
+    }
+
     pub fn for_each_mod_mut<F: FnMut(&mut ModConfig)>(&mut self, profile: &str, f: F) {
         self.for_each_mod_predicate_mut(profile, f, |_| true, |_| true)
     }
@@ -537,6 +544,11 @@ pub struct State {
 }
 
 impl State {
+    /// Known version conflicts, including disabled profile entries.
+    pub fn profile_version_warnings(&self, profile: &str) -> Vec<String> {
+        crate::mod_identity::ProfileIssues::collect(&self.mod_data, profile, &self.store).versions
+    }
+
     pub fn init(dirs: Dirs) -> Result<Self, StateError> {
         let config_path = dirs.config_dir.join("config.json");
 

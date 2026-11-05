@@ -138,8 +138,10 @@ pub struct App {
     rx: Receiver<message::Message>,
     state: State,
     undo_group_move: Option<group_controls::UndoMove>,
+    profile_issues: HashMap<String, ((u64, (u64, u64)), crate::mod_identity::ProfileIssues)>,
     groups_to_open: HashSet<(String, String)>,
     new_group_name: String,
+    pending_group_files: usize,
     resolve_mod: String,
     resolve_mod_rid: Option<MessageHandle<()>>,
     integrate_rid: Option<MessageHandle<HashMap<ModSpecification, SpecFetchProgress>>>,
@@ -227,6 +229,15 @@ impl App {
         egui_extras::install_image_loaders(&cc.egui_ctx);
         let (tx, rx) = mpsc::channel(10);
         let state = State::init(dirs)?;
+        let specs = crate::mod_identity::all_specs(&state.mod_data);
+        if !specs.is_empty() {
+            let store = state.store.clone();
+            let ctx = cc.egui_ctx.clone();
+            std::thread::spawn(move || {
+                store.refresh_local_files(&specs);
+                ctx.request_repaint();
+            });
+        }
 
         Ok(Self {
             args,
@@ -235,8 +246,10 @@ impl App {
             request_counter: Default::default(),
             state,
             undo_group_move: None,
+            profile_issues: HashMap::new(),
             groups_to_open: HashSet::new(),
             new_group_name: String::new(),
+            pending_group_files: 0,
             resolve_mod: Default::default(),
             resolve_mod_rid: None,
             integrate_rid: None,
@@ -271,7 +284,25 @@ impl App {
             ui.style_mut().interaction.selectable_labels = false;
         }
         let profile_name = profile;
-        let sorting_config = self.get_sorting_config();
+        let mut sorting_config = self.get_sorting_config();
+        if sorting_config.is_some() && ui.button("Switch to Manual to move mods").clicked() {
+            self.update_sorting_config(None, false);
+            sorting_config = None;
+        }
+
+        let revision = (self.state.mod_data.revision(), self.state.store.metadata_revision());
+        if self.profile_issues.get(profile).map(|entry| entry.0) != Some(revision) {
+            let issues = crate::mod_identity::ProfileIssues::collect(&self.state.mod_data, profile, &self.state.store);
+            self.profile_issues.insert(profile.to_owned(), (revision, issues));
+        }
+        let issues = &self.profile_issues[profile].1;
+        for warning in &issues.versions {
+            ui.colored_label(ui.visuals().warn_fg_color, warning);
+        }
+        if !issues.pending.is_empty() {
+            ui.label(format!("{} mod.io entries awaiting version metadata", issues.pending.len()))
+                .on_hover_text(issues.pending.join("\n"));
+        }
 
         let ModData {
             profiles, groups, ..
@@ -484,6 +515,13 @@ impl App {
                 }
                 */
 
+                if issues.duplicate(group, row_index)
+                    && ui.button(egui::RichText::new("⚠").color(ui.visuals().warn_fg_color))
+                        .on_hover_text("Remove this duplicate entry").clicked()
+                {
+                    ctx.btn_remove = Some((group.map(str::to_owned), row_index));
+                }
+
                 let info = self.state.store.get_mod_info(&mc.spec);
 
                 if let Some(ref info) = info
@@ -516,6 +554,7 @@ impl App {
                 }
 
                 if let Some(info) = &info {
+                    let previous_spec = mc.spec.clone();
                     egui::ComboBox::from_id_salt(row_index)
                         .selected_text(
                             self.state
@@ -543,6 +582,8 @@ impl App {
                                 );
                             }
                         });
+
+                    ctx.needs_save |= mc.spec != previous_spec;
 
                     ui.scope(|ui| {
                         ui.style_mut().spacing.interact_size.x = 30.;
@@ -590,22 +631,6 @@ impl App {
                     }
 
                     if enabled {
-                        let is_duplicate = enabled_specs.iter().any(|((name, index), spec)| {
-                            (group, row_index) != (name.as_deref(), *index)
-                                && info.spec.satisfies_dependency(spec)
-                        });
-                        if is_duplicate
-                            && ui
-                                .button(
-                                    egui::RichText::new("\u{26A0}")
-                                        .color(ui.visuals().warn_fg_color),
-                                )
-                                .on_hover_text_at_pointer("remove duplicate")
-                                .clicked()
-                        {
-                            ctx.btn_remove = Some((group.map(str::to_owned), row_index));
-                        }
-
                         let missing_deps = info
                             .suggested_dependencies
                             .iter()
@@ -771,6 +796,12 @@ impl App {
                                     }
                                 }
                             });
+                            if group_controls::hover_open(ui, &panel.header_response,
+                                panel.fully_closed(), profile_name, sorting_config.is_none())
+                            {
+                                self.groups_to_open.insert((profile_name.to_owned(), group_name.clone()));
+                                ui.ctx().request_repaint();
+                            }
                             let mut area = panel.header_response.rect;
                             if let Some(body) = &panel.body_response {
                                 area = area.union(body.rect);
@@ -840,6 +871,7 @@ impl App {
         };
 
         egui::ScrollArea::vertical().show(ui, |ui| {
+            group_controls::auto_scroll(ui, profile_name, sorting_config.is_none());
             if let Some(profile) = profiles.get_mut(profile) {
                 ui_profile(ui, profile);
             } else {
@@ -868,7 +900,7 @@ impl App {
         if let Some((source, dest)) = ctx.drag {
             let before = self.state.mod_data.deref().deref().clone();
             let destination_group = dest.group.clone();
-            match source.apply(&mut self.state.mod_data, profile, dest) {
+            match source.apply(&mut self.state.mod_data, profile, dest, &self.state.store) {
                 Ok(()) => {
                     if let Some(name) = destination_group {
                         self.groups_to_open.insert((profile.to_owned(), name));
@@ -1867,20 +1899,8 @@ impl eframe::App for App {
                             }
 
                             if button.clicked() {
-                                let mut mod_configs = Vec::new();
-                                let mut mods = Vec::new();
-                                let active_profile = self.state.mod_data.active_profile.clone();
-                                self.state
-                                    .mod_data
-                                    .for_each_enabled_mod(&active_profile, |mc| {
-                                        mod_configs.push(mc.clone());
-                                    });
-
-                                mod_configs.sort_by_key(|k| -k.priority);
-
-                                for config in mod_configs {
-                                    mods.push(config.spec.clone());
-                                }
+                                let data = &self.state.mod_data;
+                                let mods = data.ordered_install_specs(&data.active_profile);
 
                                 self.last_action = None;
                                 self.integrate_rid = Some(message::Integrate::send(
@@ -2030,7 +2050,7 @@ impl eframe::App for App {
                     ui.ctx().copy_text(mods);
                 }
 
-                group_changed = group_controls::controls(ui, mod_data, &mut self.new_group_name);
+                group_changed = group_controls::controls(ui, mod_data, &mut self.new_group_name, self.pending_group_files > 0);
 
                 // TODO find better icon, flesh out multiple-view usage, fix GUI locking
                 /*
@@ -2164,6 +2184,7 @@ impl eframe::App for App {
             });
             ui.add_space(4.);
 
+            Drag::cancel_if_invalid(ctx, &profile, self.get_sorting_config().is_none());
             let file_group = self.ui_profile(ui, &profile);
 
             // must access memory outside of input lock to prevent deadlock
@@ -2206,7 +2227,7 @@ impl eframe::App for App {
                             }
                         }
                         egui::Event::Text(text) => {
-                            if !is_anything_focused {
+                            if !is_anything_focused && !text.trim().is_empty() {
                                 self.search_string = text.to_string();
                                 self.scroll_to_match = true;
                                 self.focus_search = true;
@@ -2269,7 +2290,7 @@ fn custom_popup_above_or_below_widget<R>(
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum SpecFetchProgress {
     Progress { progress: u64, size: u64 },
     Complete,

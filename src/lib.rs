@@ -2,6 +2,7 @@
 
 pub mod gui;
 pub mod integrate;
+mod mod_identity;
 pub mod mod_lints;
 pub mod providers;
 pub mod state;
@@ -130,17 +131,14 @@ pub async fn resolve_unordered_and_integrate<P: AsRef<Path>>(
         }
     }
 
-    let to_integrate = mod_specs
-        .iter()
-        .map(|u| mods[u].clone())
-        .collect::<Vec<_>>();
+    let to_integrate = mod_identity::installation_inputs(mod_specs, &mods)?;
     let urls = to_integrate
         .iter()
         .map(|m| &m.resolution)
         .collect::<Vec<_>>();
 
     info!("fetching mods...");
-    let paths = state.store.fetch_mods(&urls, update, None).await?;
+    let paths = state.store.fetch_mods_ordered(&urls, update, None).await?;
 
     integrate::integrate(
         game_path,

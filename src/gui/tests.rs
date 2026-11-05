@@ -364,7 +364,7 @@ fn grouped_profile_renders_every_sort_mode_after_reload() {
 }
 
 #[test]
-fn sorted_group_uses_local_indices_for_toggle_and_duplicate_removal() {
+fn sorted_group_toggle_preserves_identical_standalone_entry() {
     let mut test = TestApp::new();
     let alpha = test.local_mod("alpha.pak");
     let zulu = test.local_mod("zulu.pak");
@@ -405,8 +405,8 @@ fn sorted_group_uses_local_indices_for_toggle_and_duplicate_removal() {
                 egui::Shape::Text(text) if text.galley.text() == "⚠"
             ))
             .count(),
-        2,
-        "Only the two alpha entries are duplicates; a group member must not match itself"
+        0,
+        "An identical standalone entry and group member should not warn"
     );
     let toggle_pos = output
         .shapes
@@ -421,14 +421,8 @@ fn sorted_group_uses_local_indices_for_toggle_and_duplicate_removal() {
     test.click(toggle_pos);
     assert!(test.app.state.mod_data.groups["Group"].mods[0].enabled);
     assert!(test.app.state.mod_data.groups["Group"].mods[1].enabled);
-    let output = test.frame(vec![]);
-    test.click(text_rect(&output, "⚠").center());
-    let group = &test.app.state.mod_data.groups["Group"];
-    assert_eq!(group.mods.len(), 1);
-    assert!(group.mods[0].spec.url.ends_with("zulu.pak"));
-    assert_eq!(test.app.state.mod_data.profiles["default"].mods.len(), 2);
     let reloaded = State::init(Dirs::from_path(test.directory.path()).unwrap()).unwrap();
-    assert_eq!(reloaded.mod_data.groups["Group"].mods.len(), 1);
+    assert_eq!(reloaded.mod_data.groups["Group"].mods.len(), 2);
     for (profile, expected) in [("default", false), ("second", true)] {
         let mut includes_zulu = false;
         reloaded.mod_data.for_each_enabled_mod(profile, |mc| {

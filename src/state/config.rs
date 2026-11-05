@@ -11,6 +11,7 @@ impl<T> ConfigTrait for T where T: std::fmt::Debug + Default + Serialize + Deser
 /// Wrapper around an object that is written to a file when dropped
 #[derive(Debug)]
 pub struct ConfigWrapper<C: ConfigTrait> {
+    save_revision: std::sync::atomic::AtomicU64,
     path: Option<PathBuf>,
     config: C,
 }
@@ -20,13 +21,14 @@ impl<C: ConfigTrait> ConfigWrapper<C> {
     pub fn new<P: AsRef<Path>>(path: P, config: C) -> Self {
         Self {
             config,
+            save_revision: Default::default(),
             path: Some(path.as_ref().to_path_buf()),
         }
     }
 
     /// Create wrapper that lives only in memory and has no file backing
     pub fn memory(config: C) -> Self {
-        Self { config, path: None }
+        Self { save_revision: Default::default(), config, path: None }
     }
 
     /// Try our best to ensure that the config written is complete to protect against partial
@@ -47,7 +49,12 @@ impl<C: ConfigTrait> ConfigWrapper<C> {
                 .context(CfgSaveFailedSnafu)?;
             temp_file.persist(final_path)?;
         }
+        self.save_revision.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         Ok(())
+    }
+
+    pub fn revision(&self) -> u64 {
+        self.save_revision.load(std::sync::atomic::Ordering::Relaxed)
     }
 }
 

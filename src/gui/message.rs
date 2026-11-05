@@ -56,7 +56,10 @@ pub enum Message {
 impl Message {
     pub fn handle(self, app: &mut App) {
         match self {
-            Self::GroupFiles { profile, group, prepend, files } => super::group_controls::add_files(app, profile, group, prepend, files),
+            Self::GroupFiles { profile, group, prepend, files } => {
+                app.pending_group_files = app.pending_group_files.saturating_sub(1);
+                super::group_controls::add_files(app, profile, group, prepend, files);
+            }
             Self::ResolveMods(msg) => msg.receive(app),
             Self::Integrate(msg) => msg.receive(app),
             Self::FetchModProgress(msg) => msg.receive(app),
@@ -86,9 +89,24 @@ impl ResolveMods {
     ) {
         let rid = app.request_counter.next();
         let store = app.state.store.clone();
+        let identity_specs = specs.iter().any(|spec| {
+            !spec.url.starts_with("https://") && !spec.url.starts_with("http://")
+        }).then(|| {
+            let mut all = crate::mod_identity::all_specs(&app.state.mod_data);
+            all.extend(specs.iter().cloned());
+            all
+        });
         let ctx = ctx.clone();
         let tx = app.tx.clone();
         let handle = tokio::spawn(async move {
+            if let Some(identity_specs) = identity_specs {
+                let identity_store = store.clone();
+                if let Err(error) = tokio::task::spawn_blocking(move || {
+                    identity_store.refresh_local_files(&identity_specs);
+                }).await {
+                    tracing::warn!("Local identity worker failed: {error}");
+                }
+            }
             let result = store.resolve_mods(&specs, false).await;
             tx.send(Message::ResolveMods(Self {
                 rid,
@@ -116,19 +134,9 @@ impl ResolveMods {
                     // be used to reconstruct the order of pasted mods.
                     // Insert explicit mods in reverse order at index 0.
                     let mut ordered_mods = Vec::with_capacity(resolved_mods.len());
-                    // Remove duplicate entries while keeping their first position.
-                    let mut seen = HashSet::new();
-                    let specs = self
-                        .specs
-                        .into_iter()
-                        .filter(|spec| seen.insert((*spec).clone()))
-                        .collect::<Vec<_>>();
-                    for spec in specs.into_iter().rev() {
-                        // `remove` also prevents duplicated input URLs from being added twice.
-                        if let Some(info) = resolved_mods.remove(&spec) {
-                            ordered_mods.push((spec, info, false));
-                        }
-                    }
+                    ordered_mods.extend(crate::mod_identity::take_explicit(
+                        self.specs, &mut resolved_mods, &app.state.store,
+                    ).into_iter().rev().map(|(spec, info)| (spec, info, false)));
 
                     // Keep automatically discovered dependencies, in a stable order.
                     let mut dependencies = resolved_mods.into_iter().collect::<Vec<_>>();
@@ -145,13 +153,24 @@ impl ResolveMods {
                         let is_dep = self.is_dependency || auto_dependency;
                         let add = if is_dep {
                             // if mod is a dependency then check if there is a disabled
-                            // mod that satisfies the dependency and enable it. if it
-                            // is not a dependency then assume the user explicitly
-                            // wants to add a specific mod version.
+                            // mod that satisfies the dependency and enable it.
                             let active_profile = app.state.mod_data.active_profile.clone();
                             !app.state.mod_data.enable_dependency(&active_profile, &resolved_spec)
                         } else {
-                            true
+                            let data = &mut app.state.mod_data;
+                            let profile_name = data.active_profile.clone();
+                            let profile = data.profiles.get_mut(&profile_name).unwrap();
+                            let requested = if crate::providers::modio::pinned_file(&resolved_spec.url).is_some() {
+                                &resolved_spec
+                            } else {
+                                &info.spec
+                            };
+                            if crate::mod_identity::promote_standalone(profile, requested, &app.state.store) {
+                                explicit_inserted += 1;
+                                false
+                            } else {
+                                true
+                            }
                         };
 
                         if add {
@@ -175,7 +194,11 @@ impl ResolveMods {
                                 insertion_index,
                                 ModOrGroup::Individual(ModConfig {
                                     member_id: None,
-                                    spec: info.spec.clone(),
+                                    spec: if crate::providers::modio::pinned_file(&resolved_spec.url).is_some() {
+                                        resolved_spec.clone()
+                                    } else {
+                                        info.spec.clone()
+                                    },
                                     required: info.suggested_require,
                                     enabled: true,
                                     priority: 0,
@@ -186,7 +209,8 @@ impl ResolveMods {
                     app.resolve_mod.clear();
                     app.state.mod_data.save().unwrap();
                     app.last_action = Some(LastAction::success(
-                        "mods successfully resolved".to_string(),
+                        format!("Added {} mod{}", explicit_inserted + dependencies_inserted,
+                            if explicit_inserted + dependencies_inserted == 1 { "" } else { "s" }),
                     ));
                 }
                 Err(ProviderError::NoProvider { url: _, factory }) => {
@@ -394,14 +418,23 @@ async fn integrate_async(
 
     let mods = store.resolve_mods(&mod_specs, update).await?;
 
-    let to_integrate = mod_specs
-        .iter()
-        .map(|u| mods[u].clone())
-        .collect::<Vec<_>>();
-    let res_map: HashMap<ModResolution, ModSpecification> = mods
-        .iter()
-        .map(|(spec, info)| (info.resolution.clone(), spec.clone()))
-        .collect();
+    let to_integrate = crate::mod_identity::installation_inputs(&mod_specs, &mods)?;
+    // Index aliases once so every represented row receives fetch progress.
+    let identity = |info: &ModInfo| {
+        use crate::mod_identity::Artifact;
+        match crate::providers::modio::pinned_file(&info.resolution.url.0) {
+            Some((id, file)) if info.provider == "modio" => Artifact::Modio(id, file),
+            _ => Artifact::Specification(ModSpecification { url: info.resolution.url.0.clone() }),
+        }
+    };
+    let mut aliases = HashMap::<_, Vec<ModSpecification>>::new();
+    for spec in &mod_specs {
+        let info = &mods[spec];
+        aliases.entry((info.provider, identity(info))).or_default().push(spec.clone());
+    }
+    let res_map: HashMap<ModResolution, Vec<ModSpecification>> = to_integrate.iter().map(|info| {
+        (info.resolution.clone(), aliases.remove(&(info.provider, identity(info))).unwrap_or_default())
+    }).collect();
     let urls = to_integrate
         .iter()
         .map(|m| &m.resolution)
@@ -411,15 +444,18 @@ async fn integrate_async(
 
     tokio::spawn(async move {
         while let Some(progress) = rx.recv().await {
-            if let Some(spec) = res_map.get(progress.resolution()) {
-                message_tx
-                    .send(Message::FetchModProgress(FetchModProgress {
-                        rid,
-                        spec: spec.clone(),
-                        progress: progress.into(),
-                    }))
-                    .await
-                    .unwrap();
+            if let Some(specs) = res_map.get(progress.resolution()) {
+                let progress: SpecFetchProgress = progress.into();
+                for spec in specs {
+                    message_tx
+                        .send(Message::FetchModProgress(FetchModProgress {
+                            rid,
+                            spec: spec.clone(),
+                            progress: progress.clone(),
+                        }))
+                        .await
+                        .unwrap();
+                }
                 ctx.request_repaint();
             }
         }

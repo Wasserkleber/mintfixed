@@ -43,6 +43,23 @@ struct ModIoModUrl<'n> {
     modfile_id: Option<u32>,
 }
 
+/// A DRG mod.io mod and its exact file. A pin carries both IDs even offline.
+pub(crate) fn pinned_file(url: &str) -> Option<(u32, u32)> {
+    let parsed = parse_url(url).ok()?;
+    Some((parsed.mod_id?, parsed.modfile_id?))
+}
+
+pub(super) fn cached_file(url: &str, cache: &ProviderCache) -> Option<(u32, u32)> {
+    let parsed = parse_url(url).ok()?;
+    if let (Some(id), Some(file)) = (parsed.mod_id, parsed.modfile_id) {
+        return Some((id, file));
+    }
+    let cache = cache.read().unwrap();
+    let cache = cache.get::<ModioCache>(MODIO_PROVIDER_ID)?;
+    let id = parsed.mod_id.or_else(|| cache.mod_id_map.get(parsed.name_id).copied())?;
+    Some((id, cache.mods.get(&id)?.latest_modfile?))
+}
+
 const MODIO_DRG_ID: u32 = 2475;
 const MODIO_PROVIDER_ID: &str = "modio";
 
@@ -939,7 +956,7 @@ impl<M: DrgModio + Send + Sync> ModProvider for ModioProvider<M> {
         let modfile_id = if let Some(modfile_id) = parsed.modfile_id {
             modfile_id
         } else {
-            mod_.modfiles.last().map(|f| f.id)?
+            mod_.latest_modfile?
         };
 
         let deps = prov
