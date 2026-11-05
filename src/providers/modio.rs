@@ -71,8 +71,8 @@ inventory::submit! {
         parameters: &[
             super::ProviderParameter {
                 id: "oauth",
-                name: "OAuth Token",
-                description: "mod.io OAuth token",
+                name: "Personal Access Token",
+                description: "mod.io Personal Access Token",
                 link: Some("https://mod.io/me/access"),
             },
         ]
