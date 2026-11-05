@@ -1,5 +1,5 @@
 use std::collections::BTreeSet;
-use std::ops::DerefMut;
+use std::ops::{Deref, DerefMut};
 use std::time::SystemTime;
 use std::{collections::HashMap, sync::Arc};
 
@@ -75,6 +75,8 @@ impl Message {
 #[derive(Debug)]
 pub struct ResolveMods {
     rid: RequestID,
+    profile: String,
+    input: String,
     specs: Vec<ModSpecification>,
     result: Result<HashMap<ModSpecification, ModInfo>, ProviderError>,
     is_dependency: bool,
@@ -87,6 +89,12 @@ impl ResolveMods {
         specs: Vec<ModSpecification>,
         is_dependency: bool,
     ) {
+        if app.resolve_mod_rid.is_some() {
+            app.last_action = Some(LastAction::failure("An addition is already running. Wait for it to finish, then try again.".into()));
+            return;
+        }
+        let profile = app.state.mod_data.active_profile.clone();
+        let input = app.resolve_mod.clone();
         let rid = app.request_counter.next();
         let store = app.state.store.clone();
         let identity_specs = specs.iter().any(|spec| {
@@ -110,6 +118,8 @@ impl ResolveMods {
             let result = store.resolve_mods(&specs, false).await;
             tx.send(Message::ResolveMods(Self {
                 rid,
+                profile,
+                input,
                 specs,
                 result,
                 is_dependency,
@@ -128,8 +138,14 @@ impl ResolveMods {
 
     fn receive(self, app: &mut App) {
         if Some(self.rid) == app.resolve_mod_rid.as_ref().map(|r| r.rid) {
+            if !app.state.mod_data.profiles.contains_key(&self.profile) {
+                app.resolve_mod_rid = None;
+                app.last_action = Some(LastAction::failure("Addition cancelled: the original profile no longer exists.".into()));
+                return;
+            }
             match self.result {
                 Ok(mut resolved_mods) => {
+                    let before = app.state.mod_data.deref().deref().clone();
                     // `resolve_mods` returns a HashMap, so its iteration order cannot
                     // be used to reconstruct the order of pasted mods.
                     // Insert explicit mods in reverse order at index 0.
@@ -154,12 +170,10 @@ impl ResolveMods {
                         let add = if is_dep {
                             // if mod is a dependency then check if there is a disabled
                             // mod that satisfies the dependency and enable it.
-                            let active_profile = app.state.mod_data.active_profile.clone();
-                            !app.state.mod_data.enable_dependency(&active_profile, &resolved_spec)
+                            !app.state.mod_data.enable_dependency(&self.profile, &resolved_spec)
                         } else {
                             let data = &mut app.state.mod_data;
-                            let profile_name = data.active_profile.clone();
-                            let profile = data.profiles.get_mut(&profile_name).unwrap();
+                            let profile = data.profiles.get_mut(&self.profile).unwrap();
                             let requested = if crate::providers::modio::pinned_file(&resolved_spec.url).is_some() {
                                 &resolved_spec
                             } else {
@@ -185,12 +199,11 @@ impl ResolveMods {
                                 0
                             };
                             let ModData {
-                                active_profile,
                                 profiles,
                                 ..
                             } = app.state.mod_data.deref_mut().deref_mut();
 
-                            profiles.get_mut(active_profile).unwrap().mods.insert(
+                            profiles.get_mut(&self.profile).unwrap().mods.insert(
                                 insertion_index,
                                 ModOrGroup::Individual(ModConfig {
                                     member_id: None,
@@ -206,11 +219,16 @@ impl ResolveMods {
                             );
                         }
                     }
-                    app.resolve_mod.clear();
-                    app.state.mod_data.save().unwrap();
+                    if let Err(error) = app.state.mod_data.save() {
+                        *app.state.mod_data.deref_mut().deref_mut() = before;
+                        app.resolve_mod_rid = None;
+                        app.last_action = Some(LastAction::failure(format!("Could not save additions: {error}")));
+                        return;
+                    }
+                    if app.resolve_mod == self.input { app.resolve_mod.clear(); }
                     app.last_action = Some(LastAction::success(
-                        format!("Added {} mod{}", explicit_inserted + dependencies_inserted,
-                            if explicit_inserted + dependencies_inserted == 1 { "" } else { "s" }),
+                        format!("Added {} mod{} to {}", explicit_inserted + dependencies_inserted,
+                            if explicit_inserted + dependencies_inserted == 1 { "" } else { "s" }, self.profile),
                     ));
                 }
                 Err(ProviderError::NoProvider { url: _, factory }) => {
@@ -796,4 +814,63 @@ async fn self_update_async(
     info!("update successful");
 
     Ok(original_exe_path)
+}
+
+#[cfg(test)]
+mod addition_destination_tests {
+    use super::*;
+
+    fn app() -> (tempfile::TempDir, App) {
+        let dir = tempfile::tempdir().unwrap();
+        let app = App::new(&eframe::CreationContext::_new_kittest(egui::Context::default()),
+            Dirs::from_path(dir.path()).unwrap(), None).unwrap();
+        (dir, app)
+    }
+
+    fn result(app: &mut App) -> ResolveMods {
+        let rid = app.request_counter.next();
+        app.resolve_mod_rid = Some(MessageHandle { rid, handle: tokio::spawn(async {}), state: () });
+        let spec = ModSpecification::new("test-mod".to_owned());
+        let info = ModInfo { provider: "file", name: "Test".into(), spec: spec.clone(), versions: vec![],
+            resolution: ModResolution::resolvable("test-mod".to_owned().into()),
+            suggested_require: false, suggested_dependencies: vec![], modio_id: None, modio_tags: None };
+        ResolveMods { rid, profile: "default".into(), input: "submitted input".into(),
+            specs: vec![spec.clone()], result: Ok(HashMap::from([(spec, info)])), is_dependency: false }
+    }
+
+    #[tokio::test]
+    async fn profile_switch_does_not_redirect_result_or_clear_new_input() {
+        let (_dir, mut app) = app();
+        let result = result(&mut app);
+        app.state.mod_data.profiles.insert("Other".into(), Default::default());
+        app.state.mod_data.active_profile = "Other".into();
+        app.resolve_mod = "new input".into();
+        result.receive(&mut app);
+        assert_eq!(app.state.mod_data.profiles["default"].mods.len(), 1);
+        assert!(app.state.mod_data.profiles["Other"].mods.is_empty());
+        assert_eq!(app.resolve_mod, "new input");
+        assert!(app.resolve_mod_rid.is_none());
+    }
+
+    #[tokio::test]
+    async fn second_request_does_not_replace_pending_result() {
+        let (_dir, mut app) = app();
+        let result = result(&mut app);
+        ResolveMods::send(&mut app, &egui::Context::default(), vec![], false);
+        assert_eq!(app.resolve_mod_rid.as_ref().unwrap().rid, result.rid);
+        result.receive(&mut app);
+        assert_eq!(app.state.mod_data.profiles["default"].mods.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn missing_original_profile_cancels_without_fallback() {
+        let (_dir, mut app) = app();
+        let result = result(&mut app);
+        app.state.mod_data.profiles.insert("Other".into(), Default::default());
+        app.state.mod_data.active_profile = "Other".into();
+        app.state.mod_data.profiles.remove("default");
+        result.receive(&mut app);
+        assert!(app.state.mod_data.profiles["Other"].mods.is_empty());
+        assert!(app.resolve_mod_rid.is_none());
+    }
 }

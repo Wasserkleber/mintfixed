@@ -70,6 +70,7 @@ pub(crate) fn ui<E, N>(
     name: &str,
     entries: &mut N,
     additional_ui: Option<impl FnOnce(&mut egui::Ui, &mut N)>,
+    allow_edit: bool,
 ) -> bool
 where
     N: NamedEntries<E>,
@@ -77,12 +78,14 @@ where
     let mut modified = false;
     ui.push_id(name, |ui| {
         ui.horizontal(|ui| {
-            mk_add(ui, name, entries, &mut modified);
-            mk_delete(ui, name, entries, &mut modified);
-            mk_rename(ui, name, entries, &mut modified);
+            ui.add_enabled_ui(allow_edit, |ui| {
+                mk_add(ui, name, entries, &mut modified);
+                mk_delete(ui, name, entries, &mut modified);
+                mk_rename(ui, name, entries, &mut modified);
+            });
 
             ui.with_layout(egui::Layout::right_to_left(egui::Align::TOP), |ui| {
-                mk_duplicate(ui, name, entries, &mut modified);
+                ui.add_enabled_ui(allow_edit, |ui| mk_duplicate(ui, name, entries, &mut modified));
 
                 if let Some(additional_ui) = additional_ui {
                     additional_ui(ui, entries);

@@ -909,8 +909,16 @@ impl App {
                         self.groups_to_open.insert((profile.to_owned(), name));
                         ui.ctx().request_repaint();
                     }
-                    self.undo_group_move = Some(group_controls::UndoMove::new(before, &self.state.mod_data));
-                    ctx.needs_save = true;
+                    match self.state.mod_data.save() {
+                        Ok(()) => {
+                            self.undo_group_move = Some(group_controls::UndoMove::new(before, &self.state.mod_data));
+                            ctx.needs_save = false;
+                        }
+                        Err(error) => {
+                            *self.state.mod_data.deref_mut().deref_mut() = before;
+                            self.last_action = Some(LastAction::failure(format!("Could not save move: {error}")));
+                        }
+                    }
                 }
                 Err(error) => self.last_action = Some(LastAction::failure(error.into())),
             }
@@ -2151,6 +2159,7 @@ impl eframe::App for App {
                 "profile",
                 self.state.mod_data.deref_mut().deref_mut(),
                 Some(buttons),
+                self.resolve_mod_rid.is_none() && self.pending_group_files == 0,
             ) || group_changed {
                 self.state.mod_data.save().unwrap();
             }
