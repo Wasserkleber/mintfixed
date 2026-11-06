@@ -49,14 +49,13 @@ impl ReleaseNumber {
             })
             .collect();
         let numbers = numbers?;
-        if let Some(suffix) = prerelease {
-            if suffix.is_empty()
+        if let Some(suffix) = prerelease
+            && (suffix.is_empty()
                 || suffix.split('.').any(|item| {
                     item.is_empty() || !item.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-')
-                })
-            {
-                return None;
-            }
+                }))
+        {
+            return None;
         }
         Some(Self {
             major: numbers[0],
@@ -383,12 +382,12 @@ pub fn emit_rerun_directives(working_dir: &Path) {
 
     // Watching tracked files keeps unstaged tracked changes visible to Cargo.
     // Watch source directories separately to detect new, not-yet-tracked files.
-    if let Some(output) = git_output(&repo, &["ls-files", "--cached", "-z"]) {
-        if output.status.success() {
-            for file in output.stdout.split(|b| *b == 0).filter(|x| !x.is_empty()) {
-                let path = repo.join(String::from_utf8_lossy(file).as_ref());
-                watch(&path);
-            }
+    if let Some(output) = git_output(&repo, &["ls-files", "--cached", "-z"])
+        && output.status.success()
+    {
+        for file in output.stdout.split(|b| *b == 0).filter(|x| !x.is_empty()) {
+            let path = repo.join(String::from_utf8_lossy(file).as_ref());
+            watch(&path);
         }
     }
     for dir in [
@@ -440,10 +439,10 @@ fn watch_git_path(repo: &Path, relative: &str) {
 }
 
 fn watch(path: &Path) {
-    if let Some(path) = path.to_str() {
-        if !path.contains('\n') {
-            println!("cargo:rerun-if-changed={path}");
-        }
+    if let Some(path) = path.to_str()
+        && !path.contains('\n')
+    {
+        println!("cargo:rerun-if-changed={path}");
     }
 }
 

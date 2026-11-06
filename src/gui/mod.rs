@@ -2670,50 +2670,6 @@ fn is_committed(res: &egui::Response) -> bool {
     res.lost_focus() && res.ctx.input(|i| i.key_pressed(egui::Key::Enter))
 }
 
-/// A custom popup which does not automatically close when clicked.
-fn custom_popup_above_or_below_widget<R>(
-    ui: &Ui,
-    popup_id: egui::Id,
-    widget_response: &egui::Response,
-    above_or_below: egui::AboveOrBelow,
-    add_contents: impl FnOnce(&mut Ui) -> R,
-) -> Option<R> {
-    if ui.memory(|mem| mem.is_popup_open(popup_id)) {
-        let (pos, pivot) = match above_or_below {
-            egui::AboveOrBelow::Above => (widget_response.rect.left_top(), Align2::LEFT_BOTTOM),
-            egui::AboveOrBelow::Below => (widget_response.rect.left_bottom(), Align2::LEFT_TOP),
-        };
-
-        let inner = egui::Area::new(popup_id)
-            .order(egui::Order::Foreground)
-            .constrain(true)
-            .fixed_pos(pos)
-            .pivot(pivot)
-            .show(ui.ctx(), |ui| {
-                // Note: we use a separate clip-rect for this area, so the popup can be outside the parent.
-                // See https://github.com/emilk/egui/issues/825
-                let frame = egui::Frame::popup(ui.style());
-                let frame_margin = frame.total_margin();
-                frame
-                    .show(ui, |ui| {
-                        ui.with_layout(Layout::top_down_justified(Align::LEFT), |ui| {
-                            ui.set_width(widget_response.rect.width() - frame_margin.sum().x);
-                            add_contents(ui)
-                        })
-                        .inner
-                    })
-                    .inner
-            })
-            .inner;
-
-        if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
-            ui.memory_mut(|mem| mem.close_popup());
-        }
-        Some(inner)
-    } else {
-        None
-    }
-}
 
 #[derive(Debug, Clone)]
 pub enum SpecFetchProgress {
