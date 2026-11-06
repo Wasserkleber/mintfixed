@@ -1030,7 +1030,10 @@ impl App {
                     self.pending_group_mod_removal = Some(PendingGroupModRemoval {
                         group_name: name,
                         mod_id: mc.id.clone(),
-                        mod_name: self.state.store.get_mod_info(&mc.spec)
+                        mod_name: self
+                            .state
+                            .store
+                            .get_mod_info(&mc.spec)
                             .map(|info| info.name)
                             .unwrap_or_else(|| mc.spec.url.clone()),
                     });
@@ -1111,7 +1114,10 @@ impl App {
                     if ui.button("Cancel").clicked() {
                         cancelled = true;
                     }
-                    if ui.add(Button::new("Remove from group").fill(colors::DARK_RED)).clicked() {
+                    if ui
+                        .add(Button::new("Remove from group").fill(colors::DARK_RED))
+                        .clicked()
+                    {
                         confirmed = true;
                     }
                 });
@@ -2669,7 +2675,6 @@ mod structured_json_paste_tests {
 fn is_committed(res: &egui::Response) -> bool {
     res.lost_focus() && res.ctx.input(|i| i.key_pressed(egui::Key::Enter))
 }
-
 
 #[derive(Debug, Clone)]
 pub enum SpecFetchProgress {
