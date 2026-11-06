@@ -9,6 +9,7 @@ use std::sync::{
 use std::time::{Duration, Instant, SystemTime};
 
 mod backoffs;
+mod rate_limits;
 mod metrics;
 mod origins;
 mod timestamps;
@@ -62,6 +63,22 @@ fn data() -> &'static Mutex<Data> {
     DATA.get_or_init(|| Mutex::new(Data::default()))
 }
 
+/// Monotonic time relative to capture start for rate-limit diagnostics.
+fn elapsed_since_capture() -> Duration {
+    let data = data().lock().unwrap();
+    data.started.map_or(Duration::ZERO, |start| start.elapsed())
+}
+
+/// Record response headers of *every* 429 before retry decisions are acted on.
+pub fn observe_rate_limit(request: &reqwest::Request, response: &reqwest::Response) -> Option<u64> {
+    rate_limits::observe(request, response)
+}
+
+/// Read the JSON error_ref only if the 429 body is being discarded by a retry.
+pub async fn inspect_discarded_rate_limit(id: u64, response: &mut reqwest::Response) {
+    rate_limits::inspect_discarded(id, response).await;
+}
+
 pub fn is_running() -> bool {
     ENABLED.load(Ordering::Relaxed)
 }
@@ -78,6 +95,7 @@ pub fn start() {
     metrics::reset();
     origins::reset();
     backoffs::reset();
+    rate_limits::reset();
     ENABLED.store(true, Ordering::Relaxed);
 }
 
@@ -100,6 +118,7 @@ pub fn clear() {
     metrics::reset();
     origins::reset();
     backoffs::reset();
+    rate_limits::reset();
 }
 
 pub fn record(event: Event) {
@@ -231,6 +250,7 @@ pub fn report() -> String {
     out.push_str(&metrics::report());
     out.push_str(&origins::report());
     out.push_str(&backoffs::report());
+    out.push_str(&rate_limits::report());
     out.push_str("\nTimeline (UTC event time and monotonic offset; order of completion):\n");
     for entry in &data.events {
         let event = &entry.event;

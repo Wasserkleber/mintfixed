@@ -250,8 +250,10 @@ impl Middleware for LoggingMiddleware {
             );
             let request_span = diagnostics::RequestSpan::begin(req.url());
             let diagnostic_start = diagnostics::is_running().then(std::time::Instant::now);
-            let res = next.clone().run(req.try_clone().unwrap(), extensions).await;
+            let mut res = next.clone().run(req.try_clone().unwrap(), extensions).await;
             drop(request_span);
+            let rate_limit_id = res.as_ref().ok()
+                .and_then(|response| diagnostics::observe_rate_limit(&req, response));
             if let Some(start) = diagnostic_start {
                 diagnostics::record_request_profile(&req);
                 diagnostics::record(diagnostics::Event::Request {
@@ -304,6 +306,10 @@ impl Middleware for LoggingMiddleware {
                 phase: "API/CDN request",
                 delay_ms: delay.saturating_mul(1000),
             });
+            // This response is already being discarded for a retry. Never read a forwarded 429.
+            if let (Some(id), Ok(response)) = (rate_limit_id, &mut res) {
+                diagnostics::inspect_discarded_rate_limit(id, response).await;
+            }
             tokio::time::sleep(tokio::time::Duration::from_secs(delay)).await;
         }
     }
