@@ -64,30 +64,25 @@ pub(super) fn ui<E, N>(
             // Match the Groups menu: size the popup to its expanded sections.
             // Only the JSON text editor has its own bounded scroll area.
             ui.vertical(|ui| {
-                    egui::CollapsingHeader::new("New Profile")
-                        .id_salt("manage-new-profile")
-                        .show(ui, |ui| {
-                            let field = ui.add(
-                                egui::TextEdit::singleline(&mut editor.new_name)
-                                    .hint_text("New profile name"),
-                            );
-                            let candidate = editor.new_name.trim().to_owned();
-                            let valid = !candidate.is_empty() && !entries.contains(&candidate);
-                            if !candidate.is_empty() && entries.contains(&candidate) {
-                                ui.colored_label(
-                                    ui.visuals().warn_fg_color,
-                                    "Profile name already exists.",
-                                );
-                            }
-                            let clicked = ui
-                                .add_enabled(valid, egui::Button::new("Create Profile"))
-                                .clicked();
-                            if valid && (clicked || is_committed(&field)) {
-                                entries.add_new(&candidate);
-                                *modified = true;
-                                ui.memory_mut(|mem| mem.close_popup());
-                            }
-                        });
+                    ui.label("New profile");
+                    let field = ui.text_edit_singleline(&mut editor.new_name);
+                    let candidate = editor.new_name.trim().to_owned();
+                    let valid = !candidate.is_empty() && !entries.contains(&candidate);
+                    if !candidate.is_empty() && entries.contains(&candidate) {
+                        ui.colored_label(
+                            ui.visuals().warn_fg_color,
+                            "A profile with that name already exists.",
+                        );
+                    }
+                    let clicked = ui
+                        .add_enabled(valid, egui::Button::new("Create profile"))
+                        .clicked();
+                    if valid && (clicked || is_committed(&field)) {
+                        entries.add_new(&candidate);
+                        *modified = true;
+                        editor.new_name.clear();
+                        ui.memory_mut(|mem| mem.close_popup());
+                    }
                     ui.separator();
                     egui::CollapsingHeader::new("Rename Profile")
                         .id_salt("manage-rename-profile")
