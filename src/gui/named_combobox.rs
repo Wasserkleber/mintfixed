@@ -64,11 +64,17 @@ where
     ui.push_id(name, |ui| {
         ui.horizontal(|ui| {
             ui.add_enabled_ui(allow_edit, |ui| {
-                super::profile_management::ui(ui, name, entries, &mut modified, after_rename, copy_ui);
+                super::profile_management::ui(
+                    ui,
+                    name,
+                    entries,
+                    &mut modified,
+                    after_rename,
+                    copy_ui,
+                );
             });
 
             ui.with_layout(egui::Layout::right_to_left(egui::Align::TOP), |ui| {
-
                 if let Some(additional_ui) = additional_ui {
                     additional_ui(ui, entries);
                 }

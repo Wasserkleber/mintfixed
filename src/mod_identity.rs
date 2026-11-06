@@ -415,7 +415,9 @@ mod tests {
         };
         let issues = ProfileIssues::collect(&issues_data, "p", &store);
         assert_eq!(issues.versions.len(), 1);
-        assert!(issues.versions[0].starts_with("Speedometer (mod.io ID 123) has multiple versions:"));
+        assert!(
+            issues.versions[0].starts_with("Speedometer (mod.io ID 123) has multiple versions:")
+        );
         let mut existing = member(latest);
         existing.enabled = false;
         let mut profile = ModProfile_v0_1_0 {

@@ -1,5 +1,5 @@
-use super::*;
 use super::import_export::*;
+use super::*;
 
 #[derive(Clone, Default)]
 struct RenameEditor {
@@ -74,7 +74,10 @@ pub(in crate::gui) fn remove_group_member(
     group_name: &str,
     mod_id: &str,
 ) -> Result<(), &'static str> {
-    let group = data.groups.get_mut(group_name).ok_or("Group no longer exists")?;
+    let group = data
+        .groups
+        .get_mut(group_name)
+        .ok_or("Group no longer exists")?;
     let index = group
         .mods
         .iter()
@@ -82,7 +85,11 @@ pub(in crate::gui) fn remove_group_member(
         .ok_or("Mod is no longer in the group")?;
     let removed = group.mods.remove(index);
     if let Some(member_id) = removed.member_id {
-        for entry in data.profiles.values_mut().flat_map(|profile| &mut profile.mods) {
+        for entry in data
+            .profiles
+            .values_mut()
+            .flat_map(|profile| &mut profile.mods)
+        {
             if let ModOrGroup::Group {
                 group_name: entry_group,
                 member_overrides,
@@ -98,7 +105,11 @@ pub(in crate::gui) fn remove_group_member(
 }
 
 /// Renaming changes the shared collection's label, never its contents or order.
-pub(super) fn rename_group(data: &mut Data, old: &str, requested: &str) -> Result<bool, &'static str> {
+pub(super) fn rename_group(
+    data: &mut Data,
+    old: &str,
+    requested: &str,
+) -> Result<bool, &'static str> {
     let name = requested.trim();
     if name.is_empty() {
         return Err("Enter a group name");
@@ -250,8 +261,7 @@ pub(in crate::gui) fn controls(
 ) -> (bool, Option<String>) {
     let profile = data.profiles.get_mut(&data.active_profile).unwrap();
     let mut changed = false;
-    let button = ui.button("Group Management")
-        .on_hover_text("Manage groups");
+    let button = ui.button("Group Management").on_hover_text("Manage groups");
     let popup = button.id.with("groups-menu");
     let editor_id = popup.with("rename-editor");
     let duplicate_id = popup.with("duplicate-editor");
@@ -1099,9 +1109,16 @@ mod rename_tests {
         let other_before = serde_json::to_value(&data.groups["Other"]).unwrap();
         remove_group_member(&mut data, "Tools", &member_id).unwrap();
         assert!(data.groups["Tools"].mods.is_empty());
-        assert_eq!(serde_json::to_value(&data.groups["Other"]).unwrap(), other_before);
+        assert_eq!(
+            serde_json::to_value(&data.groups["Other"]).unwrap(),
+            other_before
+        );
         for entry in data.profiles.values().flat_map(|profile| &profile.mods) {
-            if let ModOrGroup::Group { group_name, member_overrides, .. } = entry
+            if let ModOrGroup::Group {
+                group_name,
+                member_overrides,
+                ..
+            } = entry
                 && group_name == "Tools"
             {
                 assert_eq!(

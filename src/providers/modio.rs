@@ -7,6 +7,7 @@ use mockall::{automock, predicate::*};
 
 use ::modio;
 
+use super::modio_diagnostics as diagnostics;
 use reqwest::{Request, Response};
 use reqwest_middleware::{Middleware, Next};
 use serde::{Deserialize, Serialize};
@@ -247,7 +248,18 @@ impl Middleware for LoggingMiddleware {
                     .fetch_add(1, std::sync::atomic::Ordering::Relaxed),
                 req.url().path()
             );
+            let request_span = diagnostics::RequestSpan::begin(req.url());
+            let diagnostic_start = diagnostics::is_running().then(std::time::Instant::now);
             let res = next.clone().run(req.try_clone().unwrap(), extensions).await;
+            drop(request_span);
+            if let Some(start) = diagnostic_start {
+                diagnostics::record(diagnostics::Event::Request {
+                    endpoint: diagnostics::request_label(req.url()),
+                    elapsed_ms: diagnostics::elapsed_ms(start.elapsed()),
+                    status: res.as_ref().ok().map(|response| response.status().as_u16()),
+                    failed: res.is_err(),
+                });
+            }
             let retry_after = match &res {
                 Ok(response)
                     if response.status() == reqwest::StatusCode::REQUEST_TIMEOUT
@@ -285,6 +297,10 @@ impl Middleware for LoggingMiddleware {
                 "mod.io request {}: retry {retries} in {delay}s",
                 req.url().path()
             );
+            diagnostics::record(diagnostics::Event::Retry {
+                phase: "API/CDN request",
+                delay_ms: delay.saturating_mul(1000),
+            });
             tokio::time::sleep(tokio::time::Duration::from_secs(delay)).await;
         }
     }
@@ -840,6 +856,10 @@ impl<M: DrgModio + Send + Sync> ModProvider for ModioProvider<M> {
                         .and_then(|c| c.modfile_blobs.get(&modfile_id))
                         .and_then(|r| blob_cache.get_path(r))
                 } {
+                    diagnostics::record(diagnostics::Event::CacheHit {
+                        mod_id,
+                        file_id: modfile_id,
+                    });
                     if let Some(tx) = tx {
                         tx.send(FetchProgress::Complete {
                             resolution: res.clone(),
@@ -849,6 +869,7 @@ impl<M: DrgModio + Send + Sync> ModProvider for ModioProvider<M> {
                     }
                     path
                 } else {
+                    let total_started = std::time::Instant::now();
                     let file = self
                         .modio
                         .fetch_file(res.url.0.clone(), mod_id, modfile_id)
@@ -861,9 +882,14 @@ impl<M: DrgModio + Send + Sync> ModProvider for ModioProvider<M> {
 
                     let mut file = file;
                     let mut retries = 0_u32;
+                    let mut bytes_received = 0_u64;
+                    let mut first_chunk_ms = None;
+                    let transfer_started = std::time::Instant::now();
+                    let transfer_span = diagnostics::TransferSpan::begin();
                     // Never write a partial download to the blob cache. Restart with
                     // fresh mod.io file information if a CDN stream breaks mid-file.
                     let downloaded = 'download: loop {
+                        let stream_started = std::time::Instant::now();
                         let size = file.filesize;
                         let action: modio::download::DownloadAction = file.into();
                         let mut cursor = std::io::Cursor::new(Vec::new());
@@ -871,6 +897,12 @@ impl<M: DrgModio + Send + Sync> ModProvider for ModioProvider<M> {
                         loop {
                             match stream.try_next().await {
                                 Ok(Some(bytes)) => {
+                                    if first_chunk_ms.is_none() {
+                                        first_chunk_ms =
+                                            Some(diagnostics::elapsed_ms(stream_started.elapsed()));
+                                    }
+                                    bytes_received =
+                                        bytes_received.saturating_add(bytes.len() as u64);
                                     cursor
                                         .write_all(&bytes)
                                         .await
@@ -938,6 +970,10 @@ impl<M: DrgModio + Send + Sync> ModProvider for ModioProvider<M> {
                             "restarting mod.io download {} in {delay}s (attempt {retries})",
                             res.url.0
                         );
+                        diagnostics::record(diagnostics::Event::Retry {
+                            phase: "download stream",
+                            delay_ms: delay.saturating_mul(1000),
+                        });
                         tokio::time::sleep(tokio::time::Duration::from_secs(delay)).await;
                         file = self
                             .modio
@@ -945,8 +981,23 @@ impl<M: DrgModio + Send + Sync> ModProvider for ModioProvider<M> {
                             .await?;
                     };
 
+                    let transfer_ms = diagnostics::elapsed_ms(transfer_started.elapsed());
+                    drop(transfer_span);
+                    let blob_started = std::time::Instant::now();
                     let blob = blob_cache.write(&downloaded)?;
+                    let blob_write_ms = diagnostics::elapsed_ms(blob_started.elapsed());
                     let path = blob_cache.get_path(&blob).unwrap();
+                    diagnostics::record(diagnostics::Event::Download {
+                        mod_id,
+                        file_id: modfile_id,
+                        size: downloaded.len() as u64,
+                        bytes_received,
+                        first_chunk_ms,
+                        transfer_ms,
+                        blob_write_ms,
+                        total_ms: diagnostics::elapsed_ms(total_started.elapsed()),
+                        retries,
+                    });
 
                     cache
                         .write()

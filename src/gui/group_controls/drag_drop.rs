@@ -1,6 +1,6 @@
-use super::*;
 #[cfg(test)]
 use super::management::rename_group;
+use super::*;
 
 #[derive(Clone)]
 pub(in crate::gui) struct Drag {

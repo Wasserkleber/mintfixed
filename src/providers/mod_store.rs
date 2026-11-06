@@ -214,6 +214,7 @@ impl ModStore {
     }
 
     pub async fn update_cache(&self) -> Result<(), ProviderError> {
+        let _mintfixed_modio_cache_timer = crate::providers::modio_diagnostics::CacheUpdateSpan::begin();
         let providers = self.providers.read().unwrap().clone();
         for (name, provider) in providers.iter() {
             info!("updating cache for {name} provider");

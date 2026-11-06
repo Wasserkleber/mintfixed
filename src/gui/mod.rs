@@ -1,5 +1,6 @@
 mod find_string;
 mod group_controls;
+mod modio_diagnostics;
 use group_controls::{Drag, Target};
 mod message;
 mod named_combobox;
@@ -181,6 +182,7 @@ pub struct App {
     scroll_to_match: bool,
     focus_search: bool,
     settings_window: Option<WindowSettings>,
+    modio_diagnostics_window: bool,
     modio_texture_handle: Option<egui::TextureHandle>,
     last_action: Option<LastAction>,
     available_update: Option<GitHubRelease>,
@@ -300,6 +302,7 @@ impl App {
             scroll_to_match: false,
             focus_search: false,
             settings_window: None,
+            modio_diagnostics_window: false,
             modio_texture_handle: None,
             last_action: None,
             available_update: None,
@@ -1030,7 +1033,10 @@ impl App {
                     self.pending_group_mod_removal = Some(PendingGroupModRemoval {
                         group_name: name,
                         mod_id: mc.id.clone(),
-                        mod_name: self.state.store.get_mod_info(&mc.spec)
+                        mod_name: self
+                            .state
+                            .store
+                            .get_mod_info(&mc.spec)
                             .map(|info| info.name)
                             .unwrap_or_else(|| mc.spec.url.clone()),
                     });
@@ -1111,7 +1117,10 @@ impl App {
                     if ui.button("Cancel").clicked() {
                         cancelled = true;
                     }
-                    if ui.add(Button::new("Remove from group").fill(colors::DARK_RED)).clicked() {
+                    if ui
+                        .add(Button::new("Remove from group").fill(colors::DARK_RED))
+                        .clicked()
+                    {
                         confirmed = true;
                     }
                 });
@@ -2150,6 +2159,7 @@ impl eframe::App for App {
         self.show_provider_parameters(ctx);
         self.show_profile_windows(ctx);
         self.show_settings(ctx);
+        modio_diagnostics::show(ctx, &mut self.modio_diagnostics_window);
         self.show_lints_toggle(ctx);
         self.show_lint_report(ctx);
 
@@ -2308,6 +2318,9 @@ impl eframe::App for App {
                 }
                 if ui.button("⚙").on_hover_text("Open settings").clicked() {
                     self.settings_window = Some(WindowSettings::new(&self.state));
+                }
+                if ui.button("mod.io diagnostics").on_hover_text("Measure request latency, download speed, retries and cache hits").clicked() {
+                    self.modio_diagnostics_window = true;
                 }
                 if let Some(available_update) = &self.available_update
                     && ui
@@ -2669,7 +2682,6 @@ mod structured_json_paste_tests {
 fn is_committed(res: &egui::Response) -> bool {
     res.lost_focus() && res.ctx.input(|i| i.key_pressed(egui::Key::Enter))
 }
-
 
 #[derive(Debug, Clone)]
 pub enum SpecFetchProgress {

@@ -1,6 +1,7 @@
 pub mod file;
 pub mod http;
 pub mod modio;
+pub mod modio_diagnostics;
 #[macro_use]
 pub mod cache;
 mod cache_cleanup;

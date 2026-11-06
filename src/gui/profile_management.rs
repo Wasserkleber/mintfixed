@@ -64,143 +64,139 @@ pub(super) fn ui<E, N>(
             // Match the Groups menu: size the popup to its expanded sections.
             // Only the JSON text editor has its own bounded scroll area.
             ui.vertical(|ui| {
-                    ui.label("New profile");
-                    let field = ui.text_edit_singleline(&mut editor.new_name);
-                    let candidate = editor.new_name.trim().to_owned();
-                    let valid = !candidate.is_empty() && !entries.contains(&candidate);
-                    if !candidate.is_empty() && entries.contains(&candidate) {
-                        ui.colored_label(
-                            ui.visuals().warn_fg_color,
-                            "A profile with that name already exists.",
+                ui.label("New profile");
+                let field = ui.text_edit_singleline(&mut editor.new_name);
+                let candidate = editor.new_name.trim().to_owned();
+                let valid = !candidate.is_empty() && !entries.contains(&candidate);
+                if !candidate.is_empty() && entries.contains(&candidate) {
+                    ui.colored_label(
+                        ui.visuals().warn_fg_color,
+                        "A profile with that name already exists.",
+                    );
+                }
+                let clicked = ui
+                    .add_enabled(valid, egui::Button::new("Create profile"))
+                    .clicked();
+                if valid && (clicked || is_committed(&field)) {
+                    entries.add_new(&candidate);
+                    *modified = true;
+                    editor.new_name.clear();
+                    ui.memory_mut(|mem| mem.close_popup());
+                }
+                ui.separator();
+                egui::CollapsingHeader::new("Rename Profile")
+                    .id_salt("manage-rename-profile")
+                    .show(ui, |ui| {
+                        let current = editor.rename_target.as_str();
+                        ui.label(format!("Renaming: {current}"));
+                        let field = ui.add(
+                            egui::TextEdit::singleline(&mut editor.rename_name)
+                                .hint_text("New profile name"),
                         );
-                    }
-                    let clicked = ui
-                        .add_enabled(valid, egui::Button::new("Create profile"))
-                        .clicked();
-                    if valid && (clicked || is_committed(&field)) {
-                        entries.add_new(&candidate);
-                        *modified = true;
-                        editor.new_name.clear();
-                        ui.memory_mut(|mem| mem.close_popup());
-                    }
-                    ui.separator();
-                    egui::CollapsingHeader::new("Rename Profile")
-                        .id_salt("manage-rename-profile")
-                        .show(ui, |ui| {
-                            let current = editor.rename_target.as_str();
-                            ui.label(format!("Renaming: {current}"));
-                            let field = ui.add(
-                                egui::TextEdit::singleline(&mut editor.rename_name)
-                                    .hint_text("New profile name"),
+                        let candidate = editor.rename_name.trim().to_owned();
+                        let valid = !candidate.is_empty()
+                            && candidate != current
+                            && !entries.contains(&candidate)
+                            && entries.selected_name() == current;
+                        if !candidate.is_empty()
+                            && candidate != current
+                            && entries.contains(&candidate)
+                        {
+                            ui.colored_label(
+                                ui.visuals().warn_fg_color,
+                                "Profile name already exists.",
                             );
-                            let candidate = editor.rename_name.trim().to_owned();
-                            let valid = !candidate.is_empty()
-                                && candidate != current
-                                && !entries.contains(&candidate)
-                                && entries.selected_name() == current;
-                            if !candidate.is_empty()
-                                && candidate != current
-                                && entries.contains(&candidate)
-                            {
-                                ui.colored_label(
-                                    ui.visuals().warn_fg_color,
-                                    "Profile name already exists.",
-                                );
-                            }
-                            let clicked = ui
-                                .add_enabled(valid, egui::Button::new("Rename Profile"))
-                                .clicked();
-                            if valid && (clicked || is_committed(&field)) {
-                                entries.rename_selected(candidate);
-                                *modified = true;
-                                ui.memory_mut(|mem| mem.close_popup());
-                            }
-                        });
-                    ui.separator();
-                    egui::CollapsingHeader::new("Duplicate Profile")
-                        .id_salt("manage-duplicate-profile")
-                        .show(ui, |ui| {
-                            let target = editor.duplicate_target.as_str();
-                            ui.label(format!("Duplicating: {target}"));
-                            let field = ui.add(
-                                egui::TextEdit::singleline(&mut editor.duplicate_name)
-                                    .hint_text("Name for duplicated profile"),
+                        }
+                        let clicked = ui
+                            .add_enabled(valid, egui::Button::new("Rename Profile"))
+                            .clicked();
+                        if valid && (clicked || is_committed(&field)) {
+                            entries.rename_selected(candidate);
+                            *modified = true;
+                            ui.memory_mut(|mem| mem.close_popup());
+                        }
+                    });
+                ui.separator();
+                egui::CollapsingHeader::new("Duplicate Profile")
+                    .id_salt("manage-duplicate-profile")
+                    .show(ui, |ui| {
+                        let target = editor.duplicate_target.as_str();
+                        ui.label(format!("Duplicating: {target}"));
+                        let field = ui.add(
+                            egui::TextEdit::singleline(&mut editor.duplicate_name)
+                                .hint_text("Name for duplicated profile"),
+                        );
+                        let requested = editor.duplicate_name.trim().to_owned();
+                        let exists = entries.contains(&requested);
+                        if !requested.is_empty() && exists {
+                            ui.colored_label(
+                                ui.visuals().warn_fg_color,
+                                "A profile with that name already exists.",
                             );
-                            let requested = editor.duplicate_name.trim().to_owned();
-                            let exists = entries.contains(&requested);
-                            if !requested.is_empty() && exists {
-                                ui.colored_label(
-                                    ui.visuals().warn_fg_color,
-                                    "A profile with that name already exists.",
-                                );
-                            }
-                            let valid = !requested.is_empty()
-                                && !exists
-                                && entries.selected_name() == target;
-                            let clicked = ui
-                                .add_enabled(valid, egui::Button::new("Duplicate Profile"))
-                                .clicked();
-                            if valid && (clicked || is_committed(&field)) {
-                                // Use the same implementation as the old duplicate toolbar icon.
-                                entries.duplicate_selected(requested);
-                                *modified = true;
-                                ui.memory_mut(|mem| mem.close_popup());
-                            }
-                        });
-                    ui.separator();
-                    egui::CollapsingHeader::new("Export Profile")
-                        .id_salt("manage-copy-profile")
-                        .show(ui, |ui| {
-                            if let Some(copy_ui) = copy_ui.take() {
-                                copy_ui(ui, entries);
-                            }
-                        });
-                    ui.separator();
-                    egui::CollapsingHeader::new("Import Profile (JSON)")
-                        .id_salt("manage-import-profile")
-                        .show(ui, |ui| {
-                            // This renders the actual importer directly inside this menu;
-                            // no nested popup or competing keyboard focus.
-                            if let Some(import_ui) = import_ui.take() {
-                                import_ui(ui, entries, modified);
-                            }
-                        });
-                    ui.separator();
-                    egui::CollapsingHeader::new("Delete Profile")
-                        .id_salt("manage-delete-profile")
-                        .show(ui, |ui| {
-                            if entries.len() <= 1 {
-                                ui.label("At least one profile must remain.");
-                            } else if let Some(target) = editor.delete_target.clone() {
-                                ui.colored_label(
-                                    ui.visuals().warn_fg_color,
-                                    format!("Delete profile \"{target}\"? This cannot be undone."),
-                                );
-                                ui.horizontal(|ui| {
-                                    if ui.button("Cancel").clicked() {
-                                        editor.delete_target = None;
-                                    }
-                                    let can_delete =
-                                        entries.selected_name() == target && entries.len() > 1;
-                                    if ui
-                                        .add_enabled(
-                                            can_delete,
-                                            egui::Button::new("Confirm Delete"),
-                                        )
-                                        .clicked()
-                                    {
-                                        entries.remove_selected();
-                                        *modified = true;
-                                        editor.delete_target = None;
-                                        ui.memory_mut(|mem| mem.close_popup());
-                                    }
-                                });
-                            } else if ui.button("Delete active profile...").clicked() {
-                                // Capture the name so switching profiles cannot delete another one.
-                                editor.delete_target = Some(entries.selected_name().to_owned());
-                            }
-                        });
-                });
+                        }
+                        let valid =
+                            !requested.is_empty() && !exists && entries.selected_name() == target;
+                        let clicked = ui
+                            .add_enabled(valid, egui::Button::new("Duplicate Profile"))
+                            .clicked();
+                        if valid && (clicked || is_committed(&field)) {
+                            // Use the same implementation as the old duplicate toolbar icon.
+                            entries.duplicate_selected(requested);
+                            *modified = true;
+                            ui.memory_mut(|mem| mem.close_popup());
+                        }
+                    });
+                ui.separator();
+                egui::CollapsingHeader::new("Export Profile")
+                    .id_salt("manage-copy-profile")
+                    .show(ui, |ui| {
+                        if let Some(copy_ui) = copy_ui.take() {
+                            copy_ui(ui, entries);
+                        }
+                    });
+                ui.separator();
+                egui::CollapsingHeader::new("Import Profile (JSON)")
+                    .id_salt("manage-import-profile")
+                    .show(ui, |ui| {
+                        // This renders the actual importer directly inside this menu;
+                        // no nested popup or competing keyboard focus.
+                        if let Some(import_ui) = import_ui.take() {
+                            import_ui(ui, entries, modified);
+                        }
+                    });
+                ui.separator();
+                egui::CollapsingHeader::new("Delete Profile")
+                    .id_salt("manage-delete-profile")
+                    .show(ui, |ui| {
+                        if entries.len() <= 1 {
+                            ui.label("At least one profile must remain.");
+                        } else if let Some(target) = editor.delete_target.clone() {
+                            ui.colored_label(
+                                ui.visuals().warn_fg_color,
+                                format!("Delete profile \"{target}\"? This cannot be undone."),
+                            );
+                            ui.horizontal(|ui| {
+                                if ui.button("Cancel").clicked() {
+                                    editor.delete_target = None;
+                                }
+                                let can_delete =
+                                    entries.selected_name() == target && entries.len() > 1;
+                                if ui
+                                    .add_enabled(can_delete, egui::Button::new("Confirm Delete"))
+                                    .clicked()
+                                {
+                                    entries.remove_selected();
+                                    *modified = true;
+                                    editor.delete_target = None;
+                                    ui.memory_mut(|mem| mem.close_popup());
+                                }
+                            });
+                        } else if ui.button("Delete active profile...").clicked() {
+                            // Capture the name so switching profiles cannot delete another one.
+                            editor.delete_target = Some(entries.selected_name().to_owned());
+                        }
+                    });
+            });
         },
     );
     ui.data_mut(|data| data.insert_temp(state_id, editor));
