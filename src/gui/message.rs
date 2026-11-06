@@ -353,7 +353,7 @@ impl Integrate {
     pub fn send(
         rc: &mut RequestCounter,
         store: Arc<ModStore>,
-        mods: Vec<ModSpecification>,
+        entries: Vec<crate::state::InstallEntry>,
         fsd_pak: PathBuf,
         config: MetaConfig,
         tx: Sender<Message>,
@@ -363,9 +363,16 @@ impl Integrate {
         MessageHandle {
             rid,
             handle: tokio::task::spawn(async move {
-                let res =
-                    integrate_async(store, ctx.clone(), mods, fsd_pak, config, rid, tx.clone())
-                        .await;
+                let res = integrate_async(
+                    store,
+                    ctx.clone(),
+                    entries,
+                    fsd_pak,
+                    config,
+                    rid,
+                    tx.clone(),
+                )
+                .await;
                 tx.send(Message::Integrate(Integrate { rid, result: res }))
                     .await
                     .unwrap();
@@ -576,17 +583,18 @@ impl CheckUpdates {
 async fn integrate_async(
     store: Arc<ModStore>,
     ctx: egui::Context,
-    mod_specs: Vec<ModSpecification>,
+    entries: Vec<crate::state::InstallEntry>,
     fsd_pak: PathBuf,
     config: MetaConfig,
     rid: RequestID,
     message_tx: Sender<Message>,
 ) -> Result<(), IntegrationError> {
     let update = false;
+    let mod_specs: Vec<_> = entries.iter().map(|entry| entry.spec.clone()).collect();
 
     let mods = store.resolve_mods(&mod_specs, update).await?;
 
-    let to_integrate = crate::mod_identity::installation_inputs(&mod_specs, &mods)?;
+    let to_integrate = crate::install_validation::installation_inputs(&entries, &mods)?;
     // Report phases from the actual async operation, not from guessed download progress.
     message_tx
         .send(Message::InstallPhase {

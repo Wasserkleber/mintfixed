@@ -2029,7 +2029,7 @@ impl eframe::App for App {
                 // Use the same profile ordering and integration as the Install Mods button.
                 if let Some(fsd_pak) = self.state.config.drg_pak_path.clone() {
                     let data = &self.state.mod_data;
-                    let mods = data.ordered_install_specs(&data.active_profile);
+                    let mods = data.ordered_install_entries(&data.active_profile);
                     self.integrate_rid = Some(message::Integrate::send(
                         &mut self.request_counter,
                         self.state.store.clone(),
@@ -2102,7 +2102,7 @@ impl eframe::App for App {
 
                             if button.clicked() {
                                 let data = &self.state.mod_data;
-                                let mods = data.ordered_install_specs(&data.active_profile);
+                                let mods = data.ordered_install_entries(&data.active_profile);
 
                                 self.last_action = None;
                                 self.cache_install_rid = None;

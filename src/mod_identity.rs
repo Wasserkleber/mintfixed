@@ -1,7 +1,6 @@
 use std::collections::{BTreeMap, HashMap, HashSet};
 
-use crate::integrate::IntegrationError;
-use crate::providers::{ModInfo, ModSpecification, ModStore, modio};
+use crate::providers::{ModInfo, ModSpecification, ModStore};
 use crate::state::{ModData_v0_1_0 as Data, ModOrGroup};
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
@@ -114,27 +113,6 @@ pub(crate) fn promote_standalone(
     true
 }
 
-/// Called before the packer writes anything. Preserve the first item's priority
-/// and process identical local pak bytes only once, including special assets.
-pub(crate) fn unique_local_inputs(
-    mods: Vec<(ModInfo, std::path::PathBuf)>,
-) -> Result<Vec<(ModInfo, std::path::PathBuf)>, IntegrationError> {
-    let mut seen = HashSet::new();
-    let mut unique = Vec::with_capacity(mods.len());
-    for (info, path) in mods {
-        if info.provider == "file" {
-            let digest = local_digest(&path).map_err(|e| IntegrationError::GenericError {
-                msg: format!("Cannot check local mod {}: {e}", path.display()),
-            })?;
-            if !seen.insert(digest) {
-                continue;
-            }
-        }
-        unique.push((info, path));
-    }
-    Ok(unique)
-}
-
 #[derive(Default)]
 pub(crate) struct ProfileIssues {
     pub(crate) versions: Vec<String>,
@@ -220,49 +198,12 @@ impl ProfileIssues {
     }
 }
 
-/// Both installers call this after resolution and before fetching or writing.
-/// Inputs are already in load order, so the first occurrence takes precedence.
-pub(crate) fn installation_inputs(
-    specs: &[ModSpecification],
-    resolved: &HashMap<ModSpecification, ModInfo>,
-) -> Result<Vec<ModInfo>, IntegrationError> {
-    let mut files = HashMap::new();
-    let mut other = HashSet::new();
-    let mut result = Vec::new();
-    for spec in specs {
-        let info = resolved
-            .get(spec)
-            .ok_or_else(|| IntegrationError::GenericError {
-                msg: format!("Missing resolved metadata for {}", spec.url),
-            })?;
-        if info.provider == "modio" {
-            let (id, file) = modio::pinned_file(&info.resolution.url.0).ok_or_else(|| {
-                IntegrationError::GenericError {
-                    msg: format!("Missing resolved mod.io file ID for {}", spec.url),
-                }
-            })?;
-            if let Some(previous) = files.insert(id, file) {
-                if previous != file {
-                    return Err(IntegrationError::GenericError {
-                        msg: format!(
-                            "mod.io mod {id} has two enabled files ({previous} and {file}). Disable one version before installing."
-                        ),
-                    });
-                }
-                continue;
-            }
-        } else if !other.insert((info.provider, &info.resolution.url)) {
-            continue;
-        }
-        result.push(info.clone());
-    }
-    Ok(result)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::install_validation::{installation_inputs, prepare_packer_inputs};
     use crate::providers::ModResolution;
+    use crate::state::InstallEntry;
     use crate::state::{MemberOverrides, ModConfig, ModGroup, ModProfile_v0_1_0};
 
     fn spec(url: &str) -> ModSpecification {
@@ -368,7 +309,12 @@ mod tests {
         assert!(issues.duplicate(Some("other"), 1));
         let inputs = data.ordered_install_specs("p");
         let resolved = HashMap::from([(spec(a), info(a))]);
-        assert_eq!(installation_inputs(&inputs, &resolved).unwrap().len(), 1);
+        assert_eq!(
+            installation_inputs(&InstallEntry::requested(&inputs), &resolved)
+                .unwrap()
+                .len(),
+            1
+        );
     }
 
     #[test]
@@ -382,13 +328,15 @@ mod tests {
             (c.clone(), info("https://mod.io/g/drg/m/c#456/20")),
         ]);
         let inputs = vec![c.clone(), a.clone(), b.clone()];
-        let selected = installation_inputs(&inputs, &resolved).unwrap();
+        let selected = installation_inputs(&InstallEntry::requested(&inputs), &resolved).unwrap();
         assert_eq!(selected.len(), 2);
         assert_eq!(selected[0].name, resolved[&c].name);
         assert_eq!(selected[1].name, resolved[&a].name);
         resolved.insert(b, info("https://mod.io/g/drg/m/a#123/11"));
-        assert!(installation_inputs(&inputs, &resolved).is_err());
-        assert!(installation_inputs(&[spec("missing")], &resolved).is_err());
+        assert!(installation_inputs(&InstallEntry::requested(&inputs), &resolved).is_err());
+        assert!(
+            installation_inputs(&InstallEntry::requested(&[spec("missing")]), &resolved).is_err()
+        );
     }
 
     #[test]
@@ -520,12 +468,12 @@ mod tests {
             (local("copy"), a),
             (local("last"), c),
         ];
-        let unique = unique_local_inputs(inputs).unwrap();
+        let unique = prepare_packer_inputs(inputs).unwrap();
         assert_eq!(unique.len(), 2);
         assert_eq!(unique[0].0.name, "first");
         assert_eq!(unique[1].0.name, "last");
         std::fs::remove_file(&b).unwrap();
-        assert!(unique_local_inputs(unique).is_err());
+        assert!(prepare_packer_inputs(unique).is_err());
     }
 
     #[test]

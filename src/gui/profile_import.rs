@@ -256,7 +256,7 @@ mod tests {
     use crate::providers::ModSpecification;
     use crate::state::ModConfig;
 
-    fn mod_config(url: &str) -> ModConfig {
+    fn mod_config(url: &str, priority: i32) -> ModConfig {
         ModConfig {
             id: crate::state::new_id(),
             description: Some("Original mod description".into()),
@@ -277,7 +277,7 @@ mod tests {
             mods: vec![member],
             description: Some("Group description".into()),
         };
-        let mut standalone = mod_config("C:\\mods\\custom.pak");
+        let mut standalone = mod_config("C:\\mods\\custom.pak", 7);
         standalone.priority = 7;
         let export = ProfileExport {
             format: PROFILE_FORMAT.into(),

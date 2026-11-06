@@ -1,4 +1,5 @@
 pub mod gui;
+mod install_validation;
 pub mod integrate;
 mod mod_identity;
 pub mod mod_lints;
@@ -106,7 +107,19 @@ pub async fn resolve_unordered_and_integrate<P: AsRef<Path>>(
     mod_specs: &[ModSpecification],
     update: bool,
 ) -> Result<(), IntegrationError> {
-    let mods = state.store.resolve_mods(mod_specs, update).await?;
+    let entries = state::InstallEntry::requested(mod_specs);
+    resolve_selection_and_integrate(game_path, state, &entries, update).await
+}
+
+async fn resolve_selection_and_integrate<P: AsRef<Path>>(
+    game_path: P,
+    state: &State,
+    entries: &[state::InstallEntry],
+    update: bool,
+) -> Result<(), IntegrationError> {
+    let mod_specs: Vec<_> = entries.iter().map(|entry| entry.spec.clone()).collect();
+    let mods = state.store.resolve_mods(&mod_specs, update).await?;
+    let to_integrate = install_validation::installation_inputs(entries, &mods)?;
 
     let mods_set = mod_specs
         .iter()
@@ -130,7 +143,6 @@ pub async fn resolve_unordered_and_integrate<P: AsRef<Path>>(
         }
     }
 
-    let to_integrate = mod_identity::installation_inputs(mod_specs, &mods)?;
     let urls = to_integrate
         .iter()
         .map(|m| &m.resolution)
@@ -205,8 +217,25 @@ where
     P: AsRef<Path>,
     F: Fn(&mut State, String, &ProviderFactory) -> Result<(), MintError>,
 {
+    let entries = state::InstallEntry::requested(mod_specs);
+    resolve_selection_and_integrate_with_provider_init(game_path, state, &entries, update, init)
+        .await
+}
+
+/// Keep captured profile locations through provider setup and retry.
+pub async fn resolve_selection_and_integrate_with_provider_init<P, F>(
+    game_path: P,
+    state: &mut State,
+    entries: &[state::InstallEntry],
+    update: bool,
+    init: F,
+) -> Result<(), MintError>
+where
+    P: AsRef<Path>,
+    F: Fn(&mut State, String, &ProviderFactory) -> Result<(), MintError>,
+{
     loop {
-        match resolve_unordered_and_integrate(&game_path, state, mod_specs, update).await {
+        match resolve_selection_and_integrate(&game_path, state, entries, update).await {
             Ok(()) => return Ok(()),
             Err(ref e)
                 if let IntegrationError::ProviderError { source } = e

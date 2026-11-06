@@ -9,6 +9,7 @@ use mint::mod_lints::{LintId, run_lints};
 use mint::providers::ProviderFactory;
 use mint::{
     Dirs, MintError, resolve_ordered_with_provider_init,
+    resolve_selection_and_integrate_with_provider_init,
     resolve_unordered_and_integrate_with_provider_init,
 };
 use mint::{gui::gui, providers::ModSpecification, state::State};
@@ -227,9 +228,9 @@ async fn action_integrate_profile(dirs: Dirs, action: ActionIntegrateProfile) ->
     for warning in state.profile_version_warnings(&action.profile) {
         tracing::warn!("{warning}");
     }
-    let mods = state.mod_data.ordered_install_specs(&action.profile);
+    let mods = state.mod_data.ordered_install_entries(&action.profile);
 
-    resolve_unordered_and_integrate_with_provider_init(
+    resolve_selection_and_integrate_with_provider_init(
         game_pak_path,
         &mut state,
         &mods,

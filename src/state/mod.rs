@@ -26,6 +26,26 @@ use crate::{
 use crate::{gui::SortBy, providers::ProviderError};
 use mint_lib::{DRGInstallation, mod_info::MetaConfig};
 
+/// An enabled occurrence captured when installation starts, including its source.
+#[derive(Clone, Debug)]
+pub struct InstallEntry {
+    pub spec: ModSpecification,
+    pub location: String,
+}
+
+impl InstallEntry {
+    pub fn requested(specs: &[ModSpecification]) -> Vec<Self> {
+        specs
+            .iter()
+            .enumerate()
+            .map(|(index, spec)| Self {
+                spec: spec.clone(),
+                location: format!("requested mod #{} ({})", index + 1, spec.url),
+            })
+            .collect()
+    }
+}
+
 /// Mod configuration, holds ModSpecification as well as other metadata
 #[derive(Debug, Clone, Hash, Serialize, Deserialize)]
 pub struct ModConfig {
@@ -246,11 +266,45 @@ impl ModData!["0.1.0"] {
         }
     }
 
-    pub fn ordered_install_specs(&self, profile: &str) -> Vec<ModSpecification> {
+    pub fn ordered_install_entries(&self, profile: &str) -> Vec<InstallEntry> {
         let mut entries = Vec::new();
-        self.for_each_enabled_mod(profile, |mc| entries.push((mc.priority, mc.spec.clone())));
+        for (row, item) in self.profiles[profile].mods.iter().enumerate() {
+            match item {
+                ModOrGroup::Individual(mc) if mc.enabled => entries.push((
+                    mc.priority,
+                    InstallEntry {
+                        spec: mc.spec.clone(),
+                        location: format!("profile {profile:?}, standalone row {}", row + 1),
+                    },
+                )),
+                ModOrGroup::Group {
+                    group_name,
+                    enabled: true,
+                    member_overrides,
+                    ..
+                } => {
+                    for (index, mc) in self.groups[group_name].mods.iter().enumerate() {
+                        if member_overrides.enabled(mc) {
+                            entries.push((mc.priority, InstallEntry {
+                                spec: mc.spec.clone(),
+                                location: format!("profile {profile:?}, group {group_name:?} (row {}), mod #{}", row + 1, index + 1),
+                            }));
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+        // Stable sorting keeps saved order when priorities are equal.
         entries.sort_by_key(|(priority, _)| std::cmp::Reverse(*priority));
-        entries.into_iter().map(|(_, spec)| spec).collect()
+        entries.into_iter().map(|(_, entry)| entry).collect()
+    }
+
+    pub fn ordered_install_specs(&self, profile: &str) -> Vec<ModSpecification> {
+        self.ordered_install_entries(profile)
+            .into_iter()
+            .map(|entry| entry.spec)
+            .collect()
     }
 
     pub fn for_each_mod_mut<F: FnMut(&mut ModConfig)>(&mut self, profile: &str, f: F) {
