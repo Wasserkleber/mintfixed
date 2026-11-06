@@ -74,6 +74,7 @@ impl ModStore {
         provider_factory: &ProviderFactory,
         parameters: &HashMap<String, String>,
     ) -> Result<(), ProviderError> {
+        crate::providers::modio_diagnostics::with_origin("mod_store::add_provider_checked", async {
         let provider = (provider_factory.new)(parameters)?;
         provider.check().await?;
         self.providers
@@ -81,6 +82,7 @@ impl ModStore {
             .unwrap()
             .insert(provider_factory.id, provider);
         Ok(())
+        }).await
     }
 
     pub fn get_provider(&self, url: &str) -> Result<Arc<dyn ModProvider>, ProviderError> {
@@ -105,6 +107,7 @@ impl ModStore {
         mods: &[ModSpecification],
         update: bool,
     ) -> Result<HashMap<ModSpecification, ModInfo>, ProviderError> {
+        crate::providers::modio_diagnostics::with_origin("mod_store::resolve_mods", async {
         use futures::stream::{self, StreamExt, TryStreamExt};
 
         let mut to_resolve = mods.iter().cloned().collect::<HashSet<ModSpecification>>();
@@ -138,6 +141,7 @@ impl ModStore {
         }
 
         Ok(mods_map)
+        }).await
     }
 
     pub async fn resolve_mod(
@@ -145,6 +149,7 @@ impl ModStore {
         original_spec: ModSpecification,
         update: bool,
     ) -> Result<(ModSpecification, ModInfo), ProviderError> {
+        crate::providers::modio_diagnostics::with_origin("mod_store::resolve_mod", async {
         let mut spec = original_spec.clone();
         loop {
             match self
@@ -158,6 +163,7 @@ impl ModStore {
                 ModResponse::Redirect(redirected_spec) => spec = redirected_spec,
             };
         }
+        }).await
     }
 
     pub async fn fetch_mods(
@@ -166,6 +172,7 @@ impl ModStore {
         update: bool,
         tx: Option<Sender<FetchProgress>>,
     ) -> Result<Vec<PathBuf>, ProviderError> {
+        crate::providers::modio_diagnostics::with_origin("mod_store::fetch_mods", async {
         use futures::stream::{self, StreamExt, TryStreamExt};
 
         stream::iter(
@@ -176,6 +183,7 @@ impl ModStore {
         .buffer_unordered(5)
         .try_collect::<Vec<_>>()
         .await
+        }).await
     }
 
     pub async fn fetch_mods_ordered(
@@ -184,6 +192,7 @@ impl ModStore {
         update: bool,
         tx: Option<Sender<FetchProgress>>,
     ) -> Result<Vec<PathBuf>, ProviderError> {
+        crate::providers::modio_diagnostics::with_origin("mod_store::fetch_mods_ordered", async {
         use futures::stream::{self, StreamExt, TryStreamExt};
 
         stream::iter(
@@ -194,6 +203,7 @@ impl ModStore {
         .buffered(5)
         .try_collect::<Vec<_>>()
         .await
+        }).await
     }
 
     pub async fn fetch_mod(
@@ -202,6 +212,7 @@ impl ModStore {
         update: bool,
         tx: Option<Sender<FetchProgress>>,
     ) -> Result<PathBuf, ProviderError> {
+        crate::providers::modio_diagnostics::with_origin("mod_store::fetch_mod", async {
         self.get_provider(&res.url.0)?
             .fetch_mod(
                 res,
@@ -211,9 +222,11 @@ impl ModStore {
                 tx,
             )
             .await
+        }).await
     }
 
     pub async fn update_cache(&self) -> Result<(), ProviderError> {
+        crate::providers::modio_diagnostics::with_origin("mod_store::update_cache", async {
         let _mintfixed_modio_cache_timer = crate::providers::modio_diagnostics::CacheUpdateSpan::begin();
         let providers = self.providers.read().unwrap().clone();
         for (name, provider) in providers.iter() {
@@ -221,6 +234,7 @@ impl ModStore {
             provider.update_cache(self.cache.clone()).await?;
         }
         Ok(())
+        }).await
     }
 
     /// Run before Update Cache; all profile and group references, including disabled mods,

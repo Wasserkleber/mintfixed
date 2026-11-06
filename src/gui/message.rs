@@ -429,6 +429,7 @@ impl FetchModProgress {
 pub struct UpdateCache {
     rid: RequestID,
     result: Result<usize, ProviderError>,
+    _diagnostic_flow: Option<crate::providers::modio_diagnostics::GuiCacheUpdateSpan>,
 }
 
 impl UpdateCache {
@@ -438,6 +439,7 @@ impl UpdateCache {
         let ctx = ctx.clone();
         let store = app.state.store.clone();
         let referenced = crate::mod_identity::all_specs(&app.state.mod_data);
+        let _diagnostic_flow = crate::providers::modio_diagnostics::GuiCacheUpdateSpan::begin();
         let handle = tokio::spawn(async move {
             let res = async {
                 store.update_cache().await?;
@@ -481,7 +483,7 @@ impl UpdateCache {
                 )
             }
             .await;
-            tx.send(Message::UpdateCache(UpdateCache { rid, result: res }))
+            tx.send(Message::UpdateCache(UpdateCache { rid, result: res, _diagnostic_flow}))
                 .await
                 .unwrap();
             ctx.request_repaint();

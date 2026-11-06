@@ -8,9 +8,12 @@ use std::sync::{
 };
 use std::time::{Duration, Instant, SystemTime};
 
+mod backoffs;
 mod metrics;
+mod origins;
 mod timestamps;
-pub use metrics::{CacheUpdateSpan, RequestSpan, TransferSpan};
+pub use metrics::{CacheUpdateSpan, GuiCacheUpdateSpan, RequestSpan, TransferSpan};
+pub use origins::{current_origin, fingerprint, record_request_profile, with_origin};
 
 const MAX_EVENTS: usize = 1000;
 static ENABLED: AtomicBool = AtomicBool::new(false);
@@ -28,6 +31,8 @@ struct Data {
 pub enum Event {
     Request {
         endpoint: String,
+        origin: &'static str,
+        fingerprint: String,
         elapsed_ms: u64,
         status: Option<u16>,
         failed: bool,
@@ -71,6 +76,8 @@ pub fn start() {
         ..Data::default()
     };
     metrics::reset();
+    origins::reset();
+    backoffs::reset();
     ENABLED.store(true, Ordering::Relaxed);
 }
 
@@ -91,6 +98,8 @@ pub fn clear() {
     data.started_utc = Some(SystemTime::now());
     data.stopped_utc = None;
     metrics::reset();
+    origins::reset();
+    backoffs::reset();
 }
 
 pub fn record(event: Event) {
@@ -107,6 +116,12 @@ pub fn record(event: Event) {
     }
     let entry = timestamps::StampedEvent::new(event, data.started);
     metrics::record(&entry.event);
+    if let Event::Retry { delay_ms, .. } = &entry.event {
+        backoffs::record(entry.since_start, *delay_ms);
+    }
+    if let Event::Request { endpoint, origin, fingerprint, status, failed, .. } = &entry.event {
+        origins::record(endpoint, *origin, fingerprint, *status, *failed);
+    }
     data.events.push_back(entry);
 }
 
@@ -214,21 +229,18 @@ pub fn report() -> String {
         data.dropped
     );
     out.push_str(&metrics::report());
+    out.push_str(&origins::report());
+    out.push_str(&backoffs::report());
     out.push_str("\nTimeline (UTC event time and monotonic offset; order of completion):\n");
     for entry in &data.events {
         let event = &entry.event;
         let _ = write!(out, "  [{} | +{:.3}s] ",
             timestamps::format_utc(entry.recorded_at), entry.since_start.as_secs_f64());
         match event {
-            Event::Request {
-                endpoint,
-                elapsed_ms,
-                status,
-                failed,
-            } => {
+            Event::Request { endpoint, elapsed_ms, status, failed, origin, fingerprint } => {
                 let _ = writeln!(
                     out,
-                    "request {endpoint}: {elapsed_ms} ms, status {}, transport error {failed}",
+                    "request {endpoint}: {elapsed_ms} ms, origin {origin}, fp {fingerprint}, status {}, transport error {failed}",
                     status.map_or_else(|| "none".to_owned(), |s| s.to_string())
                 );
             }

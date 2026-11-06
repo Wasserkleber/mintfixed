@@ -39,9 +39,16 @@ struct Metrics {
     peak_cache_updates: u64,
     cache_updates_started: u64,
     cache_updates_finished: u64,
-    cache_total_ms: u64,
-    cache_last_ms: Option<u64>,
-    cache_longest_ms: u64,
+    cache_total_us: u64,
+    cache_last_us: Option<u64>,
+    cache_longest_us: u64,
+    gui_cache_started: u64,
+    gui_cache_exited: u64,
+    gui_cache_active: u64,
+    gui_cache_peak: u64,
+    gui_cache_last_us: Option<u64>,
+    gui_cache_longest_us: u64,
+    gui_cache_total_us: u64,
 }
 
 static METRICS: OnceLock<Mutex<Metrics>> = OnceLock::new();
@@ -72,7 +79,7 @@ fn operation(endpoint: &str) -> usize {
 pub(super) fn record(event: &Event) {
     let mut m = state().lock().unwrap();
     match event {
-        Event::Request { endpoint, elapsed_ms, status, failed } => {
+        Event::Request { endpoint, elapsed_ms, status, failed, .. } => {
             let index = operation(endpoint);
             let group = &mut m.by_operation[index];
             group.count += 1;
@@ -182,18 +189,52 @@ impl CacheUpdateSpan {
 
 impl Drop for CacheUpdateSpan {
     fn drop(&mut self) {
-        let duration = super::elapsed_ms(self.started.elapsed());
+        let duration = self.started.elapsed().as_micros().min(u128::from(u64::MAX)) as u64;
         let mut m = state().lock().unwrap();
         if self.generation != m.generation { return; }
         m.cache_updates_finished += 1;
         m.active_cache_updates = m.active_cache_updates.saturating_sub(1);
-        m.cache_last_ms = Some(duration);
-        m.cache_total_ms = m.cache_total_ms.saturating_add(duration);
-        m.cache_longest_ms = m.cache_longest_ms.max(duration);
+        m.cache_last_us = Some(duration);
+        m.cache_total_us = m.cache_total_us.saturating_add(duration);
+        m.cache_longest_us = m.cache_longest_us.max(duration);
     }
 }
 
+
+/// Time the GUI cache-update request from dispatch until its result message
+/// has been handled (or discarded). Separate from provider work and install.
+#[derive(Debug)]
+pub struct GuiCacheUpdateSpan {
+    generation: u64,
+    started: Instant,
+}
+
+impl GuiCacheUpdateSpan {
+    pub fn begin() -> Option<Self> {
+        if !super::is_running() { return None; }
+        let mut m = state().lock().unwrap();
+        if !super::is_running() { return None; }
+        m.gui_cache_started += 1;
+        m.gui_cache_active += 1;
+        m.gui_cache_peak = m.gui_cache_peak.max(m.gui_cache_active);
+        Some(Self { generation: m.generation, started: Instant::now() })
+    }
+}
+
+impl Drop for GuiCacheUpdateSpan {
+    fn drop(&mut self) {
+        let elapsed_us = self.started.elapsed().as_micros().min(u128::from(u64::MAX)) as u64;
+        let mut m = state().lock().unwrap();
+        if m.generation != self.generation { return; }
+        m.gui_cache_exited += 1;
+        m.gui_cache_active = m.gui_cache_active.saturating_sub(1);
+        m.gui_cache_last_us = Some(elapsed_us);
+        m.gui_cache_total_us = m.gui_cache_total_us.saturating_add(elapsed_us);
+        m.gui_cache_longest_us = m.gui_cache_longest_us.max(elapsed_us);
+    }
+}
 fn sec(ms: u64) -> f64 { ms as f64 / 1000.0 }
+fn sec_us(us: u64) -> f64 { us as f64 / 1_000_000.0 }
 
 pub(super) fn report() -> String {
     let m = state().lock().unwrap();
@@ -244,11 +285,19 @@ pub(super) fn report() -> String {
         "Cache update operations: started {}, finished {}, active {}, peak concurrent {}",
         m.cache_updates_started, m.cache_updates_finished, m.active_cache_updates,
         m.peak_cache_updates);
-    if let Some(last_ms) = m.cache_last_ms {
+    if let Some(last_us) = m.cache_last_us {
         let _ = writeln!(out,
-            "Cache update time: last {:.3}s, longest {:.3}s, sum {:.3}s (sum may overlap)",
-            sec(last_ms), sec(m.cache_longest_ms), sec(m.cache_total_ms));
+            "ModStore cache-update scope: last {:.6}s, longest {:.6}s, sum {:.6}s (sum may overlap)",
+            sec_us(last_us), sec_us(m.cache_longest_us), sec_us(m.cache_total_us));
     }
+
+    let _ = writeln!(out, "GUI cache-update flow: started {}, exited {}, active {}, peak {}",
+        m.gui_cache_started, m.gui_cache_exited, m.gui_cache_active, m.gui_cache_peak);
+    if let Some(last) = m.gui_cache_last_us {
+        let _ = writeln!(out, "GUI cache-update result time: last {:.6}s, longest {:.6}s, sum {:.6}s",
+            sec_us(last), sec_us(m.gui_cache_longest_us), sec_us(m.gui_cache_total_us));
+    }
+    out.push_str("Provider cache timing measures only ModStore::update_cache; the separate GUI result timer includes scheduling but excludes any subsequent installation.\n");
     out.push_str("Counters include all completed requests in the capture, even if the timeline dropped old entries.\n");
     out
 }
@@ -277,6 +326,7 @@ mod tests {
         let cache = CacheUpdateSpan::begin();
         super::super::record(Event::Request {
             endpoint: "API /v1/games/2475/mods".to_owned(),
+            origin: "test", fingerprint: "example".to_owned(),
             elapsed_ms: 100, status: Some(429), failed: false,
         });
         drop((first, second, first_transfer, second_transfer, cache));

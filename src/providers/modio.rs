@@ -253,8 +253,11 @@ impl Middleware for LoggingMiddleware {
             let res = next.clone().run(req.try_clone().unwrap(), extensions).await;
             drop(request_span);
             if let Some(start) = diagnostic_start {
+                diagnostics::record_request_profile(&req);
                 diagnostics::record(diagnostics::Event::Request {
                     endpoint: diagnostics::request_label(req.url()),
+                    origin: diagnostics::current_origin(),
+                    fingerprint: diagnostics::fingerprint(&req),
                     elapsed_ms: diagnostics::elapsed_ms(start.elapsed()),
                     status: res.as_ref().ok().map(|response| response.status().as_u16()),
                     failed: res.is_err(),
@@ -411,6 +414,7 @@ impl DrgModio for modio::Modio {
     }
 
     async fn check(&self) -> Result<(), DrgModioError> {
+        crate::providers::modio_diagnostics::with_origin("modio::check", async {
         use modio::filter::Eq;
         use modio::mods::filters::Id;
 
@@ -421,9 +425,11 @@ impl DrgModio for modio::Modio {
             .await
             .context(CheckFailedSnafu)?;
         Ok(())
+        }).await
     }
 
     async fn fetch_mod(&self, url: String, id: u32) -> Result<ModioMod, DrgModioError> {
+        crate::providers::modio_diagnostics::with_origin("modio::fetch_mod", async {
         use modio::filter::{In, NotEq};
         use modio::mods::filters::Id;
 
@@ -452,9 +458,11 @@ impl DrgModio for modio::Modio {
         })?;
 
         Ok(ModioMod::new(r#mod, files))
+        }).await
     }
 
     async fn fetch_files(&self, url: String, mod_id: u32) -> Result<ModioMod, DrgModioError> {
+        crate::providers::modio_diagnostics::with_origin("modio::fetch_files", async {
         use modio::filter::{In, NotEq};
         use modio::mods::filters::Id;
 
@@ -483,6 +491,7 @@ impl DrgModio for modio::Modio {
         })?;
 
         Ok(ModioMod::new(r#mod, files))
+        }).await
     }
 
     async fn fetch_file(
@@ -491,6 +500,7 @@ impl DrgModio for modio::Modio {
         mod_id: u32,
         modfile_id: u32,
     ) -> Result<modio::files::File, DrgModioError> {
+        crate::providers::modio_diagnostics::with_origin("modio::fetch_file", async {
         use modio::files::filters::Id;
         use modio::filter::Eq;
 
@@ -510,6 +520,7 @@ impl DrgModio for modio::Modio {
         files.into_iter().next().ok_or(DrgModioError::GenericError {
             msg: "mod.io returned no mod file for the requested ID",
         })
+        }).await
     }
 
     async fn fetch_dependencies(
@@ -517,6 +528,7 @@ impl DrgModio for modio::Modio {
         url: String,
         mod_id: u32,
     ) -> Result<Vec<u32>, DrgModioError> {
+        crate::providers::modio_diagnostics::with_origin("modio::fetch_dependencies", async {
         Ok(self
             .game(MODIO_DRG_ID)
             .mod_(mod_id)
@@ -527,12 +539,14 @@ impl DrgModio for modio::Modio {
             .into_iter()
             .map(|d| d.mod_id)
             .collect::<Vec<_>>())
+        }).await
     }
 
     async fn fetch_mods_by_name(
         &self,
         name_id: &str,
     ) -> Result<Vec<ModioModResponse>, DrgModioError> {
+        crate::providers::modio_diagnostics::with_origin("modio::fetch_mods_by_name", async {
         use modio::filter::Eq;
         use modio::mods::filters::NameId;
 
@@ -547,12 +561,14 @@ impl DrgModio for modio::Modio {
             .into_iter()
             .map(|m| m.into())
             .collect())
+        }).await
     }
 
     async fn fetch_mods_by_ids(
         &self,
         filter_ids: Vec<u32>,
     ) -> Result<Vec<modio::mods::Mod>, DrgModioError> {
+        crate::providers::modio_diagnostics::with_origin("modio::fetch_mods_by_ids", async {
         use modio::filter::In;
         use modio::mods::filters::Id;
 
@@ -565,6 +581,7 @@ impl DrgModio for modio::Modio {
             .collect()
             .await
             .context(GenericModioSnafu)?)
+        }).await
     }
 
     async fn fetch_mod_updates_since(
@@ -572,6 +589,7 @@ impl DrgModio for modio::Modio {
         mod_ids: Vec<u32>,
         last_update: u64,
     ) -> Result<HashSet<u32>, DrgModioError> {
+        crate::providers::modio_diagnostics::with_origin("modio::fetch_mod_updates_since", async {
         use modio::filter::Cmp;
         use modio::filter::In;
         use modio::filter::NotIn;
@@ -596,6 +614,7 @@ impl DrgModio for modio::Modio {
             .await
             .context(GenericModioSnafu)?;
         Ok(events.iter().map(|e| e.mod_id).collect::<HashSet<_>>())
+        }).await
     }
 
     fn download<A>(&self, action: A) -> modio::download::Downloader
@@ -614,6 +633,7 @@ impl<M: DrgModio + Send + Sync> ModProvider for ModioProvider<M> {
         update: bool,
         cache: ProviderCache,
     ) -> Result<ModResponse, ProviderError> {
+        crate::providers::modio_diagnostics::with_origin("modio::resolve_mod", async {
         ensure!(
             !spec.url.contains("?preview="),
             PreviewLinkSnafu {
@@ -828,6 +848,7 @@ impl<M: DrgModio + Send + Sync> ModProvider for ModioProvider<M> {
                 }
             }
         }
+        }).await
     }
 
     async fn fetch_mod(
@@ -838,6 +859,7 @@ impl<M: DrgModio + Send + Sync> ModProvider for ModioProvider<M> {
         blob_cache: &BlobCache,
         tx: Option<Sender<FetchProgress>>,
     ) -> Result<PathBuf, ProviderError> {
+        crate::providers::modio_diagnostics::with_origin("modio::fetch_mod", async {
         let url = &res.url;
         let parsed = parse_url(&res.url.0)?;
 
@@ -1023,9 +1045,11 @@ impl<M: DrgModio + Send + Sync> ModProvider for ModioProvider<M> {
             }
             .fail()?
         }
+        }).await
     }
 
     async fn update_cache(&self, cache: ProviderCache) -> Result<(), ProviderError> {
+        crate::providers::modio_diagnostics::with_origin("modio::update_cache", async {
         use futures::stream::{self, StreamExt, TryStreamExt};
 
         let now = SystemTime::now();
@@ -1120,10 +1144,13 @@ impl<M: DrgModio + Send + Sync> ModProvider for ModioProvider<M> {
         c.last_update_time = Some(now);
 
         Ok(())
+        }).await
     }
 
     async fn check(&self) -> Result<(), ProviderError> {
+        crate::providers::modio_diagnostics::with_origin("modio::check", async {
         self.modio.check().await.map_err(Into::into)
+        }).await
     }
 
     fn get_mod_info(&self, spec: &ModSpecification, cache: ProviderCache) -> Option<ModInfo> {
@@ -1313,20 +1340,24 @@ mod test {
 
     #[tokio::test]
     async fn test_check_pass() {
+        crate::providers::modio_diagnostics::with_origin("modio::test_check_pass", async {
         let mut mock = MockDrgModio::new();
         mock.expect_check().times(1).returning(|| Ok(()));
         let modio_provider = ModioProvider::new(mock);
         assert!(modio_provider.check().await.is_ok());
+        }).await
     }
 
     #[tokio::test]
     async fn test_check_fail() {
+        crate::providers::modio_diagnostics::with_origin("modio::test_check_fail", async {
         let mut mock = MockDrgModio::new();
         mock.expect_check()
             .times(1)
             .returning(|| Err(DrgModioError::MissingOauthToken));
         let modio_provider = ModioProvider::new(mock);
         assert!(modio_provider.check().await.is_err());
+        }).await
     }
 
     struct FullMod {
@@ -1338,6 +1369,7 @@ mod test {
 
     #[tokio::test]
     async fn test_fetch_mod_simple() {
+        crate::providers::modio_diagnostics::with_origin("modio::test_fetch_mod_simple", async {
         let mods = MODS.get_or_init(|| {
             [(
                 3,
@@ -1426,5 +1458,6 @@ mod test {
                 .into_iter()
                 .collect()
         );
+        }).await
     }
 }
