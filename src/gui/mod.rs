@@ -196,6 +196,7 @@ pub struct App {
     self_update_rid: Option<MessageHandle<SelfUpdateProgress>>,
     original_exe_path: Option<PathBuf>,
     problematic_mod_id: Option<u32>,
+    pending_group_mod_removal: Option<PendingGroupModRemoval>,
 }
 
 #[derive(Default)]
@@ -245,6 +246,13 @@ impl LastAction {
 enum LastActionStatus {
     Success(String),
     Failure(String),
+}
+
+// Identify a group member by its stable entry ID, not its current row position.
+struct PendingGroupModRemoval {
+    group_name: String,
+    mod_id: String,
+    mod_name: String,
 }
 
 impl App {
@@ -307,6 +315,7 @@ impl App {
             self_update_rid: None,
             original_exe_path: None,
             problematic_mod_id: None,
+            pending_group_mod_removal: None,
         })
     }
 
@@ -876,6 +885,17 @@ impl App {
                                             if sorting_config.is_none() {
                                                 Drag::handle(ui, profile_name, Some(group_name), index, &group.mods[index].id, false);
                                             }
+                                            ui.scope(|ui| {
+                                                ui.visuals_mut().widgets.hovered.weak_bg_fill = colors::DARK_RED;
+                                                ui.visuals_mut().widgets.active.weak_bg_fill = colors::DARKER_RED;
+                                                if ui
+                                                    .add(Button::new(" 🗑 "))
+                                                    .on_hover_text_at_pointer("Remove mod from shared group (confirmation required)")
+                                                    .clicked()
+                                                {
+                                                    ctx.btn_remove = Some((Some(group_name.clone()), index));
+                                                }
+                                            });
                                             ui_mod(
                                                 ctx,
                                                 ui,
@@ -1005,24 +1025,20 @@ impl App {
 
         if let Some((target, index)) = ctx.btn_remove {
             if let Some(name) = target {
-                let removed = groups.get_mut(&name).unwrap().mods.remove(index);
-                if let Some(id) = removed.member_id {
-                    for item in profiles.values_mut().flat_map(|p| &mut p.mods) {
-                        if let ModOrGroup::Group {
-                            group_name,
-                            member_overrides,
-                            ..
-                        } = item
-                            && *group_name == name
-                        {
-                            member_overrides.forget(&id);
-                        }
-                    }
+                // The duplicate-entry warning uses this path too: always confirm.
+                if let Some(mc) = groups.get(&name).and_then(|group| group.mods.get(index)) {
+                    self.pending_group_mod_removal = Some(PendingGroupModRemoval {
+                        group_name: name,
+                        mod_id: mc.id.clone(),
+                        mod_name: self.state.store.get_mod_info(&mc.spec)
+                            .map(|info| info.name)
+                            .unwrap_or_else(|| mc.spec.url.clone()),
+                    });
                 }
             } else {
                 profiles.get_mut(profile).unwrap().mods.remove(index);
+                ctx.needs_save = true;
             }
-            ctx.needs_save = true;
         }
 
         if let Some((source, dest)) = ctx.drag {
@@ -1062,6 +1078,82 @@ impl App {
             self.state.mod_data.save().unwrap();
         }
         ctx.file_group
+    }
+
+    fn show_group_mod_removal_confirmation(&mut self, ctx: &egui::Context) {
+        let Some(pending) = &self.pending_group_mod_removal else {
+            return;
+        };
+
+        let mut open = true;
+        let mut confirmed = false;
+        let mut cancelled = false;
+        egui::Window::new("Remove mod from group?")
+            .id(egui::Id::new("confirm_group_mod_removal"))
+            .anchor(Align2::CENTER_CENTER, Vec2::ZERO)
+            .collapsible(false)
+            .resizable(false)
+            .open(&mut open)
+            .show(ctx, |ui| {
+                ui.label(format!(
+                    "Remove '{}' from group '{}'?",
+                    pending.mod_name, pending.group_name,
+                ));
+                ui.add_space(6.0);
+                ui.colored_label(
+                    ui.visuals().warn_fg_color,
+                    "⚠ Warning: this is a shared group.",
+                );
+                ui.label("This removes the mod from EVERY profile using this group.");
+                ui.label("Other mods in the group will not be affected.");
+                ui.add_space(8.0);
+                ui.horizontal(|ui| {
+                    if ui.button("Cancel").clicked() {
+                        cancelled = true;
+                    }
+                    if ui.add(Button::new("Remove from group").fill(colors::DARK_RED)).clicked() {
+                        confirmed = true;
+                    }
+                });
+            });
+
+        if !open || cancelled || ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
+            self.pending_group_mod_removal = None;
+            return;
+        }
+        if !confirmed {
+            return;
+        }
+
+        let pending = self.pending_group_mod_removal.take().unwrap();
+        let before = self.state.mod_data.deref().deref().clone();
+        let removed = group_controls::remove_group_member(
+            self.state.mod_data.deref_mut().deref_mut(),
+            &pending.group_name,
+            &pending.mod_id,
+        );
+
+        if removed.is_err() {
+            self.last_action = Some(LastAction::failure(
+                "The mod or group changed before removal. Nothing was deleted.".into(),
+            ));
+            return;
+        }
+        match self.state.mod_data.save() {
+            Ok(()) => {
+                self.profile_issues.clear();
+                self.last_action = Some(LastAction::success(format!(
+                    "Removed '{}' from shared group '{}'",
+                    pending.mod_name, pending.group_name,
+                )));
+            }
+            Err(error) => {
+                *self.state.mod_data.deref_mut().deref_mut() = before;
+                self.last_action = Some(LastAction::failure(format!(
+                    "Could not save group removal: {error}",
+                )));
+            }
+        }
     }
 
     fn parse_mods(&self) -> Vec<ModSpecification> {
@@ -2537,6 +2629,7 @@ impl eframe::App for App {
                 }
             });
         });
+        self.show_group_mod_removal_confirmation(ctx);
     }
 }
 
