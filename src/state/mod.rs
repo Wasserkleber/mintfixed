@@ -586,7 +586,7 @@ impl Default for Config!["0.0.0"] {
             drg_pak_path: DRGInstallation::find()
                 .as_ref()
                 .map(DRGInstallation::main_pak),
-            gui_theme: None,
+            gui_theme: Some(GuiTheme::Dark),
             sorting_config: None,
             confirm_deletion: true,
             show_changelog: true,

@@ -2312,7 +2312,14 @@ impl eframe::App for App {
                 {
                     self.lints_toggle_window = Some(WindowLintsToggle);
                 }
-                if ui.button("⚙").on_hover_text("Open settings").clicked() {
+                let settings_icon = egui::Image::new(egui::include_image!("../../assets/settings.svg"))
+                    .fit_to_exact_size(egui::vec2(14.0, 14.0))
+                    .tint(ui.visuals().text_color());
+                if ui
+                    .add(egui::Button::image(settings_icon))
+                    .on_hover_text("Open settings")
+                    .clicked()
+                {
                     self.settings_window = Some(WindowSettings::new(&self.state));
                 }
                 if let Some(available_update) = &self.available_update
