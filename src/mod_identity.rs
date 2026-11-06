@@ -128,6 +128,7 @@ impl ProfileIssues {
     pub(crate) fn collect(data: &Data, profile: &str, store: &ModStore) -> Self {
         let mut result = Self::default();
         let mut versions = BTreeMap::<u32, BTreeMap<u32, Vec<String>>>::new();
+        let mut names = HashMap::<u32, String>::new();
         let mut seen = HashMap::new();
         let mut visit =
             |spec: &ModSpecification, group: Option<&str>, index: usize, enabled: bool| {
@@ -139,6 +140,18 @@ impl ProfileIssues {
                     if enabled { "" } else { " (disabled)" }
                 );
                 if let Artifact::Modio(id, file) = &artifact {
+                    names.entry(*id).or_insert_with(|| {
+                        store
+                            .cached_modio_name(*id)
+                            .or_else(|| {
+                                spec.url
+                                    .strip_prefix("https://mod.io/g/drg/m/")
+                                    .and_then(|path| path.split(['#', '/']).next())
+                                    .filter(|slug| !slug.is_empty())
+                                    .map(|slug| slug.replace('-', " "))
+                            })
+                            .unwrap_or_else(|| "Unknown mod".to_owned())
+                    });
                     versions
                         .entry(*id)
                         .or_default()
@@ -189,7 +202,8 @@ impl ProfileIssues {
                     .map(|(file, places)| format!("file {file} in {}", places.join(", ")))
                     .collect::<Vec<_>>();
                 result.versions.push(format!(
-                    "mod.io mod {id} has multiple versions: {}",
+                    "{} (mod.io ID {id}) has multiple versions: {}",
+                    names.get(&id).map(String::as_str).unwrap_or("Unknown mod"),
                     entries.join("; ")
                 ));
             }
@@ -302,6 +316,7 @@ mod tests {
         };
         let issues = ProfileIssues::collect(&data, "p", &store);
         assert_eq!(issues.versions.len(), 1);
+        assert!(issues.versions[0].starts_with("a (mod.io ID 123)"));
         assert!(issues.versions[0].contains("disabled"));
         assert!(!issues.duplicate(None, 0));
         assert!(!issues.duplicate(Some("same"), 0));
@@ -382,6 +397,25 @@ mod tests {
         let store = ModStore::new(dir.path(), &HashMap::new()).unwrap();
         let latest = "https://mod.io/g/drg/m/speedometer";
         let pin = "https://mod.io/g/drg/m/speedometer#123/10";
+        // An old or renamed URL slug must not override the real cached title.
+        // The fixture deliberately has no cached dependency metadata.
+        let issues_data = Data {
+            active_profile: "p".into(),
+            profiles: BTreeMap::from([(
+                "p".into(),
+                ModProfile_v0_1_0 {
+                    id: crate::state::new_id(),
+                    mods: vec![
+                        ModOrGroup::Individual(member("https://mod.io/g/drg/m/old-slug#123/10")),
+                        ModOrGroup::Individual(member("https://mod.io/g/drg/m/old-slug#123/11")),
+                    ],
+                },
+            )]),
+            groups: BTreeMap::new(),
+        };
+        let issues = ProfileIssues::collect(&issues_data, "p", &store);
+        assert_eq!(issues.versions.len(), 1);
+        assert!(issues.versions[0].starts_with("Speedometer (mod.io ID 123) has multiple versions:"));
         let mut existing = member(latest);
         existing.enabled = false;
         let mut profile = ModProfile_v0_1_0 {

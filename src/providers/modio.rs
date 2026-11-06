@@ -70,6 +70,18 @@ pub(super) fn cached_file(url: &str, cache: &ProviderCache) -> Option<(u32, u32)
 const MODIO_DRG_ID: u32 = 2475;
 const MODIO_PROVIDER_ID: &str = "modio";
 
+/// Look up the display name directly from cached mod.io metadata.
+/// Unlike `get_mod_info`, this does not require dependency metadata.
+pub(super) fn cached_name(id: u32, cache: &ProviderCache) -> Option<String> {
+    let cache = cache.read().unwrap();
+    cache
+        .get::<ModioCache>(MODIO_PROVIDER_ID)?
+        .mods
+        .get(&id)
+        .map(|mod_| mod_.name.clone())
+        .filter(|name| !name.trim().is_empty())
+}
+
 inventory::submit! {
     super::ProviderFactory {
         id: MODIO_PROVIDER_ID,

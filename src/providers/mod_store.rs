@@ -359,6 +359,10 @@ impl ModStore {
         super::modio::cached_file(&spec.url, &self.cache)
     }
 
+    pub(crate) fn cached_modio_name(&self, id: u32) -> Option<String> {
+        super::modio::cached_name(id, &self.cache)
+    }
+
     pub(crate) fn metadata_revision(&self) -> (u64, u64) {
         (
             self.cache.read().unwrap().revision,
