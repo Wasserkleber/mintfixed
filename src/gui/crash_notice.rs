@@ -100,7 +100,7 @@ fn open_report(path: &Path) -> std::io::Result<()> {
     }
     #[cfg(not(target_os = "windows"))]
     {
-        opener::open(path)
+        opener::open(path).map_err(|error| std::io::Error::other(error.to_string()))
     }
 }
 
