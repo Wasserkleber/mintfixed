@@ -677,6 +677,14 @@ impl App {
                                         format!("{n}")
                                     }
                                 })
+                                .custom_parser(|text| {
+                                    let text = text.trim();
+                                    if text.is_empty() || text == "-" {
+                                        Some(0.0)
+                                    } else {
+                                        text.parse::<f64>().ok()
+                                    }
+                                })
                                 .speed(0.05)
                                 .range(RangeInclusive::new(-999, 999)),
                         )
