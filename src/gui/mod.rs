@@ -1,5 +1,6 @@
 mod crash_notice;
 mod crash_history;
+mod folder_import;
 mod find_string;
 mod group_controls;
 use group_controls::{Drag, Target};
@@ -184,6 +185,7 @@ pub struct App {
     scroll_to_match: bool,
     focus_search: bool,
     settings_window: Option<WindowSettings>,
+    folder_import: folder_import::FolderImport,
     modio_texture_handle: Option<egui::TextureHandle>,
     last_action: Option<LastAction>,
     available_update: Option<GitHubRelease>,
@@ -306,6 +308,7 @@ impl App {
             scroll_to_match: false,
             focus_search: false,
             settings_window: None,
+            folder_import: Default::default(),
             modio_texture_handle: None,
             last_action: None,
             available_update: None,
@@ -465,7 +468,7 @@ impl App {
                                 ui.add_enabled(false, button)
                             };
 
-                            if search.is_match && self.scroll_to_match {
+                            if search.is_match && ctx.scroll_to_match {
                                 res.scroll_to_me(None);
                                 ctx.scroll_to_match = false;
                             }
@@ -763,7 +766,7 @@ impl App {
                         });
 
                         let res = ui.hyperlink_to(search.job, &mc.spec.url);
-                        if search.is_match && self.scroll_to_match {
+                        if search.is_match && ctx.scroll_to_match {
                             res.scroll_to_me(None);
                             ctx.scroll_to_match = false;
                         }
@@ -795,7 +798,7 @@ impl App {
                         });
 
                         let res = ui.hyperlink_to(search.job, &mc.spec.url);
-                        if search.is_match && self.scroll_to_match {
+                        if search.is_match && ctx.scroll_to_match {
                             res.scroll_to_me(None);
                             ctx.scroll_to_match = false;
                         }
@@ -852,6 +855,17 @@ impl App {
                             .get(group_name)
                             .and_then(|group| group.description.clone())
                             .filter(|text| !text.trim().is_empty());
+                        // Match children even when the collapsing group does not render their rows.
+                        let search_needle = self.search_string.to_lowercase();
+                        let matching_mod_in_group = !search_needle.trim().is_empty()
+                            && groups.get(group_name).is_some_and(|group| {
+                                group.mods.iter().any(|mc| {
+                                    let display_name = self.state.store.get_mod_info(&mc.spec)
+                                        .map(|info| info.name)
+                                        .unwrap_or_else(|| mc.spec.url.clone());
+                                    display_name.to_lowercase().contains(&search_needle)
+                                })
+                            });
                         // egui::CollapsingState::body requires a vertical layout for indentation.
                         let (header_response, body_response, fully_closed) = ui.vertical(|ui| {
                             // Keep the group title clickable and render its help icon
@@ -865,10 +879,18 @@ impl App {
                                 collapse.set_open(true);
                             }
                             let fully_closed = collapse.openness(ui.ctx()) <= 0.0;
+                            // Highlight the group while its matching members are hidden.
+                            let group_title = if fully_closed && matching_mod_in_group {
+                                RichText::new(group_name.as_str())
+                                    .background_color(Color32::YELLOW)
+                                    .color(Color32::BLACK)
+                            } else {
+                                RichText::new(group_name.as_str())
+                            };
                             let mut title_clicked = false;
                             let mut header = collapse.show_header(ui, |ui| {
                                 title_clicked = ui
-                                    .add(egui::Label::new(group_name.as_str()).sense(egui::Sense::click()))
+                                    .add(egui::Label::new(group_title).sense(egui::Sense::click()))
                                     .on_hover_cursor(egui::CursorIcon::PointingHand)
                                     .clicked();
                                 if let Some(description) = group_description.as_deref() {
@@ -919,6 +941,10 @@ impl App {
                                 }
                             });
                             let header_response = header_contents.response;
+                            if fully_closed && matching_mod_in_group && ctx.scroll_to_match {
+                                header_response.scroll_to_me(None);
+                                ctx.scroll_to_match = false;
+                            }
                             let body_response = body_response.map(|body| body.response);
                                 (header_response, body_response, fully_closed)
                             }).inner;
@@ -1434,8 +1460,14 @@ impl App {
     }
 
     fn show_settings(&mut self, ctx: &egui::Context) {
+        let mut auto_save_local_folder: Option<(String, bool)> = None;
+        let mut preview_folder = None;
+        let mut wants_exclusions = false;
+        let mut rescan_folder = false;
         if let Some(window) = &mut self.settings_window {
             let mut open = true;
+            let mut try_preview = false;
+            let mut try_exclusions = false;
             let mut try_save = false;
             egui::Window::new("Settings")
                 .open(&mut open)
@@ -1477,6 +1509,33 @@ impl App {
                         });
                         ui.end_row();
 
+                        ui.label("Local mods folder:")
+                            .on_hover_text("Folder scanned only when you click Import all. Select .pak and .zip files to import; explicit exclusions stay hidden.");
+                        ui.horizontal(|ui| {
+                            let res = ui.add(egui::TextEdit::singleline(&mut window.local_mod_folder)
+                                .desired_width(200.0)
+                                .hint_text("Choose a mods folder..."));
+                            if res.changed() {
+                                window.local_mod_folder_err = None;
+                                auto_save_local_folder = Some((window.local_mod_folder.clone(), false));
+                            }
+                            if is_committed(&res) {
+                                auto_save_local_folder = Some((window.local_mod_folder.clone(), true));
+                            }
+                            if ui.button("browse").clicked()
+                                && let Some(folder) = rfd::FileDialog::new().pick_folder()
+                            {
+                                window.local_mod_folder = folder.display().to_string();
+                                window.local_mod_folder_err = None;
+                                auto_save_local_folder = Some((window.local_mod_folder.clone(), true));
+                            }
+                            if ui.button("Import all").clicked() { try_preview = true; }
+                            if ui.button("Exclusions").clicked() { try_exclusions = true; }
+                            if let Some(error) = &window.local_mod_folder_err {
+                                ui.colored_label(ui.visuals().error_fg_color, error);
+                            }
+                        });
+                        ui.end_row();
                         let config_dir = &self.state.dirs.config_dir;
                         ui.label("Config directory:");
                         if ui.link(config_dir.display().to_string()).clicked() {
@@ -1541,19 +1600,66 @@ impl App {
                     });
 
                 });
+            if try_preview {
+                preview_folder = Some(PathBuf::from(window.local_mod_folder.trim()));
+            }
+            if try_exclusions { wants_exclusions = true; }
             if try_save {
+                let folder_text = window.local_mod_folder.trim();
+                let folder_result: std::io::Result<Option<PathBuf>> = if folder_text.is_empty() {
+                    Ok(None)
+                } else {
+                    std::fs::canonicalize(folder_text).and_then(|path| {
+                        if path.is_dir() { Ok(Some(path)) }
+                        else { Err(std::io::Error::other("Local mods path is not a folder")) }
+                    })
+                };
+                if let Err(error) = &folder_result {
+                    window.local_mod_folder_err = Some(error.to_string());
+                } else {
                 if let Err(e) = is_drg_pak(&window.drg_pak_path) {
                     window.drg_pak_path_err = Some(e.to_string());
                 } else {
                     self.state.config.drg_pak_path = Some(PathBuf::from(
                         self.settings_window.take().unwrap().drg_pak_path,
                     ));
+                    self.state.config.local_mod_folder = folder_result.ok().flatten();
+                    rescan_folder = true;
                     self.state.config.save().unwrap();
+                }
                 }
             } else if !open {
                 self.settings_window = None;
             }
         }
+        // Folder selection is independent of the DRG pak Save button.
+        // Save immediately for valid paths (or clearing the field), and on Browse.
+        if let Some((folder, committed)) = auto_save_local_folder {
+            if folder.trim().is_empty() || PathBuf::from(folder.trim()).is_dir() {
+                match folder_import::save_folder_setting(&mut self.state, &folder) {
+                    Ok(changed) => {
+                        if changed { folder_import::reset_schedule(self); }
+                    }
+                    Err(error) => {
+                        if let Some(window) = &mut self.settings_window {
+                            window.local_mod_folder_err = Some(error.clone());
+                        }
+                        self.last_action = Some(LastAction::failure(error));
+                    }
+                }
+            } else if committed {
+                if let Some(window) = &mut self.settings_window {
+                    window.local_mod_folder_err = Some(format!(
+                        "Not a folder: {}", folder.trim()
+                    ));
+                }
+            }
+        }
+        if rescan_folder { folder_import::reset_schedule(self); }
+        if let Some(folder) = preview_folder {
+            folder_import::open_preview(self, ctx, folder);
+        }
+        if wants_exclusions { folder_import::open_exclusions(self); }
     }
 
     fn show_lints_toggle(&mut self, ctx: &egui::Context) {
@@ -2109,6 +2215,8 @@ impl WindowProviderParameters {
 struct WindowSettings {
     drg_pak_path: String,
     drg_pak_path_err: Option<String>,
+    local_mod_folder: String,
+    local_mod_folder_err: Option<String>,
 }
 
 impl WindowSettings {
@@ -2122,6 +2230,9 @@ impl WindowSettings {
         Self {
             drg_pak_path: path,
             drg_pak_path_err: None,
+            local_mod_folder: state.config.local_mod_folder.as_ref()
+                .map(|p| p.display().to_string()).unwrap_or_default(),
+            local_mod_folder_err: None,
         }
     }
 }
@@ -2229,6 +2340,9 @@ impl eframe::App for App {
         self.show_provider_parameters(ctx);
         self.show_profile_windows(ctx);
         self.show_settings(ctx);
+        folder_import::tick(self, ctx);
+        folder_import::show_preview(self, ctx);
+        folder_import::show_exclusions(self, ctx);
         self.show_lints_toggle(ctx);
         self.show_lint_report(ctx);
         crash_notice::show(ctx, &mut self.recent_crash);

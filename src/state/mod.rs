@@ -506,6 +506,9 @@ impl ModData!["0.1.0"] {
 pub struct Config {
     pub provider_parameters: HashMap<String, HashMap<String, String>>,
     pub drg_pak_path: Option<PathBuf>,
+    /// When configured, newly discovered local mods are added to the active profile.
+    #[serde(default)]
+    pub local_mod_folder: Option<PathBuf>,
     pub gui_theme: Option<GuiTheme>,
     pub sorting_config: Option<SortingConfig>,
     // notag's config "0.1.0" adds these two; kept (unused here) so a notag install gets its settings back.
@@ -586,6 +589,7 @@ impl Default for Config!["0.0.0"] {
             drg_pak_path: DRGInstallation::find()
                 .as_ref()
                 .map(DRGInstallation::main_pak),
+            local_mod_folder: None,
             gui_theme: Some(GuiTheme::Dark),
             sorting_config: None,
             confirm_deletion: true,
