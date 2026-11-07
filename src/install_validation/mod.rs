@@ -7,6 +7,27 @@ use crate::integrate::IntegrationError;
 use crate::providers::{ModInfo, ModSpecification, modio};
 use crate::state::InstallEntry;
 
+/// Report missing suggested dependencies without logging or blocking installation.
+/// Match both the requested and resolved URLs, as the callers did before.
+pub(crate) fn missing_dependencies<'a>(
+    mods: impl IntoIterator<Item = &'a ModInfo>,
+) -> Vec<&'a str> {
+    let mods: Vec<_> = mods.into_iter().collect();
+    let present: HashSet<_> = mods
+        .iter()
+        .flat_map(|info| [info.spec.url.as_str(), info.resolution.url.0.as_str()])
+        .collect();
+    let missing: HashSet<_> = mods
+        .iter()
+        .flat_map(|info| info.suggested_dependencies.iter())
+        .map(|spec| spec.url.as_str())
+        .filter(|url| !present.contains(url))
+        .collect();
+    let mut missing: Vec<_> = missing.into_iter().collect();
+    missing.sort_unstable();
+    missing
+}
+
 fn resolved_modio_file(info: &ModInfo) -> Result<Option<(u32, u32)>, IntegrationError> {
     if info.provider != "modio" {
         return Ok(None);

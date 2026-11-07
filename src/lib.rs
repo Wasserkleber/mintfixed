@@ -9,10 +9,7 @@ pub mod providers;
 pub mod state;
 
 use std::ops::Deref;
-use std::{
-    collections::HashSet,
-    path::{Path, PathBuf},
-};
+use std::path::{Path, PathBuf};
 
 use directories::ProjectDirs;
 use fs_err as fs;
@@ -122,21 +119,8 @@ async fn resolve_selection_and_integrate<P: AsRef<Path>>(
     let mods = state.store.resolve_mods(&mod_specs, update).await?;
     let to_integrate = install_validation::installation_inputs(entries, &mods)?;
 
-    let mods_set = mod_specs
-        .iter()
-        .flat_map(|m| [&mods[m].spec.url, &mods[m].resolution.url.0])
-        .collect::<HashSet<_>>();
-
-    // TODO need more rebust way of detecting whether dependencies are missing
-    let missing_deps = mod_specs
-        .iter()
-        .flat_map(|m| {
-            mods[m]
-                .suggested_dependencies
-                .iter()
-                .filter_map(|m| (!mods_set.contains(&m.url)).then_some(&m.url))
-        })
-        .collect::<HashSet<_>>();
+    let missing_deps =
+        install_validation::missing_dependencies(mod_specs.iter().map(|spec| &mods[spec]));
     if !missing_deps.is_empty() {
         warn!("the following dependencies are missing:");
         for d in missing_deps {
@@ -165,21 +149,8 @@ async fn resolve_into_urls(
 ) -> Result<Vec<ModResolution>, MintError> {
     let mods = state.store.resolve_mods(mod_specs, false).await?;
 
-    let mods_set = mod_specs
-        .iter()
-        .flat_map(|m| [&mods[m].spec.url, &mods[m].resolution.url.0])
-        .collect::<HashSet<_>>();
-
-    // TODO need more rebust way of detecting whether dependencies are missing
-    let missing_deps = mod_specs
-        .iter()
-        .flat_map(|m| {
-            mods[m]
-                .suggested_dependencies
-                .iter()
-                .filter_map(|m| (!mods_set.contains(&m.url)).then_some(&m.url))
-        })
-        .collect::<HashSet<_>>();
+    let missing_deps =
+        install_validation::missing_dependencies(mod_specs.iter().map(|spec| &mods[spec]));
     if !missing_deps.is_empty() {
         warn!("the following dependencies are missing:");
         for d in missing_deps {

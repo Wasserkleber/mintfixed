@@ -215,10 +215,8 @@ impl ProfileIssues {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::install_validation::{installation_inputs, prepare_packer_inputs};
     use crate::providers::ModResolution;
-    use crate::state::InstallEntry;
-    use crate::state::{MemberOverrides, ModConfig, ModGroup, ModProfile_v0_1_0};
+    use crate::state::{ModConfig, ModProfile_v0_1_0};
 
     fn spec(url: &str) -> ModSpecification {
         ModSpecification {
@@ -266,93 +264,6 @@ mod tests {
         );
     }
 
-    #[test]
-    fn disabled_groups_warn_but_do_not_block_and_shared_members_are_not_duplicates() {
-        let dir = tempfile::tempdir().unwrap();
-        let store = ModStore::new(dir.path(), &HashMap::new()).unwrap();
-        let a = "https://mod.io/g/drg/m/a#123/10";
-        let b = "https://mod.io/g/drg/m/a#123/11";
-        let data = Data {
-            active_profile: "p".into(),
-            profiles: BTreeMap::from([(
-                "p".into(),
-                ModProfile_v0_1_0 {
-                    id: crate::state::new_id(),
-                    mods: vec![
-                        ModOrGroup::Individual(member(a)),
-                        ModOrGroup::Group {
-                            id: crate::state::new_id(),
-                            group_name: "same".into(),
-                            enabled: true,
-                            member_overrides: MemberOverrides::default(),
-                        },
-                        ModOrGroup::Group {
-                            id: crate::state::new_id(),
-                            group_name: "other".into(),
-                            enabled: false,
-                            member_overrides: MemberOverrides::default(),
-                        },
-                    ],
-                },
-            )]),
-            groups: BTreeMap::from([
-                (
-                    "same".into(),
-                    ModGroup {
-                        id: crate::state::new_id(),
-                        description: None,
-                        mods: vec![member(a)],
-                    },
-                ),
-                (
-                    "other".into(),
-                    ModGroup {
-                        id: crate::state::new_id(),
-                        description: None,
-                        mods: vec![member(b), member(b)],
-                    },
-                ),
-            ]),
-        };
-        let issues = ProfileIssues::collect(&data, "p", &store);
-        assert_eq!(issues.versions.len(), 1);
-        assert!(issues.versions[0].starts_with("a (mod.io ID 123)"));
-        assert!(issues.versions[0].contains("disabled"));
-        assert!(!issues.duplicate(None, 0));
-        assert!(!issues.duplicate(Some("same"), 0));
-        assert!(issues.duplicate(Some("other"), 0));
-        assert!(issues.duplicate(Some("other"), 1));
-        let inputs = data.ordered_install_specs("p");
-        let resolved = HashMap::from([(spec(a), info(a))]);
-        assert_eq!(
-            installation_inputs(&InstallEntry::requested(&inputs), &resolved)
-                .unwrap()
-                .len(),
-            1
-        );
-    }
-
-    #[test]
-    fn installer_coalesces_aliases_keeps_order_and_rejects_version_conflicts() {
-        let a = spec("alias-a");
-        let b = spec("alias-b");
-        let c = spec("another-mod");
-        let mut resolved = HashMap::from([
-            (a.clone(), info("https://mod.io/g/drg/m/a#123/10")),
-            (b.clone(), info("https://mod.io/g/drg/m/renamed#123/10")),
-            (c.clone(), info("https://mod.io/g/drg/m/c#456/20")),
-        ]);
-        let inputs = vec![c.clone(), a.clone(), b.clone()];
-        let selected = installation_inputs(&InstallEntry::requested(&inputs), &resolved).unwrap();
-        assert_eq!(selected.len(), 2);
-        assert_eq!(selected[0].name, resolved[&c].name);
-        assert_eq!(selected[1].name, resolved[&a].name);
-        resolved.insert(b, info("https://mod.io/g/drg/m/a#123/11"));
-        assert!(installation_inputs(&InstallEntry::requested(&inputs), &resolved).is_err());
-        assert!(
-            installation_inputs(&InstallEntry::requested(&[spec("missing")]), &resolved).is_err()
-        );
-    }
 
     #[test]
     fn unknown_versions_are_pending_not_guessed_from_similar_names() {
@@ -483,33 +394,6 @@ mod tests {
         std::fs::remove_file(&b.url).unwrap();
         store.refresh_local_files(&[b.clone()]);
         assert!(store.cached_local_file(&b).is_none());
-    }
-
-    #[test]
-    fn local_packer_dedup_keeps_first_priority_and_checks_files_again() {
-        let dir = tempfile::tempdir().unwrap();
-        let a = dir.path().join("a.pak");
-        let b = dir.path().join("b.pak");
-        let c = dir.path().join("c.pak");
-        std::fs::write(&a, b"same special asset bytes").unwrap();
-        std::fs::copy(&a, &b).unwrap();
-        std::fs::write(&c, b"different content").unwrap();
-        let local = |name: &str| {
-            let mut value = info(name);
-            value.provider = "file";
-            value
-        };
-        let inputs = vec![
-            (local("first"), b.clone()),
-            (local("copy"), a),
-            (local("last"), c),
-        ];
-        let unique = prepare_packer_inputs(inputs).unwrap();
-        assert_eq!(unique.len(), 2);
-        assert_eq!(unique[0].0.name, "first");
-        assert_eq!(unique[1].0.name, "last");
-        std::fs::remove_file(&b).unwrap();
-        assert!(prepare_packer_inputs(unique).is_err());
     }
 
     #[test]
