@@ -594,6 +594,14 @@ pub(in crate::gui) fn controls(
             let export_section = egui::CollapsingHeader::new("Export groups")
                 .id_salt("export-groups-section")
                 .show(ui, |ui| {
+                    if data.groups.is_empty() {
+                        export_editor.selected.clear();
+                        export_editor.picker_open = false;
+                        export_editor.success = None;
+                        export_editor.error = None;
+                        ui.label("No groups to export.");
+                        return;
+                    }
                     if let Some(message) = &export_editor.success {
                         ui.colored_label(egui::Color32::from_rgb(100, 200, 120), message);
                     }
