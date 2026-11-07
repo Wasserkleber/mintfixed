@@ -179,6 +179,7 @@ pub struct App {
     update_rid: Option<MessageHandle<()>>,
     check_updates_rid: Option<MessageHandle<()>>,
     has_run_init: bool,
+    last_ui_frame_start: Option<Instant>,
     request_counter: RequestCounter,
     window_provider_parameters: Option<WindowProviderParameters>,
     search_string: String,
@@ -303,6 +304,7 @@ impl App {
             update_rid: None,
             check_updates_rid: None,
             has_run_init: false,
+            last_ui_frame_start: None,
             window_provider_parameters: None,
             search_string: Default::default(),
             scroll_to_match: false,
@@ -2240,6 +2242,16 @@ struct WindowLintsToggle;
 
 impl eframe::App for App {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        // VSync limits frames to the monitor's refresh rate, which may exceed 60 Hz.
+        // Pace updates during rapid input without requesting any frames when idle.
+        const MIN_FRAME_INTERVAL: Duration = Duration::from_nanos(16_666_667);
+        if let Some(previous) = self.last_ui_frame_start {
+            if let Some(remaining) = MIN_FRAME_INTERVAL.checked_sub(previous.elapsed()) {
+                std::thread::sleep(remaining);
+            }
+        }
+        self.last_ui_frame_start = Some(Instant::now());
+
         if self.needs_restart
             && let Some(original_exe_path) = &self.original_exe_path
         {
