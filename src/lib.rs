@@ -1,3 +1,4 @@
+mod crash_reporter;
 pub mod gui;
 mod install_validation;
 pub mod integrate;

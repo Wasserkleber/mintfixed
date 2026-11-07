@@ -248,6 +248,8 @@ fn detour_main(
     n_cmd_show: i32,
     cmd_line: *const (),
 ) -> i32 {
+    // Start outside DllMain, before the original game WinMain.
+    crate::crash_reporter::autolaunch();
     let ret = unsafe {
         WinMain.call(
             h_instance,

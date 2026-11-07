@@ -1,3 +1,4 @@
+mod crash_reporter;
 mod hooks;
 mod ue;
 

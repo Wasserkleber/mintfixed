@@ -63,6 +63,10 @@ pub fn uninstall<P: AsRef<Path>>(path_pak: P, modio_mods: HashSet<u32>) -> Resul
         }
         .with_whatever_context(|_| format!("failed to remove {}", path_hook_dll.display()))?;
     }
+    #[cfg(all(feature = "hook", target_os = "windows"))]
+    if let Err(err) = crate::crash_reporter::stop(&installation.binaries_directory()) {
+        warn!("failed to stop Mintfixed crash reporter: {err:#}");
+    }
     uninstall_modio(&installation, modio_mods).ok();
     Ok(())
 }
@@ -314,11 +318,14 @@ pub fn integrate<P: AsRef<Path>>(
             .binaries_directory()
             .join(installation.installation_type.hook_dll_name());
         let hook_dll = include_bytes!(env!("CARGO_CDYLIB_FILE_HOOK_hook"));
-        if path_hook_dll
-            .metadata()
-            .map(|m| m.len() != hook_dll.len() as u64)
-            .unwrap_or(true)
-        {
+        // Replace the hook whenever its contents change, even at the same size.
+        let needs_update = match fs::read(&path_hook_dll) {
+            Ok(installed) => installed.as_slice() != hook_dll.as_slice(),
+            Err(err) if err.kind() == ErrorKind::NotFound => true,
+            Err(err) => return Err(err.into()),
+        };
+        if needs_update {
+            info!("Mintfixed: updating hook DLL (contents changed): {}", path_hook_dll.display());
             fs::write(&path_hook_dll, hook_dll)?;
         }
     }
@@ -495,6 +502,15 @@ pub fn integrate<P: AsRef<Path>>(
     bundle.write_file(&buf, ar_path)?;
 
     bundle.finish()?;
+
+    #[cfg(feature = "hook")]
+    if let Err(err) = crate::crash_reporter::install(
+        &installation.binaries_directory(),
+        &installation.installation_type,
+    ) {
+        // Optional diagnostics must not prevent installing mods.
+        warn!("BP-Crash-Reporter installation failed (mods installed, enhanced logging unavailable): {err:#}");
+    }
 
     // Log only after the complete output pak has been written successfully.
     // This counts the final, deduplicated list, not just downloaded files.
