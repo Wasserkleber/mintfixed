@@ -2563,7 +2563,7 @@ impl eframe::App for App {
                                 msg
                             }
                         };
-                        ui.ctx().request_repaint(); // for continuously updating time
+                        ui.ctx().request_repaint_after(std::time::Duration::from_secs(1)); // for continuously updating time
                         ui.label(format!("({}): {}", last_action.timeago(), msg));
                     }
                 });
