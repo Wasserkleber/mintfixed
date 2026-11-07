@@ -954,9 +954,12 @@ impl App {
                         header_row.min.x = ui.max_rect().left();
                         header_row.max.x = ui.max_rect().right();
                         let edge = 5.0_f32.min(header_row.height() * 0.2);
+                        // An expanded group's members immediately follow the header,
+                        // so the bottom edge should drop into the group, not after it.
+                        let bottom_edge = if fully_closed { edge } else { 0.0 };
                         let mut header_drop_area = header_row;
                         header_drop_area.min.y += edge;
-                        header_drop_area.max.y -= edge;
+                        header_drop_area.max.y -= bottom_edge;
                         let above_group = egui::Rect::from_min_max(
                             header_row.min,
                             egui::pos2(header_row.max.x, header_drop_area.min.y),
@@ -986,7 +989,7 @@ impl App {
                         }
                         let over_group_header = ui.rect_contains_pointer(header_drop_area);
                         let over_above_group = ui.rect_contains_pointer(above_group);
-                        let over_below_group = ui.rect_contains_pointer(below_group);
+                        let over_below_group = fully_closed && ui.rect_contains_pointer(below_group);
                         let dragging_mod = egui::DragAndDrop::payload::<Drag>(ui.ctx())
                             .is_some_and(|d| !d.is_group);
                         // Highlight the destination without drawing lines over the

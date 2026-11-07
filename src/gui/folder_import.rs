@@ -220,7 +220,8 @@ pub(super) fn show_preview(app: &mut App, ctx: &egui::Context) {
         .min_width(610.0)
         .resizable(true)
         .show(ctx, |ui| {
-            ui.label(format!("{} new mod(s) found. Select mods to import. Only explicitly excluded mods are hidden.", preview.mods.len()));
+            ui.label(format!("{} new mod(s) found in the default mod directory configured under Settings -> Local mods folder.", preview.mods.len()));
+            ui.small("Select mods to import. Only explicitly excluded mods are hidden.");
             // Includes the old Exclusions manager; no second popup window.
             exclusions_changed = show_inline_exclusions(app, ui);
             if preview.mods.is_empty() {
