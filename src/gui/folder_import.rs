@@ -12,7 +12,6 @@ const EXCLUSIONS_FILE: &str = "excluded_mod_imports.json";
 pub(super) struct FolderImport {
     scan: Option<ScanJob>,
     preview: Option<Preview>,
-    exclusions_manager: Option<Exclusions>,
 }
 
 struct ScanJob {
@@ -184,13 +183,6 @@ pub(super) fn open_preview(app: &mut App, ctx: &egui::Context, folder: PathBuf) 
     }
 }
 
-pub(super) fn open_exclusions(app: &mut App) {
-    match Exclusions::load(&app.state.dirs.cache_dir) {
-        Ok(e) => app.folder_import.exclusions_manager = Some(e),
-        Err(e) => app.last_action = Some(LastAction::failure(e)),
-    }
-}
-
 /// Poll a scan initiated explicitly by opening the Import local mods menu.
 /// Nothing is scanned at startup, periodically, or after a normal deletion.
 pub(super) fn tick(app: &mut App, _ctx: &egui::Context) {
@@ -221,6 +213,7 @@ pub(super) fn show_preview(app: &mut App, ctx: &egui::Context) {
     #[derive(Clone, Copy)]
     enum Action { None, Import, Exclude(usize), ExcludeUnchecked, Cancel }
     let mut action = Action::None;
+    let mut exclusions_changed = false;
     egui::Window::new("Import local mods")
         .open(&mut open)
         .default_width(680.0)
@@ -228,35 +221,34 @@ pub(super) fn show_preview(app: &mut App, ctx: &egui::Context) {
         .resizable(true)
         .show(ctx, |ui| {
             ui.label(format!("{} new mod(s) found. Select mods to import. Only explicitly excluded mods are hidden.", preview.mods.len()));
+            // Includes the old Exclusions manager; no second popup window.
+            exclusions_changed = show_inline_exclusions(app, ui);
             if preview.mods.is_empty() {
                 ui.label("No new mods to import.");
             }
             egui::ScrollArea::vertical().max_height(360.0).auto_shrink([false, true]).show(ui, |ui| {
                 for (index, candidate) in preview.mods.iter_mut().enumerate() {
                     ui.horizontal(|ui| {
-                        // Keep selection at the left and a consistent Exclude column on the right.
-                        // Only the filename is shortened; the full path stays visible on hover.
+                        // Pack each checkbox, filename and Exclude button together.
+                        // Do not reserve the whole dialog width for the filename.
+                        ui.spacing_mut().item_spacing.x = 7.0;
                         let full_path = candidate.path.display().to_string();
-                        ui.checkbox(&mut candidate.selected, "").on_hover_text(&full_path);
                         let filename = candidate.path.file_name()
-                            .map(|name| name.to_string_lossy().into_owned())
+                            .map(|name| name.to_string_lossy())
                             .unwrap_or_default();
-                        let label_width = (ui.available_width() - 80.0).max(80.0);
-                        let label = ui.add_sized(
-                            [label_width, 20.0],
-                            egui::Label::new(filename)
-                                .truncate()
-                                .sense(egui::Sense::click()),
-                        ).on_hover_text(&full_path);
-                        if label.clicked() { candidate.selected = !candidate.selected; }
-                        if ui.small_button("Exclude").clicked() {
+                        ui.checkbox(&mut candidate.selected, &*filename)
+                            .on_hover_text(&full_path);
+                        if ui.small_button("Exclude")
+                            .on_hover_text("Hide this file from future imports")
+                            .clicked()
+                        {
                             action = Action::Exclude(index);
                         }
                     });
                 }
             });
             ui.separator();
-            // One footer row; the primary action and Cancel stay right-aligned.
+            // Keep all footer actions together and left-aligned.
             ui.horizontal(|ui| {
                 if ui.button("Select all").clicked() {
                     for item in &mut preview.mods { item.selected = true; }
@@ -267,13 +259,11 @@ pub(super) fn show_preview(app: &mut App, ctx: &egui::Context) {
                 if ui.button("Exclude unchecked").clicked() {
                     action = Action::ExcludeUnchecked;
                 }
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    if ui.button("Cancel").clicked() { action = Action::Cancel; }
-                    if ui.add_enabled(
-                        app.resolve_mod_rid.is_none(),
-                        egui::Button::new("Import selected"),
-                    ).clicked() { action = Action::Import; }
-                });
+                if ui.add_enabled(
+                    app.resolve_mod_rid.is_none(),
+                    egui::Button::new("Import selected"),
+                ).clicked() { action = Action::Import; }
+                if ui.button("Cancel").clicked() { action = Action::Cancel; }
             });
         });
     let mut close = !open;
@@ -323,56 +313,89 @@ pub(super) fn show_preview(app: &mut App, ctx: &egui::Context) {
             close = true;
         }
     }
+    if exclusions_changed && !close {
+        // Refresh the preview so files allowed again can be selected immediately.
+        if let Some(folder) = app.state.config.local_mod_folder.clone() {
+            open_preview(app, ctx, folder);
+            close = true;
+        }
+    }
     if !close { app.folder_import.preview = Some(preview); }
 }
 
-pub(super) fn show_exclusions(app: &mut App, ctx: &egui::Context) {
-    let Some(mut exclusions) = app.folder_import.exclusions_manager.take() else { return };
-    let mut open = true;
-    let mut remove = None;
-    let mut add = None;
-    egui::Window::new("Excluded local mods")
-        .open(&mut open)
-        .default_width(520.0)
-        .show(ctx, |ui| {
-            if ui.button("Exclude file...").clicked() {
-                add = rfd::FileDialog::new()
-                    .add_filter("Local mods", &["pak", "zip"])
-                    .pick_file();
-            }
-            if exclusions.excluded_paths.is_empty() {
-                ui.label("No excluded local mods.");
-            }
-            egui::ScrollArea::vertical().max_height(320.0).auto_shrink([false, true]).show(ui, |ui| {
+// Manage the same persistent exclusion file directly inside Import local mods.
+// Return true when the candidate list should be rescanned (e.g. Allow again).
+fn show_inline_exclusions(app: &mut App, ui: &mut egui::Ui) -> bool {
+    let cache_dir = &app.state.dirs.cache_dir;
+    let mut exclusions = match Exclusions::load(cache_dir) {
+        Ok(data) => data,
+        Err(error) => {
+            ui.colored_label(ui.visuals().error_fg_color, error);
+            return false;
+        }
+    };
+
+    let mut remove: Option<String> = None;
+    let mut add: Option<PathBuf> = None;
+    ui.collapsing(format!("Excluded mods ({})", exclusions.excluded_paths.len()), |ui| {
+        ui.label("These files are hidden from the import list until allowed again.");
+        if ui.small_button("Exclude file...").clicked() {
+            add = rfd::FileDialog::new()
+                .add_filter("Local mods", &["pak", "zip"])
+                .pick_file();
+        }
+        if exclusions.excluded_paths.is_empty() {
+            ui.label("No excluded files.");
+        }
+        egui::ScrollArea::vertical()
+            .max_height(160.0)
+            .auto_shrink([false, true])
+            .show(ui, |ui| {
                 for path in &exclusions.excluded_paths {
                     ui.horizontal(|ui| {
-                        ui.label(path);
-                        if ui.small_button("Allow again").clicked() { remove = Some(path.clone()); }
+                        let filename = Path::new(path)
+                            .file_name()
+                            .and_then(|name| name.to_str())
+                            .unwrap_or(path);
+                        ui.label(filename).on_hover_text(path);
+                        if ui.small_button("Allow again").clicked() {
+                            remove = Some(path.clone());
+                        }
                     });
                 }
             });
-        });
+    });
+
+    let mut changed = false;
     if let Some(path) = add {
         match std::fs::canonicalize(path) {
             Ok(path) => {
                 let key = path_key(&path);
-                exclusions.excluded_paths.insert(key.clone());
-                if let Err(e) = exclusions.save(&app.state.dirs.cache_dir) {
-                    exclusions.excluded_paths.remove(&key);
-                    app.last_action = Some(LastAction::failure(e));
+                if exclusions.excluded_paths.insert(key.clone()) {
+                    if let Err(error) = exclusions.save(cache_dir) {
+                        exclusions.excluded_paths.remove(&key);
+                        app.last_action = Some(LastAction::failure(error));
+                    } else {
+                        changed = true;
+                    }
                 }
             }
-            Err(e) => app.last_action = Some(LastAction::failure(format!("Cannot exclude file: {e}"))),
+            Err(error) => app.last_action = Some(LastAction::failure(
+                format!("Cannot exclude file: {error}"),
+            )),
         }
     }
     if let Some(key) = remove {
-        exclusions.excluded_paths.remove(&key);
-        if let Err(e) = exclusions.save(&app.state.dirs.cache_dir) {
-            exclusions.excluded_paths.insert(key);
-            app.last_action = Some(LastAction::failure(e));
+        if exclusions.excluded_paths.remove(&key) {
+            if let Err(error) = exclusions.save(cache_dir) {
+                exclusions.excluded_paths.insert(key);
+                app.last_action = Some(LastAction::failure(error));
+            } else {
+                changed = true;
+            }
         }
     }
-    if open { app.folder_import.exclusions_manager = Some(exclusions); }
+    changed
 }
 
 #[cfg(test)]

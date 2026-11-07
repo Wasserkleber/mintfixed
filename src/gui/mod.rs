@@ -1461,13 +1461,9 @@ impl App {
 
     fn show_settings(&mut self, ctx: &egui::Context) {
         let mut auto_save_local_folder: Option<(String, bool)> = None;
-        let mut preview_folder = None;
-        let mut wants_exclusions = false;
         let mut rescan_folder = false;
         if let Some(window) = &mut self.settings_window {
             let mut open = true;
-            let mut try_preview = false;
-            let mut try_exclusions = false;
             let mut try_save = false;
             egui::Window::new("Settings")
                 .open(&mut open)
@@ -1510,7 +1506,7 @@ impl App {
                         ui.end_row();
 
                         ui.label("Local mods folder:")
-                            .on_hover_text("Folder scanned only when you click Import all. Select .pak and .zip files to import; explicit exclusions stay hidden.");
+                            .on_hover_text("Choose a local mods folder. Use Import .pak/.zip beside Add mod to scan it; only explicit exclusions stay hidden.");
                         ui.horizontal(|ui| {
                             let res = ui.add(egui::TextEdit::singleline(&mut window.local_mod_folder)
                                 .desired_width(200.0)
@@ -1529,8 +1525,6 @@ impl App {
                                 window.local_mod_folder_err = None;
                                 auto_save_local_folder = Some((window.local_mod_folder.clone(), true));
                             }
-                            if ui.button("Import all").clicked() { try_preview = true; }
-                            if ui.button("Exclusions").clicked() { try_exclusions = true; }
                             if let Some(error) = &window.local_mod_folder_err {
                                 ui.colored_label(ui.visuals().error_fg_color, error);
                             }
@@ -1600,10 +1594,6 @@ impl App {
                     });
 
                 });
-            if try_preview {
-                preview_folder = Some(PathBuf::from(window.local_mod_folder.trim()));
-            }
-            if try_exclusions { wants_exclusions = true; }
             if try_save {
                 let folder_text = window.local_mod_folder.trim();
                 let folder_result: std::io::Result<Option<PathBuf>> = if folder_text.is_empty() {
@@ -1656,10 +1646,6 @@ impl App {
             }
         }
         if rescan_folder { folder_import::reset_schedule(self); }
-        if let Some(folder) = preview_folder {
-            folder_import::open_preview(self, ctx, folder);
-        }
-        if wants_exclusions { folder_import::open_exclusions(self); }
     }
 
     fn show_lints_toggle(&mut self, ctx: &egui::Context) {
@@ -2342,7 +2328,6 @@ impl eframe::App for App {
         self.show_settings(ctx);
         folder_import::tick(self, ctx);
         folder_import::show_preview(self, ctx);
-        folder_import::show_exclusions(self, ctx);
         self.show_lints_toggle(ctx);
         self.show_lint_report(ctx);
         crash_notice::show(ctx, &mut self.recent_crash);
@@ -2656,9 +2641,20 @@ impl eframe::App for App {
 
             ui.separator();
 
+            let mut open_local_folder_import = false;
             ui.with_layout(egui::Layout::right_to_left(Align::TOP), |ui| {
                 if self.resolve_mod_rid.is_some() {
                     ui.spinner();
+                }
+                if ui
+                    .add_enabled(
+                        self.state.config.local_mod_folder.is_some() && self.resolve_mod_rid.is_none(),
+                        egui::Button::new("Import .pak/.zip"),
+                    )
+                    .on_hover_text("Scan the local mods folder configured in Settings; manage exclusions in the import dialog")
+                    .clicked()
+                {
+                    open_local_folder_import = true;
                 }
                 ui.with_layout(ui.layout().with_main_justify(true), |ui| {
                     // define multiline layouter to be able to show multiple lines in a single line widget
@@ -2693,6 +2689,11 @@ impl eframe::App for App {
                 });
             });
 
+            if open_local_folder_import {
+                if let Some(folder) = self.state.config.local_mod_folder.clone() {
+                    folder_import::open_preview(self, ctx, folder);
+                }
+            }
             let profile = self.state.mod_data.active_profile.clone();
 
             ui.horizontal(|ui| {
