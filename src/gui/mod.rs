@@ -1,3 +1,5 @@
+mod crash_notice;
+mod crash_history;
 mod find_string;
 mod group_controls;
 use group_controls::{Drag, Target};
@@ -155,6 +157,7 @@ fn description_help_button(ui: &mut Ui, description: &str) {
 }
 
 pub struct App {
+    crash_history: crash_history::CrashHistory,
     args: Option<Vec<String>>,
     tx: Sender<message::Message>,
     rx: Receiver<message::Message>,
@@ -197,6 +200,7 @@ pub struct App {
     original_exe_path: Option<PathBuf>,
     problematic_mod_id: Option<u32>,
     pending_group_mod_removal: Option<PendingGroupModRemoval>,
+    recent_crash: Option<crash_notice::RecentCrash>,
 }
 
 #[derive(Default)]
@@ -264,6 +268,7 @@ impl App {
         egui_extras::install_image_loaders(&cc.egui_ctx);
         let (tx, rx) = mpsc::channel(10);
         let state = State::init(dirs)?;
+        let recent_crash = crash_notice::find_recent_unseen(&state);
         let specs = crate::mod_identity::all_specs(&state.mod_data);
         if !specs.is_empty() {
             let store = state.store.clone();
@@ -275,6 +280,7 @@ impl App {
         }
 
         Ok(Self {
+            crash_history: crash_history::CrashHistory::default(),
             args,
             tx,
             rx,
@@ -316,6 +322,7 @@ impl App {
             original_exe_path: None,
             problematic_mod_id: None,
             pending_group_mod_removal: None,
+            recent_crash,
         })
     }
 
@@ -2158,8 +2165,14 @@ impl eframe::App for App {
         self.show_settings(ctx);
         self.show_lints_toggle(ctx);
         self.show_lint_report(ctx);
+        crash_notice::show(ctx, &mut self.recent_crash);
 
+        self.crash_history.show(ctx, &self.state);
         egui::TopBottomPanel::bottom("bottom_panel").show(ctx, |ui| {
+            ui.horizontal(|ui| {
+                if crash_history::toolbar_button(ui) {
+                    self.crash_history.open(&self.state);
+                }
             ui.with_layout(egui::Layout::right_to_left(Align::TOP), |ui| {
                 ui.add_enabled_ui(
                     self.integrate_rid.is_none()
@@ -2386,6 +2399,7 @@ impl eframe::App for App {
                         ui.label(format!("({}): {}", last_action.timeago(), msg));
                     }
                 });
+            });
             });
         });
         egui::CentralPanel::default().show(ctx, |ui| {
