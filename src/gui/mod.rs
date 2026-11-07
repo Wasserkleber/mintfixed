@@ -2369,28 +2369,35 @@ impl eframe::App for App {
                         && self.self_update_rid.is_none()
                         && self.state.config.drg_pak_path.is_some(),
                     |ui| {
-                        if let Some(args) = &self.args
-                            && ui
-                                .button("Launch game")
-                                .on_hover_ui(|ui| {
-                                    for arg in args {
-                                        ui.label(arg);
-                                    }
-                                })
-                                .clicked()
+                        // Right-to-left toolbar: this button appears to the RIGHT of Install mods.
+                        if ui
+                            .button("Start DRG")
+                            .on_hover_text(if self.args.is_some() {
+                                "Launch using Mintfixed's custom launch command"
+                            } else {
+                                "Launch Deep Rock Galactic through Steam"
+                            })
+                            .clicked()
                         {
-                            let args = args.clone();
-                            std::thread::spawn(move || {
-                                let mut iter = args.iter();
-                                std::process::Command::new(iter.next().unwrap())
-                                    .args(iter)
-                                    .spawn()
-                                    .unwrap()
-                                    .wait()
-                                    .unwrap();
-                            });
+                            let result = if let Some(args) = &self.args {
+                                match args.split_first() {
+                                    Some((program, command_args)) => std::process::Command::new(program)
+                                        .args(command_args)
+                                        .spawn()
+                                        .map(|_| ())
+                                        .map_err(|err| err.to_string()),
+                                    None => Err("No launch command was provided".to_owned()),
+                                }
+                            } else {
+                                opener::open("steam://rungameid/548430")
+                                    .map_err(|err| err.to_string())
+                            };
+                            if let Err(err) = result {
+                                self.last_action = Some(LastAction::failure(format!(
+                                    "Failed to launch DRG: {err}"
+                                )));
+                            }
                         }
-
                         ui.add_enabled_ui(self.state.config.drg_pak_path.is_some(), |ui| {
                             let mut button = ui.button("Install mods");
                             if self.state.config.drg_pak_path.is_none() {
