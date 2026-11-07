@@ -12,11 +12,100 @@ struct ProfileManagementEditor {
     new_name: String,
     rename_name: String,
     rename_target: String,
+    rename_picker_open: bool,
+    rename_success: Option<String>,
     duplicate_target: String,
     duplicate_name: String,
+    duplicate_picker_open: bool,
+    duplicate_success: Option<String>,
+    export_feedback: Option<Result<String, String>>,
     delete_target: Option<String>,
 }
 
+// Inline, scrollable picker: a nested egui popup would close Profile Management.
+fn profile_option_row(ui: &mut egui::Ui, name: &str, selected: bool) -> egui::Response {
+    let (rect, response) = ui.allocate_exact_size(
+        egui::vec2(ui.available_width(), ui.spacing().interact_size.y),
+        egui::Sense::click(),
+    );
+    if ui.is_rect_visible(rect) {
+        let highlighted = selected || response.hovered() || response.has_focus();
+        if highlighted {
+            ui.painter().rect_filled(
+                rect,
+                egui::CornerRadius::same(2),
+                ui.visuals().selection.bg_fill,
+            );
+        }
+        let text_color = if highlighted {
+            ui.visuals().selection.stroke.color
+        } else {
+            ui.visuals().text_color()
+        };
+        ui.painter().text(
+            egui::pos2(rect.left() + 6.0, rect.center().y),
+            egui::Align2::LEFT_CENTER,
+            name,
+            egui::TextStyle::Button.resolve(ui.style()),
+            text_color,
+        );
+    }
+    response.on_hover_cursor(egui::CursorIcon::PointingHand)
+}
+
+fn choose_profile<E, N>(
+    ui: &mut egui::Ui,
+    entries: &mut N,
+    target: &mut String,
+    picker_open: &mut bool,
+) -> bool
+where
+    N: NamedEntries<E>,
+{
+    if !target.is_empty() && !entries.contains(target) {
+        target.clear();
+    }
+    let response = ui.add(
+        egui::Button::new(if target.is_empty() { "Choose profile" } else { target.as_str() })
+            .min_size(egui::vec2(135.0, ui.spacing().interact_size.y)),
+    );
+    if response.clicked() {
+        *picker_open = !*picker_open;
+    }
+    // Draw the arrow in the button, as in Group Management.
+    let x = response.rect.right() - 12.0;
+    let y = response.rect.center().y;
+    let arrow = if *picker_open {
+        [egui::pos2(x - 4.0, y + 2.0), egui::pos2(x + 4.0, y + 2.0), egui::pos2(x, y - 2.0)]
+    } else {
+        [egui::pos2(x - 4.0, y - 2.0), egui::pos2(x + 4.0, y - 2.0), egui::pos2(x, y + 2.0)]
+    };
+    ui.painter().add(egui::Shape::convex_polygon(
+        arrow.to_vec(),
+        ui.visuals().text_color(),
+        egui::Stroke::NONE,
+    ));
+    if !*picker_open {
+        return false;
+    }
+    let mut chosen = None;
+    egui::ScrollArea::vertical()
+        .max_height(140.0)
+        .scroll_bar_visibility(egui::containers::scroll_area::ScrollBarVisibility::AlwaysVisible)
+        .show(ui, |ui| {
+            for (name, _) in entries.entries() {
+                if profile_option_row(ui, name, target.as_str() == name.as_str()).clicked() {
+                    chosen = Some(name.clone());
+                }
+            }
+        });
+    if let Some(name) = chosen {
+        *target = name;
+        *picker_open = false;
+        return true;
+    }
+    false
+}
 /// Profile actions in one popup. Inline editors avoid nesting egui popups,
 /// which would otherwise close each other or lose their text-field focus.
 pub(super) fn ui<E, N>(
@@ -25,7 +114,7 @@ pub(super) fn ui<E, N>(
     entries: &mut N,
     modified: &mut bool,
     import_ui: Option<impl FnOnce(&mut egui::Ui, &mut N, &mut bool)>,
-    copy_ui: Option<impl FnOnce(&mut egui::Ui, &mut N)>,
+    copy_ui: Option<impl FnOnce(&mut egui::Ui, &mut N) -> Option<Result<String, String>>>,
 ) where
     N: NamedEntries<E>,
 {
@@ -41,13 +130,8 @@ pub(super) fn ui<E, N>(
         if ui.memory(|mem| mem.is_popup_open(popup_id)) {
             ui.memory_mut(|mem| mem.close_popup());
         } else {
-            editor = ProfileManagementEditor {
-                rename_name: entries.selected_name().to_owned(),
-                rename_target: entries.selected_name().to_owned(),
-                duplicate_target: entries.selected_name().to_owned(),
-                duplicate_name: format!("{} - Copy", entries.selected_name()),
-                ..Default::default()
-            };
+            // Choose any source profile rather than silently locking actions to active.
+            editor = ProfileManagementEditor::default();
             ui.memory_mut(|mem| mem.open_popup(popup_id));
         }
     }
@@ -87,17 +171,25 @@ pub(super) fn ui<E, N>(
                 egui::CollapsingHeader::new("Rename Profile")
                     .id_salt("manage-rename-profile")
                     .show(ui, |ui| {
-                        let current = editor.rename_target.as_str();
-                        ui.label(format!("Renaming: {current}"));
+                        if choose_profile(
+                            ui, entries, &mut editor.rename_target, &mut editor.rename_picker_open,
+                        ) {
+                            editor.rename_success = None;
+                        }
+                        let current = editor.rename_target.clone();
                         let field = ui.add(
                             egui::TextEdit::singleline(&mut editor.rename_name)
                                 .hint_text("New profile name"),
                         );
+                        if field.changed() {
+                            editor.rename_success = None;
+                        }
                         let candidate = editor.rename_name.trim().to_owned();
-                        let valid = !candidate.is_empty()
+                        let valid = !current.is_empty()
+                            && entries.contains(&current)
+                            && !candidate.is_empty()
                             && candidate != current
-                            && !entries.contains(&candidate)
-                            && entries.selected_name() == current;
+                            && !entries.contains(&candidate);
                         if !candidate.is_empty()
                             && candidate != current
                             && entries.contains(&candidate)
@@ -111,21 +203,42 @@ pub(super) fn ui<E, N>(
                             .add_enabled(valid, egui::Button::new("Rename Profile"))
                             .clicked();
                         if valid && (clicked || is_committed(&field)) {
-                            entries.rename_selected(candidate);
+                            entries.rename_named(&current, candidate.clone());
                             *modified = true;
-                            ui.memory_mut(|mem| mem.close_popup());
+                            editor.rename_name.clear();
+                            editor.rename_target.clear();
+                            editor.rename_picker_open = false;
+                            editor.rename_success = Some(format!(
+                                "Renamed profile \"{current}\" to \"{candidate}\"."
+                            ));
+                        }
+                        if let Some(message) = &editor.rename_success {
+                            ui.colored_label(egui::Color32::from_rgb(100, 200, 120), message);
                         }
                     });
                 ui.separator();
                 egui::CollapsingHeader::new("Duplicate Profile")
                     .id_salt("manage-duplicate-profile")
                     .show(ui, |ui| {
-                        let target = editor.duplicate_target.as_str();
-                        ui.label(format!("Duplicating: {target}"));
+                        let previous_target = editor.duplicate_target.clone();
+                        if choose_profile(
+                            ui, entries, &mut editor.duplicate_target, &mut editor.duplicate_picker_open,
+                        ) {
+                            editor.duplicate_success = None;
+                            if editor.duplicate_name.is_empty()
+                                || editor.duplicate_name == format!("{previous_target} - Copy")
+                            {
+                                editor.duplicate_name = format!("{} - Copy", editor.duplicate_target);
+                            }
+                        }
+                        let target = editor.duplicate_target.clone();
                         let field = ui.add(
                             egui::TextEdit::singleline(&mut editor.duplicate_name)
                                 .hint_text("Name for duplicated profile"),
                         );
+                        if field.changed() {
+                            editor.duplicate_success = None;
+                        }
                         let requested = editor.duplicate_name.trim().to_owned();
                         let exists = entries.contains(&requested);
                         if !requested.is_empty() && exists {
@@ -134,16 +247,25 @@ pub(super) fn ui<E, N>(
                                 "A profile with that name already exists.",
                             );
                         }
-                        let valid =
-                            !requested.is_empty() && !exists && entries.selected_name() == target;
+                        let valid = !target.is_empty()
+                            && entries.contains(&target)
+                            && !requested.is_empty()
+                            && !exists;
                         let clicked = ui
                             .add_enabled(valid, egui::Button::new("Duplicate Profile"))
                             .clicked();
                         if valid && (clicked || is_committed(&field)) {
-                            // Use the same implementation as the old duplicate toolbar icon.
-                            entries.duplicate_selected(requested);
+                            entries.duplicate_named(&target, requested.clone());
                             *modified = true;
-                            ui.memory_mut(|mem| mem.close_popup());
+                            editor.duplicate_name.clear();
+                            editor.duplicate_target.clear();
+                            editor.duplicate_picker_open = false;
+                            editor.duplicate_success = Some(format!(
+                                "Duplicated profile \"{target}\" as \"{requested}\"."
+                            ));
+                        }
+                        if let Some(message) = &editor.duplicate_success {
+                            ui.colored_label(egui::Color32::from_rgb(100, 200, 120), message);
                         }
                     });
                 ui.separator();
@@ -151,7 +273,19 @@ pub(super) fn ui<E, N>(
                     .id_salt("manage-copy-profile")
                     .show(ui, |ui| {
                         if let Some(copy_ui) = copy_ui.take() {
-                            copy_ui(ui, entries);
+                            if let Some(result) = copy_ui(ui, entries) {
+                                editor.export_feedback = Some(result);
+                            }
+                        }
+                        if let Some(result) = &editor.export_feedback {
+                            match result {
+                                Ok(message) => {
+                                    ui.colored_label(egui::Color32::from_rgb(100, 200, 120), message);
+                                }
+                                Err(message) => {
+                                    ui.colored_label(ui.visuals().warn_fg_color, message);
+                                }
+                            }
                         }
                     });
                 ui.separator();
@@ -217,7 +351,6 @@ pub(super) fn copy_options(
             mods.push('\n');
         });
         ui.ctx().copy_text(mods);
-        ui.memory_mut(|mem| mem.close_popup());
         return Some(Ok("Copied mod list (TXT) to clipboard".into()));
     }
     if ui.button("Copy profile with groups (JSON)").clicked() {
@@ -245,7 +378,6 @@ pub(super) fn copy_options(
         return Some(match serde_json::to_string_pretty(&payload) {
             Ok(json) => {
                 ui.ctx().copy_text(json);
-                ui.memory_mut(|mem| mem.close_popup());
                 Ok("Copied profile with groups (JSON) to clipboard".into())
             }
             Err(error) => Err(format!("Could not copy group JSON: {error}")),

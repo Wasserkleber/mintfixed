@@ -7,8 +7,8 @@ pub trait NamedEntries<E> {
     fn selected_name(&self) -> &str;
     fn add_new(&mut self, name: &str);
     fn remove_selected(&mut self);
-    fn rename_selected(&mut self, new_name: String);
-    fn duplicate_selected(&mut self, new_name: String);
+    fn rename_named(&mut self, source: &str, new_name: String);
+    fn duplicate_named(&mut self, source: &str, new_name: String);
     fn entries<'s>(&'s mut self) -> Box<dyn Iterator<Item = (&'s String, &'s E)> + 's>;
 }
 
@@ -32,15 +32,17 @@ impl NamedEntries<ModProfile> for ModData {
     fn remove_selected(&mut self) {
         self.remove_active_profile();
     }
-    fn rename_selected(&mut self, new_name: String) {
-        let tmp = self.profiles.remove(&self.active_profile).unwrap();
-        self.profiles.insert(new_name.clone(), tmp);
-        self.active_profile = new_name;
+    fn rename_named(&mut self, source: &str, new_name: String) {
+        let profile = self.profiles.remove(source).expect("existing profile");
+        self.profiles.insert(new_name.clone(), profile);
+        if self.active_profile == source {
+            self.active_profile = new_name;
+        }
     }
-    fn duplicate_selected(&mut self, new_name: String) {
-        let new = self.get_active_profile().duplicate();
-        self.profiles.insert(new_name.clone(), new);
-        self.active_profile = new_name;
+    fn duplicate_named(&mut self, source: &str, new_name: String) {
+        let profile = self.profiles.get(source).expect("existing profile").duplicate();
+        self.profiles.insert(new_name, profile);
+        // Managing another profile must not silently switch the active profile.
     }
     fn entries<'s>(&'s mut self) -> Box<dyn Iterator<Item = (&'s String, &'s ModProfile)> + 's> {
         Box::new(self.profiles.iter())
@@ -54,7 +56,7 @@ pub(crate) fn ui<E, N>(
     entries: &mut N,
     additional_ui: Option<impl FnOnce(&mut egui::Ui, &mut N)>,
     after_rename: Option<impl FnOnce(&mut egui::Ui, &mut N, &mut bool)>,
-    copy_ui: Option<impl FnOnce(&mut egui::Ui, &mut N)>,
+    copy_ui: Option<impl FnOnce(&mut egui::Ui, &mut N) -> Option<Result<String, String>>>,
     allow_edit: bool,
 ) -> bool
 where
@@ -106,5 +108,39 @@ where
     if selected != entries.selected_name() {
         entries.select(selected);
         *modified = true;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn rename_inactive_keeps_active_and_profile_id() {
+        let mut data = ModData::default();
+        data.profiles.insert("other".to_owned(), Default::default());
+        let original_id = data.profiles["other"].id.clone();
+        data.rename_named("other", "renamed".to_owned());
+        assert_eq!(data.active_profile, "default");
+        assert!(!data.profiles.contains_key("other"));
+        assert_eq!(data.profiles["renamed"].id, original_id);
+    }
+
+    #[test]
+    fn rename_active_updates_selection() {
+        let mut data = ModData::default();
+        data.rename_named("default", "renamed".to_owned());
+        assert_eq!(data.active_profile, "renamed");
+        assert!(data.profiles.contains_key("renamed"));
+    }
+
+    #[test]
+    fn duplicate_inactive_keeps_active_and_creates_new_id() {
+        let mut data = ModData::default();
+        data.profiles.insert("other".to_owned(), Default::default());
+        data.duplicate_named("other", "copy".to_owned());
+        assert_eq!(data.active_profile, "default");
+        assert_eq!(data.profiles["copy"].mods.len(), data.profiles["other"].mods.len());
+        assert_ne!(data.profiles["copy"].id, data.profiles["other"].id);
     }
 }

@@ -2626,6 +2626,7 @@ impl eframe::App for App {
             let mut copy_feedback: Option<Result<String, String>> = None;
             let profile_copy_button = |ui: &mut Ui, mod_data: &mut ModData| {
                 copy_feedback = profile_management::copy_options(ui, mod_data);
+                copy_feedback.clone()
             };
             if named_combobox::ui(
                 ui,
