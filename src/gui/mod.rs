@@ -134,7 +134,7 @@ impl SortBy {
     }
 }
 
-const MODIO_LOGO_PNG: &[u8] = include_bytes!("../../assets/modio-cog-blue.png");
+const MODIO_LOGO_PNG: &[u8] = include_bytes!("../../assets/icons/modio-cog-blue.png");
 
 // A bordered, hover-only help control for the optional preset description.
 // Using a real widget makes the tooltip discoverable without triggering actions.
@@ -2325,7 +2325,7 @@ impl eframe::App for App {
                 {
                     self.lints_toggle_window = Some(WindowLintsToggle);
                 }
-                let settings_icon = egui::Image::new(egui::include_image!("../../assets/settings.svg"))
+                let settings_icon = egui::Image::new(egui::include_image!("../../assets/icons/settings.svg"))
                     .fit_to_exact_size(egui::vec2(14.0, 14.0))
                     .tint(ui.visuals().text_color());
                 if ui
