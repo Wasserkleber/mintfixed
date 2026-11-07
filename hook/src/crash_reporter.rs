@@ -20,6 +20,50 @@ use windows::{core::{s, w}, Win32::{
 }};
 
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+const CREATE_BREAKAWAY_FROM_JOB: u32 = 0x0100_0000;
+const SESSION_MONITOR_SCRIPT: &str = include_str!("../assets/bpcrash-session.ps1");
+
+/// The one-shot injector cannot perform load triage after DRG dies. Launch a
+/// separate, finite-lived process to wait for this game's PID, run --triage,
+/// and exit. This helper is deliberately not used under Proton/Wine.
+fn launch_native_triage_monitor(
+    dir: &std::path::Path,
+    reporter_exe: &std::path::Path,
+    game_exe: &std::path::Path,
+    injector_pid: u32,
+    start_unix_seconds: u64,
+) -> Result<u32> {
+    let script = dir.join("bpcrash-session.ps1");
+    if fs::read_to_string(&script).ok().as_deref() != Some(SESSION_MONITOR_SCRIPT) {
+        fs::write(&script, SESSION_MONITOR_SCRIPT)?;
+    }
+    let stdout = OpenOptions::new().create(true).append(true)
+        .open(dir.join("bpcrash-loader.log"))?;
+    let stderr = stdout.try_clone()?;
+    let mut cmd = Command::new("powershell.exe");
+    cmd
+        .args(["-NoLogo", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File"])
+        .arg(&script)
+        .arg("-GameProcessId").arg(std::process::id().to_string())
+        .arg("-InjectorProcessId").arg(injector_pid.to_string())
+        .arg("-GameExe").arg(game_exe)
+        .arg("-ReporterExe").arg(reporter_exe)
+        .arg("-StartUnixSeconds").arg(start_unix_seconds.to_string())
+        .current_dir(dir)
+        .stdin(Stdio::null())
+        .stdout(Stdio::from(stdout))
+        .stderr(Stdio::from(stderr));
+    // Where Steam's job permits it, the helper must survive DRG's crash long
+    // enough to read FSD.log and finish triage outside the game's job.
+    let child = match cmd.creation_flags(CREATE_NO_WINDOW | CREATE_BREAKAWAY_FROM_JOB).spawn() {
+        Ok(child) => child,
+        Err(err) => {
+            warn!("BP-Crash-Reporter: helper job breakaway unavailable ({err}); using normal process");
+            cmd.creation_flags(CREATE_NO_WINDOW).spawn()?
+        }
+    };
+    Ok(child.id())
+}
 
 /// Running a persistent Windows loader inside Wine/Proton can keep Steam's
 /// wineserver alive after DRG quits. Check Wine's ntdll export (not just env
@@ -101,20 +145,22 @@ fn try_autolaunch() -> Result<()> {
         return Ok(());
     }
     if already_injected {
-        info!("BP-Crash-Reporter is already injected; starting Windows watcher for post-crash triage");
+        info!("BP-Crash-Reporter is already injected; starting one-shot session for post-crash triage");
     }
 
     let stdout = OpenOptions::new().create(true).append(true)
         .open(dir.join("bpcrash-loader.log"))?;
     let stderr = stdout.try_clone()?;
-    let mut cmd = Command::new(exe);
+    let mut cmd = Command::new(&exe);
     // A native-Windows watcher attaches to the current DRG process (even if
     // already injected), waits for exit, and appends Elytras' load triage.
     // Under Proton the watcher must not remain alive in Wine; --once preserves
     // the working injection, but post-exit triage needs a Linux-native helper.
-    if under_wine {
-        cmd.arg("--once");
-    }
+    cmd.arg("--once");
+    let start_unix_seconds = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
     cmd.current_dir(&dir)
         .creation_flags(CREATE_NO_WINDOW)
         .stdin(Stdio::null())
@@ -127,7 +173,18 @@ fn try_autolaunch() -> Result<()> {
     if under_wine {
         info!("started BP-Crash-Reporter one-shot injector (Wine/Proton, pid {})", child.id());
     } else {
-        info!("started BP-Crash-Reporter persistent Windows watcher for post-crash triage (pid {})", child.id());
+        info!("started BP-Crash-Reporter Windows one-shot injector with post-exit triage (pid {})", child.id());
+    }
+    if !under_wine {
+        match launch_native_triage_monitor(&dir, &exe, &game_exe, child.id(), start_unix_seconds) {
+            Ok(monitor_pid) => info!(
+                "BP-Crash-Reporter: watching game PID {} for post-exit triage (helper PID {})",
+                std::process::id(), monitor_pid
+            ),
+            Err(err) => warn!(
+                "BP-Crash-Reporter: one-shot injection active, but post-exit triage helper failed: {err:#}"
+            ),
+        }
     }
     Ok(()) // Never block WinMain while the reporter attaches.
 }
