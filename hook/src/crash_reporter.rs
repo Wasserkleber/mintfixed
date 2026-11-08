@@ -1,23 +1,26 @@
 //! Best-effort BP-Crash-Reporter autolaunch outside DllMain.
 //! Native Windows keeps the upstream watcher for post-exit load triage.
 //! Proton/Wine uses --once so Steam's Wine session can exit normally.
+use anyhow::{Context, Result};
 use std::{
     fs::{self, OpenOptions},
     os::windows::process::CommandExt,
     process::{Command, Stdio},
 };
-use anyhow::{Context, Result};
 use tracing::{info, warn};
-use windows::{core::{s, w}, Win32::{
-    Foundation::CloseHandle,
-    System::{
-        Diagnostics::ToolHelp::{
-            CreateToolhelp32Snapshot, Process32FirstW, Process32NextW,
-            PROCESSENTRY32W, TH32CS_SNAPPROCESS,
+use windows::{
+    Win32::{
+        Foundation::CloseHandle,
+        System::{
+            Diagnostics::ToolHelp::{
+                CreateToolhelp32Snapshot, PROCESSENTRY32W, Process32FirstW, Process32NextW,
+                TH32CS_SNAPPROCESS,
+            },
+            LibraryLoader::{GetModuleHandleW, GetProcAddress},
         },
-        LibraryLoader::{GetModuleHandleW, GetProcAddress},
     },
-}};
+    core::{s, w},
+};
 
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 const CREATE_BREAKAWAY_FROM_JOB: u32 = 0x0100_0000;
@@ -37,28 +40,46 @@ fn launch_native_triage_monitor(
     if fs::read_to_string(&script).ok().as_deref() != Some(SESSION_MONITOR_SCRIPT) {
         fs::write(&script, SESSION_MONITOR_SCRIPT)?;
     }
-    let stdout = OpenOptions::new().create(true).append(true)
+    let stdout = OpenOptions::new()
+        .create(true)
+        .append(true)
         .open(dir.join("bpcrash-loader.log"))?;
     let stderr = stdout.try_clone()?;
     let mut cmd = Command::new("powershell.exe");
-    cmd
-        .args(["-NoLogo", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File"])
-        .arg(&script)
-        .arg("-GameProcessId").arg(std::process::id().to_string())
-        .arg("-InjectorProcessId").arg(injector_pid.to_string())
-        .arg("-GameExe").arg(game_exe)
-        .arg("-ReporterExe").arg(reporter_exe)
-        .arg("-StartUnixSeconds").arg(start_unix_seconds.to_string())
-        .current_dir(dir)
-        .stdin(Stdio::null())
-        .stdout(Stdio::from(stdout))
-        .stderr(Stdio::from(stderr));
+    cmd.args([
+        "-NoLogo",
+        "-NoProfile",
+        "-NonInteractive",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+    ])
+    .arg(&script)
+    .arg("-GameProcessId")
+    .arg(std::process::id().to_string())
+    .arg("-InjectorProcessId")
+    .arg(injector_pid.to_string())
+    .arg("-GameExe")
+    .arg(game_exe)
+    .arg("-ReporterExe")
+    .arg(reporter_exe)
+    .arg("-StartUnixSeconds")
+    .arg(start_unix_seconds.to_string())
+    .current_dir(dir)
+    .stdin(Stdio::null())
+    .stdout(Stdio::from(stdout))
+    .stderr(Stdio::from(stderr));
     // Where Steam's job permits it, the helper must survive DRG's crash long
     // enough to read FSD.log and finish triage outside the game's job.
-    let child = match cmd.creation_flags(CREATE_NO_WINDOW | CREATE_BREAKAWAY_FROM_JOB).spawn() {
+    let child = match cmd
+        .creation_flags(CREATE_NO_WINDOW | CREATE_BREAKAWAY_FROM_JOB)
+        .spawn()
+    {
         Ok(child) => child,
         Err(err) => {
-            warn!("BP-Crash-Reporter: helper job breakaway unavailable ({err}); using normal process");
+            warn!(
+                "BP-Crash-Reporter: helper job breakaway unavailable ({err}); using normal process"
+            );
             cmd.creation_flags(CREATE_NO_WINDOW).spawn()?
         }
     };
@@ -92,11 +113,13 @@ fn reporter_process_running() -> Result<bool> {
         entry.dwSize = std::mem::size_of::<PROCESSENTRY32W>() as u32;
         unsafe { Process32FirstW(snapshot, &mut entry) }?;
         loop {
-            let end = entry.szExeFile.iter()
+            let end = entry
+                .szExeFile
+                .iter()
                 .position(|&ch| ch == 0)
                 .unwrap_or(entry.szExeFile.len());
-            if String::from_utf16_lossy(&entry.szExeFile[..end])
-                .eq_ignore_ascii_case("bpcrash.exe") {
+            if String::from_utf16_lossy(&entry.szExeFile[..end]).eq_ignore_ascii_case("bpcrash.exe")
+            {
                 return Ok(true);
             }
             if unsafe { Process32NextW(snapshot, &mut entry) }.is_err() {
@@ -145,10 +168,14 @@ fn try_autolaunch() -> Result<()> {
         return Ok(());
     }
     if already_injected {
-        info!("BP-Crash-Reporter is already injected; starting one-shot session for post-crash triage");
+        info!(
+            "BP-Crash-Reporter is already injected; starting one-shot session for post-crash triage"
+        );
     }
 
-    let stdout = OpenOptions::new().create(true).append(true)
+    let stdout = OpenOptions::new()
+        .create(true)
+        .append(true)
         .open(dir.join("bpcrash-loader.log"))?;
     let stderr = stdout.try_clone()?;
     let mut cmd = Command::new(&exe);
@@ -171,15 +198,22 @@ fn try_autolaunch() -> Result<()> {
         warn!("BP-Crash-Reporter launched, but could not record its pid: {err}");
     }
     if under_wine {
-        info!("started BP-Crash-Reporter one-shot injector (Wine/Proton, pid {})", child.id());
+        info!(
+            "started BP-Crash-Reporter one-shot injector (Wine/Proton, pid {})",
+            child.id()
+        );
     } else {
-        info!("started BP-Crash-Reporter Windows one-shot injector with post-exit triage (pid {})", child.id());
+        info!(
+            "started BP-Crash-Reporter Windows one-shot injector with post-exit triage (pid {})",
+            child.id()
+        );
     }
     if !under_wine {
         match launch_native_triage_monitor(&dir, &exe, &game_exe, child.id(), start_unix_seconds) {
             Ok(monitor_pid) => info!(
                 "BP-Crash-Reporter: watching game PID {} for post-exit triage (helper PID {})",
-                std::process::id(), monitor_pid
+                std::process::id(),
+                monitor_pid
             ),
             Err(err) => warn!(
                 "BP-Crash-Reporter: one-shot injection active, but post-exit triage helper failed: {err:#}"

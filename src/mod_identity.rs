@@ -264,7 +264,6 @@ mod tests {
         );
     }
 
-
     #[test]
     fn unknown_versions_are_pending_not_guessed_from_similar_names() {
         let dir = tempfile::tempdir().unwrap();

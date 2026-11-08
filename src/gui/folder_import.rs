@@ -54,8 +54,11 @@ impl Exclusions {
             .map_err(|e| format!("Cannot create exclusion file: {e}"))?;
         serde_json::to_writer_pretty(&mut tmp, self)
             .map_err(|e| format!("Cannot serialize exclusions: {e}"))?;
-        tmp.flush().map_err(|e| format!("Cannot flush exclusions: {e}"))?;
-        tmp.as_file().sync_all().map_err(|e| format!("Cannot sync exclusions: {e}"))?;
+        tmp.flush()
+            .map_err(|e| format!("Cannot flush exclusions: {e}"))?;
+        tmp.as_file()
+            .sync_all()
+            .map_err(|e| format!("Cannot sync exclusions: {e}"))?;
         tmp.persist(Self::path(cache_dir))
             .map_err(|e| format!("Cannot save exclusions: {e}"))?;
         Ok(())
@@ -64,7 +67,11 @@ impl Exclusions {
 
 fn path_key(path: &Path) -> String {
     let value = path.to_string_lossy().to_string();
-    if cfg!(windows) { value.to_lowercase() } else { value }
+    if cfg!(windows) {
+        value.to_lowercase()
+    } else {
+        value
+    }
 }
 
 fn supported(path: &Path) -> bool {
@@ -74,14 +81,17 @@ fn supported(path: &Path) -> bool {
 }
 
 fn visit(folder: &Path, paths: &mut Vec<PathBuf>) -> Result<(), String> {
-    for entry in std::fs::read_dir(folder)
-        .map_err(|e| format!("Cannot scan {}: {e}", folder.display()))?
+    for entry in
+        std::fs::read_dir(folder).map_err(|e| format!("Cannot scan {}: {e}", folder.display()))?
     {
         let entry = entry.map_err(|e| format!("Cannot read directory entry: {e}"))?;
-        let kind = entry.file_type()
+        let kind = entry
+            .file_type()
             .map_err(|e| format!("Cannot inspect {}: {e}", entry.path().display()))?;
         // Do not follow symbolic links / junctions into unrelated trees.
-        if kind.is_symlink() { continue; }
+        if kind.is_symlink() {
+            continue;
+        }
         if kind.is_dir() {
             visit(&entry.path(), paths)?;
         } else if kind.is_file() && supported(&entry.path()) {
@@ -96,18 +106,24 @@ fn candidates(
     cache_dir: &Path,
     existing: &[ModSpecification],
 ) -> Result<Vec<PathBuf>, String> {
-    let folder = std::fs::canonicalize(folder)
-        .map_err(|e| format!("Invalid local mods folder: {e}"))?;
-    if !folder.is_dir() { return Err("The local mods path is not a directory".into()); }
+    let folder =
+        std::fs::canonicalize(folder).map_err(|e| format!("Invalid local mods folder: {e}"))?;
+    if !folder.is_dir() {
+        return Err("The local mods path is not a directory".into());
+    }
     // Fail closed if exclusions cannot be loaded; never silently import ignored files.
     let exclusions = Exclusions::load(cache_dir)?;
     let mut known_paths = HashSet::new();
     let mut existing_local = Vec::new();
     for spec in existing {
         let path = Path::new(&spec.url);
-        if !path.is_file() { continue; }
+        if !path.is_file() {
+            continue;
+        }
         if let Ok(path) = std::fs::canonicalize(path) {
-            if known_paths.insert(path_key(&path)) { existing_local.push(path); }
+            if known_paths.insert(path_key(&path)) {
+                existing_local.push(path);
+            }
         }
     }
     let mut found = Vec::new();
@@ -115,14 +131,18 @@ fn candidates(
     found.sort();
     let mut unseen = Vec::new();
     for path in found {
-        let Ok(path) = std::fs::canonicalize(path) else { continue };
+        let Ok(path) = std::fs::canonicalize(path) else {
+            continue;
+        };
         let key = path_key(&path);
         if !exclusions.excluded_paths.contains(&key) && known_paths.insert(key) {
             unseen.push(path);
         }
     }
     // The common no-new-files case does not reread gigabytes of already imported paks.
-    if unseen.is_empty() { return Ok(Vec::new()); }
+    if unseen.is_empty() {
+        return Ok(Vec::new());
+    }
     let mut known_hashes = HashSet::new();
     for path in existing_local {
         if let Ok(hash) = crate::mod_identity::local_digest(&path) {
@@ -168,17 +188,24 @@ fn start(app: &mut App, ctx: &egui::Context, folder: PathBuf) -> Result<(), Stri
 
 pub(super) fn open_preview(app: &mut App, ctx: &egui::Context, folder: PathBuf) {
     if !folder.is_dir() {
-        app.last_action = Some(LastAction::failure(format!("Not a folder: {}", folder.display())));
+        app.last_action = Some(LastAction::failure(format!(
+            "Not a folder: {}",
+            folder.display()
+        )));
         return;
     }
     if app.folder_import.scan.is_some() {
-        app.last_action = Some(LastAction::success("A local-mod scan is already running".into()));
+        app.last_action = Some(LastAction::success(
+            "A local-mod scan is already running".into(),
+        ));
         return;
     }
     // This is the ONLY place that starts a folder scan: opening Import all.
     app.folder_import.preview = None;
     match start(app, ctx, folder) {
-        Ok(()) => app.last_action = Some(LastAction::success("Scanning local mods folder...".into())),
+        Ok(()) => {
+            app.last_action = Some(LastAction::success("Scanning local mods folder...".into()))
+        }
         Err(e) => app.last_action = Some(LastAction::failure(e)),
     }
 }
@@ -192,26 +219,40 @@ pub(super) fn tick(app: &mut App, _ctx: &egui::Context) {
                 // Discard stale results if the configured folder changed mid-scan.
                 if app.state.config.local_mod_folder.as_ref() == Some(&job.folder) {
                     app.folder_import.preview = Some(Preview {
-                        mods: paths.into_iter()
-                            .map(|path| Candidate { path, selected: true })
+                        mods: paths
+                            .into_iter()
+                            .map(|path| Candidate {
+                                path,
+                                selected: true,
+                            })
                             .collect(),
                     });
                 }
             }
             Ok(Err(error)) => app.last_action = Some(LastAction::failure(error)),
             Err(TryRecvError::Empty) => app.folder_import.scan = Some(job),
-            Err(TryRecvError::Disconnected) => app.last_action = Some(LastAction::failure(
-                "The local-mod folder scan stopped unexpectedly".into(),
-            )),
+            Err(TryRecvError::Disconnected) => {
+                app.last_action = Some(LastAction::failure(
+                    "The local-mod folder scan stopped unexpectedly".into(),
+                ))
+            }
         }
     }
 }
 
 pub(super) fn show_preview(app: &mut App, ctx: &egui::Context) {
-    let Some(mut preview) = app.folder_import.preview.take() else { return };
+    let Some(mut preview) = app.folder_import.preview.take() else {
+        return;
+    };
     let mut open = true;
     #[derive(Clone, Copy)]
-    enum Action { None, Import, Exclude(usize), ExcludeUnchecked, Cancel }
+    enum Action {
+        None,
+        Import,
+        Exclude(usize),
+        ExcludeUnchecked,
+        Cancel,
+    }
     let mut action = Action::None;
     let mut exclusions_changed = false;
     egui::Window::new("Import local mods")
@@ -279,7 +320,9 @@ pub(super) fn show_preview(app: &mut App, ctx: &egui::Context) {
                 data.save(cache_dir)
             });
             match res {
-                Ok(()) => { preview.mods.remove(index); }
+                Ok(()) => {
+                    preview.mods.remove(index);
+                }
                 Err(e) => app.last_action = Some(LastAction::failure(e)),
             }
         }
@@ -298,14 +341,18 @@ pub(super) fn show_preview(app: &mut App, ctx: &egui::Context) {
             match result {
                 Ok(()) => {
                     preview.mods.retain(|item| item.selected);
-                    app.last_action = Some(LastAction::success("Local mod exclusions saved".into()));
+                    app.last_action =
+                        Some(LastAction::success("Local mod exclusions saved".into()));
                 }
                 Err(error) => app.last_action = Some(LastAction::failure(error)),
             }
         }
         Action::Import => {
             // Unselected mods are not excluded; they reappear on the next scan.
-            let selected = preview.mods.iter().filter(|item| item.selected)
+            let selected = preview
+                .mods
+                .iter()
+                .filter(|item| item.selected)
                 .map(|item| ModSpecification::new(item.path.to_string_lossy().to_string()))
                 .collect::<Vec<_>>();
             if !selected.is_empty() {
@@ -321,7 +368,9 @@ pub(super) fn show_preview(app: &mut App, ctx: &egui::Context) {
             close = true;
         }
     }
-    if !close { app.folder_import.preview = Some(preview); }
+    if !close {
+        app.folder_import.preview = Some(preview);
+    }
 }
 
 // Manage the same persistent exclusion file directly inside Import local mods.
@@ -338,34 +387,37 @@ fn show_inline_exclusions(app: &mut App, ui: &mut egui::Ui) -> bool {
 
     let mut remove: Option<String> = None;
     let mut add: Option<PathBuf> = None;
-    ui.collapsing(format!("Excluded mods ({})", exclusions.excluded_paths.len()), |ui| {
-        ui.label("These files are hidden from the import list until allowed again.");
-        if ui.small_button("Exclude file...").clicked() {
-            add = rfd::FileDialog::new()
-                .add_filter("Local mods", &["pak", "zip"])
-                .pick_file();
-        }
-        if exclusions.excluded_paths.is_empty() {
-            ui.label("No excluded files.");
-        }
-        egui::ScrollArea::vertical()
-            .max_height(160.0)
-            .auto_shrink([false, true])
-            .show(ui, |ui| {
-                for path in &exclusions.excluded_paths {
-                    ui.horizontal(|ui| {
-                        let filename = Path::new(path)
-                            .file_name()
-                            .and_then(|name| name.to_str())
-                            .unwrap_or(path);
-                        ui.label(filename).on_hover_text(path);
-                        if ui.small_button("Allow again").clicked() {
-                            remove = Some(path.clone());
-                        }
-                    });
-                }
-            });
-    });
+    ui.collapsing(
+        format!("Excluded mods ({})", exclusions.excluded_paths.len()),
+        |ui| {
+            ui.label("These files are hidden from the import list until allowed again.");
+            if ui.small_button("Exclude file...").clicked() {
+                add = rfd::FileDialog::new()
+                    .add_filter("Local mods", &["pak", "zip"])
+                    .pick_file();
+            }
+            if exclusions.excluded_paths.is_empty() {
+                ui.label("No excluded files.");
+            }
+            egui::ScrollArea::vertical()
+                .max_height(160.0)
+                .auto_shrink([false, true])
+                .show(ui, |ui| {
+                    for path in &exclusions.excluded_paths {
+                        ui.horizontal(|ui| {
+                            let filename = Path::new(path)
+                                .file_name()
+                                .and_then(|name| name.to_str())
+                                .unwrap_or(path);
+                            ui.label(filename).on_hover_text(path);
+                            if ui.small_button("Allow again").clicked() {
+                                remove = Some(path.clone());
+                            }
+                        });
+                    }
+                });
+        },
+    );
 
     let mut changed = false;
     if let Some(path) = add {
@@ -381,9 +433,9 @@ fn show_inline_exclusions(app: &mut App, ui: &mut egui::Ui) -> bool {
                     }
                 }
             }
-            Err(error) => app.last_action = Some(LastAction::failure(
-                format!("Cannot exclude file: {error}"),
-            )),
+            Err(error) => {
+                app.last_action = Some(LastAction::failure(format!("Cannot exclude file: {error}")))
+            }
         }
     }
     if let Some(key) = remove {
@@ -419,7 +471,9 @@ mod tests {
         std::fs::write(&excluded, b"excluded contents").unwrap();
         std::fs::write(&fresh, b"new contents").unwrap();
         let mut exclusions = Exclusions::default();
-        exclusions.excluded_paths.insert(path_key(&excluded.canonicalize().unwrap()));
+        exclusions
+            .excluded_paths
+            .insert(path_key(&excluded.canonicalize().unwrap()));
         exclusions.save(&cache).unwrap();
         let specs = [ModSpecification::new(existing.display().to_string())];
         let result = candidates(&folder, &cache, &specs).unwrap();
@@ -442,11 +496,15 @@ mod tests {
         // While imported, it should not appear as a candidate.
         assert!(candidates(&folder, &cache, &[spec]).unwrap().is_empty());
         // After removing it from Mintfixed, it is offered for manual import.
-        assert_eq!(candidates(&folder, &cache, &[]).unwrap(),
-                   vec![local.canonicalize().unwrap()]);
+        assert_eq!(
+            candidates(&folder, &cache, &[]).unwrap(),
+            vec![local.canonicalize().unwrap()]
+        );
         // Only a deliberate exclusion suppresses it on subsequent menu opens.
         let mut exclusions = Exclusions::load(&cache).unwrap();
-        exclusions.excluded_paths.insert(path_key(&local.canonicalize().unwrap()));
+        exclusions
+            .excluded_paths
+            .insert(path_key(&local.canonicalize().unwrap()));
         exclusions.save(&cache).unwrap();
         assert!(candidates(&folder, &cache, &[]).unwrap().is_empty());
     }
@@ -467,10 +525,14 @@ pub(super) fn save_folder_setting(state: &mut State, text: &str) -> Result<bool,
     } else {
         let path = std::fs::canonicalize(text.trim())
             .map_err(|e| format!("Invalid local mods folder: {e}"))?;
-        if !path.is_dir() { return Err("Local mods path is not a folder".into()); }
+        if !path.is_dir() {
+            return Err("Local mods path is not a folder".into());
+        }
         Some(path)
     };
-    if state.config.local_mod_folder == folder { return Ok(false); }
+    if state.config.local_mod_folder == folder {
+        return Ok(false);
+    }
     let previous = std::mem::replace(&mut state.config.local_mod_folder, folder);
     if let Err(error) = state.config.save() {
         state.config.local_mod_folder = previous;

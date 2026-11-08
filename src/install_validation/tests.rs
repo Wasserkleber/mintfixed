@@ -316,7 +316,6 @@ fn member(url: &str) -> ModConfig {
     }
 }
 
-
 #[test]
 fn disabled_groups_warn_but_do_not_block_and_shared_members_are_not_duplicates() {
     let dir = tempfile::tempdir().unwrap();
@@ -390,7 +389,10 @@ fn installer_coalesces_aliases_keeps_order_and_rejects_version_conflicts() {
     let c = spec("another-mod");
     let mut resolved = HashMap::from([
         (a.clone(), resolved_info("https://mod.io/g/drg/m/a#123/10")),
-        (b.clone(), resolved_info("https://mod.io/g/drg/m/renamed#123/10")),
+        (
+            b.clone(),
+            resolved_info("https://mod.io/g/drg/m/renamed#123/10"),
+        ),
         (c.clone(), resolved_info("https://mod.io/g/drg/m/c#456/20")),
     ]);
     let inputs = vec![c.clone(), a.clone(), b.clone()];
@@ -400,9 +402,7 @@ fn installer_coalesces_aliases_keeps_order_and_rejects_version_conflicts() {
     assert_eq!(selected[1].name, resolved[&a].name);
     resolved.insert(b, resolved_info("https://mod.io/g/drg/m/a#123/11"));
     assert!(installation_inputs(&InstallEntry::requested(&inputs), &resolved).is_err());
-    assert!(
-        installation_inputs(&InstallEntry::requested(&[spec("missing")]), &resolved).is_err()
-    );
+    assert!(installation_inputs(&InstallEntry::requested(&[spec("missing")]), &resolved).is_err());
 }
 
 #[test]
@@ -441,7 +441,10 @@ fn dependency_warnings_match_requested_and_resolved_urls_and_deduplicate() {
         .collect();
     let mut dependency = info("modio", "Dependency", "resolved");
     dependency.spec = spec("requested");
-    assert_eq!(missing_dependencies([&parent, &dependency]), vec!["missing"]);
+    assert_eq!(
+        missing_dependencies([&parent, &dependency]),
+        vec!["missing"]
+    );
     assert!(missing_dependencies([&dependency]).is_empty());
     assert!(missing_dependencies(std::iter::empty()).is_empty());
 }

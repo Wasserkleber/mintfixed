@@ -33,20 +33,36 @@ fn find_latest_unseen_report(reports_dir: &Path, seen_file: &Path) -> Option<Rec
     let mut latest: Option<(String, PathBuf, String)> = None;
     for entry in std::fs::read_dir(reports_dir).ok()?.flatten() {
         let path = entry.path();
-        if !path.is_file() { continue; }
-        let Some(name) = path.file_name().and_then(|s| s.to_str()) else { continue; };
-        if !name.starts_with("bpcrash_") || !name.ends_with(".txt") { continue; }
-        // Names contain the reporter's local timestamp, so lexical ordering
-        // ignores the later modification time caused by post-exit triage.
-        if latest.as_ref().is_some_and(|(previous, _, _)| name <= previous.as_str()) {
+        if !path.is_file() {
             continue;
         }
-        let Ok(file) = std::fs::File::open(&path) else { continue; };
+        let Some(name) = path.file_name().and_then(|s| s.to_str()) else {
+            continue;
+        };
+        if !name.starts_with("bpcrash_") || !name.ends_with(".txt") {
+            continue;
+        }
+        // Names contain the reporter's local timestamp, so lexical ordering
+        // ignores the later modification time caused by post-exit triage.
+        if latest
+            .as_ref()
+            .is_some_and(|(previous, _, _)| name <= previous.as_str())
+        {
+            continue;
+        }
+        let Ok(file) = std::fs::File::open(&path) else {
+            continue;
+        };
         let mut bytes = Vec::new();
-        if file.take(MAX_REPORT_READ).read_to_end(&mut bytes).is_err() { continue; }
+        if file.take(MAX_REPORT_READ).read_to_end(&mut bytes).is_err() {
+            continue;
+        }
         let body = String::from_utf8_lossy(&bytes);
-        if !is_crash_report(&body) { continue; }
-        let detail = body.lines()
+        if !is_crash_report(&body) {
+            continue;
+        }
+        let detail = body
+            .lines()
             .find(|line| line.trim_start().starts_with("assert  :"))
             .and_then(|line| line.split_once(':').map(|(_, s)| s.trim().to_owned()))
             .filter(|line| !line.is_empty())
@@ -56,7 +72,10 @@ fn find_latest_unseen_report(reports_dir: &Path, seen_file: &Path) -> Option<Rec
     let (name, path, detail) = latest?;
     // Full path disambiguates multiple DRG installations using the same appdata.
     let id = path.to_string_lossy();
-    if std::fs::read_to_string(seen_file).ok().is_some_and(|seen| seen.trim() == id.as_ref() as &str) {
+    if std::fs::read_to_string(seen_file)
+        .ok()
+        .is_some_and(|seen| seen.trim() == id.as_ref() as &str)
+    {
         return None;
     }
     Some(RecentCrash {
@@ -70,22 +89,41 @@ fn find_latest_unseen_report(reports_dir: &Path, seen_file: &Path) -> Option<Rec
 }
 
 fn is_crash_report(text: &str) -> bool {
-    if !text.starts_with("=== BPCrashHandler report ===") { return false; }
-    let Some(reason) = text.lines().take(8)
-        .find_map(|line| line.trim().strip_prefix("reason  :")) else { return false; };
+    if !text.starts_with("=== BPCrashHandler report ===") {
+        return false;
+    }
+    let Some(reason) = text
+        .lines()
+        .take(8)
+        .find_map(|line| line.trim().strip_prefix("reason  :"))
+    else {
+        return false;
+    };
     // Ignore the two load-time self-tests generated on every successful game start.
     let reason = reason.trim().to_ascii_lowercase();
-    !reason.contains("self test") && !reason.contains("self-test")
+    !reason.contains("self test")
+        && !reason.contains("self-test")
         && (reason.contains("exception") || reason.contains("fatal") || reason.contains("crash"))
 }
 
 fn format_report_timestamp(name: &str) -> Option<String> {
     let date = name.get(8..16)?;
     let time = name.get(17..23)?;
-    if !date.bytes().chain(time.bytes()).all(|b| b.is_ascii_digit()) { return None; }
-    if name.as_bytes().get(16) != Some(&b'_') { return None; }
-    Some(format!("{}-{}-{} {}:{}:{}", &date[..4], &date[4..6], &date[6..8],
-                 &time[..2], &time[2..4], &time[4..6]))
+    if !date.bytes().chain(time.bytes()).all(|b| b.is_ascii_digit()) {
+        return None;
+    }
+    if name.as_bytes().get(16) != Some(&b'_') {
+        return None;
+    }
+    Some(format!(
+        "{}-{}-{} {}:{}:{}",
+        &date[..4],
+        &date[4..6],
+        &date[6..8],
+        &time[..2],
+        &time[2..4],
+        &time[4..6]
+    ))
 }
 
 // Open text reports with a known text editor on Windows. Using the system
@@ -105,7 +143,9 @@ fn open_report(path: &Path) -> std::io::Result<()> {
 }
 
 pub(super) fn show(ctx: &egui::Context, recent: &mut Option<RecentCrash>) {
-    let Some(crash) = recent.as_mut() else { return; };
+    let Some(crash) = recent.as_mut() else {
+        return;
+    };
     let mut open = true;
     let mut dismissed = false;
     egui::Window::new("Recent DRG crash")
@@ -125,7 +165,11 @@ pub(super) fn show(ctx: &egui::Context, recent: &mut Option<RecentCrash>) {
             }
             ui.separator();
             ui.label("Crash report:");
-            if ui.link(crash.name.as_str()).on_hover_text(crash.path.display().to_string()).clicked() {
+            if ui
+                .link(crash.name.as_str())
+                .on_hover_text(crash.path.display().to_string())
+                .clicked()
+            {
                 if let Err(e) = open_report(&crash.path) {
                     crash.open_error = Some(format!("Could not open report: {e}"));
                 }
@@ -146,7 +190,9 @@ pub(super) fn show(ctx: &egui::Context, recent: &mut Option<RecentCrash>) {
                 if ui.button("Copy path").clicked() {
                     ui.ctx().copy_text(crash.path.display().to_string());
                 }
-                if ui.button("Dismiss").clicked() { dismissed = true; }
+                if ui.button("Dismiss").clicked() {
+                    dismissed = true;
+                }
             });
             if let Some(err) = &crash.open_error {
                 ui.colored_label(ui.visuals().error_fg_color, err);
@@ -165,9 +211,11 @@ mod tests {
     use super::*;
 
     fn write_report(dir: &Path, name: &str, reason: &str, detail: &str) {
-        std::fs::write(dir.join(name), format!(
-            "=== BPCrashHandler report ===\nreason  : {reason}\n\nassert  : {detail}\n"
-        )).unwrap();
+        std::fs::write(
+            dir.join(name),
+            format!("=== BPCrashHandler report ===\nreason  : {reason}\n\nassert  : {detail}\n"),
+        )
+        .unwrap();
     }
 
     #[test]
@@ -175,9 +223,24 @@ mod tests {
         let temp = tempfile::tempdir().unwrap();
         let reports = temp.path().join("reporter");
         std::fs::create_dir(&reports).unwrap();
-        write_report(&reports, "bpcrash_20261107_090400_1_01_t1.txt", "load-time self test (armed)", "");
-        write_report(&reports, "bpcrash_20261107_090509_1_02_t1.txt", "first-chance exception #1", "older error");
-        write_report(&reports, "bpcrash_20261107_115333_2_03_t2.txt", "first-chance exception #1", "missing parent");
+        write_report(
+            &reports,
+            "bpcrash_20261107_090400_1_01_t1.txt",
+            "load-time self test (armed)",
+            "",
+        );
+        write_report(
+            &reports,
+            "bpcrash_20261107_090509_1_02_t1.txt",
+            "first-chance exception #1",
+            "older error",
+        );
+        write_report(
+            &reports,
+            "bpcrash_20261107_115333_2_03_t2.txt",
+            "first-chance exception #1",
+            "missing parent",
+        );
         let seen = temp.path().join("ack.txt");
         let latest = find_latest_unseen_report(&reports, &seen).unwrap();
         assert!(latest.name.contains("115333"));
@@ -196,7 +259,12 @@ mod tests {
         let crash = find_latest_unseen_report(&reports, &seen).unwrap();
         std::fs::write(&seen, crash.path.to_string_lossy().as_bytes()).unwrap();
         assert!(find_latest_unseen_report(&reports, &seen).is_none());
-        write_report(&reports, "bpcrash_20261107_100000_2_03_t2.txt", "first-chance exception #1", "new error");
+        write_report(
+            &reports,
+            "bpcrash_20261107_100000_2_03_t2.txt",
+            "first-chance exception #1",
+            "new error",
+        );
         assert!(find_latest_unseen_report(&reports, &seen).is_some());
     }
 }

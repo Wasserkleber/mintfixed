@@ -1,7 +1,7 @@
-mod crash_notice;
 mod crash_history;
-mod folder_import;
+mod crash_notice;
 mod find_string;
+mod folder_import;
 mod group_controls;
 use group_controls::{Drag, Target};
 mod message;
@@ -870,7 +870,10 @@ impl App {
                         let matching_mod_in_group = !search_needle.trim().is_empty()
                             && groups.get(group_name).is_some_and(|group| {
                                 group.mods.iter().any(|mc| {
-                                    let display_name = self.state.store.get_mod_info(&mc.spec)
+                                    let display_name = self
+                                        .state
+                                        .store
+                                        .get_mod_info(&mc.spec)
                                         .map(|info| info.name)
                                         .unwrap_or_else(|| mc.spec.url.clone());
                                     display_name.to_lowercase().contains(&search_needle)
@@ -999,16 +1002,16 @@ impl App {
                         }
                         let over_group_header = ui.rect_contains_pointer(header_drop_area);
                         let over_above_group = ui.rect_contains_pointer(above_group);
-                        let over_below_group = fully_closed && ui.rect_contains_pointer(below_group);
+                        let over_below_group =
+                            fully_closed && ui.rect_contains_pointer(below_group);
                         let dragging_mod = egui::DragAndDrop::payload::<Drag>(ui.ctx())
                             .is_some_and(|d| !d.is_group);
                         // Highlight the destination without drawing lines over the
                         // group name. A slim rounded bar indicates a profile-level
                         // insertion; a soft tint indicates a drop into the group.
                         let accent = ui.visuals().selection.stroke.color;
-                        let group_fill = Color32::from_rgba_unmultiplied(
-                            accent.r(), accent.g(), accent.b(), 42,
-                        );
+                        let group_fill =
+                            Color32::from_rgba_unmultiplied(accent.r(), accent.g(), accent.b(), 42);
                         if sorting_config.is_none() && dragging_mod {
                             if over_above_group || over_below_group {
                                 let y = if over_above_group {
@@ -1020,7 +1023,11 @@ impl App {
                                     egui::pos2(header_row.center().x, y),
                                     egui::vec2((header_row.width() - 16.0).max(0.0), 3.0),
                                 );
-                                ui.painter().rect_filled(marker, egui::CornerRadius::same(2), accent);
+                                ui.painter().rect_filled(
+                                    marker,
+                                    egui::CornerRadius::same(2),
+                                    accent,
+                                );
                             } else if over_group_header {
                                 ui.painter().rect_filled(
                                     header_drop_area.shrink2(egui::vec2(3.0, 0.0)),
@@ -1049,9 +1056,15 @@ impl App {
                             && let Some(source) = egui::DragAndDrop::payload::<Drag>(ui.ctx())
                         {
                             let target = if over_above_group {
-                                Target { group: None, slot: row_index }
+                                Target {
+                                    group: None,
+                                    slot: row_index,
+                                }
                             } else if over_below_group {
-                                Target { group: None, slot: row_index + 1 }
+                                Target {
+                                    group: None,
+                                    slot: row_index + 1,
+                                }
                             } else {
                                 // Dropping on the header always prepends to the group,
                                 // whether it was already open or expanded on hover.
@@ -1613,23 +1626,26 @@ impl App {
                     Ok(None)
                 } else {
                     std::fs::canonicalize(folder_text).and_then(|path| {
-                        if path.is_dir() { Ok(Some(path)) }
-                        else { Err(std::io::Error::other("Local mods path is not a folder")) }
+                        if path.is_dir() {
+                            Ok(Some(path))
+                        } else {
+                            Err(std::io::Error::other("Local mods path is not a folder"))
+                        }
                     })
                 };
                 if let Err(error) = &folder_result {
                     window.local_mod_folder_err = Some(error.to_string());
                 } else {
-                if let Err(e) = is_drg_pak(&window.drg_pak_path) {
-                    window.drg_pak_path_err = Some(e.to_string());
-                } else {
-                    self.state.config.drg_pak_path = Some(PathBuf::from(
-                        self.settings_window.take().unwrap().drg_pak_path,
-                    ));
-                    self.state.config.local_mod_folder = folder_result.ok().flatten();
-                    rescan_folder = true;
-                    self.state.config.save().unwrap();
-                }
+                    if let Err(e) = is_drg_pak(&window.drg_pak_path) {
+                        window.drg_pak_path_err = Some(e.to_string());
+                    } else {
+                        self.state.config.drg_pak_path = Some(PathBuf::from(
+                            self.settings_window.take().unwrap().drg_pak_path,
+                        ));
+                        self.state.config.local_mod_folder = folder_result.ok().flatten();
+                        rescan_folder = true;
+                        self.state.config.save().unwrap();
+                    }
                 }
             } else if !open {
                 self.settings_window = None;
@@ -1641,7 +1657,9 @@ impl App {
             if folder.trim().is_empty() || PathBuf::from(folder.trim()).is_dir() {
                 match folder_import::save_folder_setting(&mut self.state, &folder) {
                     Ok(changed) => {
-                        if changed { folder_import::reset_schedule(self); }
+                        if changed {
+                            folder_import::reset_schedule(self);
+                        }
                     }
                     Err(error) => {
                         if let Some(window) = &mut self.settings_window {
@@ -1652,13 +1670,13 @@ impl App {
                 }
             } else if committed {
                 if let Some(window) = &mut self.settings_window {
-                    window.local_mod_folder_err = Some(format!(
-                        "Not a folder: {}", folder.trim()
-                    ));
+                    window.local_mod_folder_err = Some(format!("Not a folder: {}", folder.trim()));
                 }
             }
         }
-        if rescan_folder { folder_import::reset_schedule(self); }
+        if rescan_folder {
+            folder_import::reset_schedule(self);
+        }
     }
 
     fn show_lints_toggle(&mut self, ctx: &egui::Context) {
@@ -2229,8 +2247,12 @@ impl WindowSettings {
         Self {
             drg_pak_path: path,
             drg_pak_path_err: None,
-            local_mod_folder: state.config.local_mod_folder.as_ref()
-                .map(|p| p.display().to_string()).unwrap_or_default(),
+            local_mod_folder: state
+                .config
+                .local_mod_folder
+                .as_ref()
+                .map(|p| p.display().to_string())
+                .unwrap_or_default(),
             local_mod_folder_err: None,
         }
     }

@@ -1,3 +1,5 @@
+mod blueprint_guard;
+
 use std::collections::{HashMap, HashSet};
 use std::io::{BufReader, BufWriter, Cursor, ErrorKind, Read, Seek, Write};
 use std::path::{Path, PathBuf};
@@ -325,7 +327,10 @@ pub fn integrate<P: AsRef<Path>>(
             Err(err) => return Err(err.into()),
         };
         if needs_update {
-            info!("Mintfixed: updating hook DLL (contents changed): {}", path_hook_dll.display());
+            info!(
+                "Mintfixed: updating hook DLL (contents changed): {}",
+                path_hook_dll.display()
+            );
             fs::write(&path_hook_dll, hook_dll)?;
         }
     }
@@ -333,6 +338,141 @@ pub fn integrate<P: AsRef<Path>>(
     let mut init_spacerig_assets = HashSet::new();
     let mut init_cave_assets = HashSet::new();
 
+    // Blueprint dependency preflight. Resolve first-wins assets before emitting
+    // anything into mods_P.pak, then inspect actual exported SuperIndex edges.
+    // Do not use the old "all vanilla exports must survive" ABI heuristic:
+    // intentionally simplified UI/level Blueprints legitimately remove functions.
+    let vanilla_files: HashMap<String, String> = fsd_pak
+        .files()
+        .into_iter()
+        .map(|path| (path.to_ascii_lowercase(), path))
+        .collect();
+    let mut selected_blueprints: HashMap<String, (String, blueprint_guard::BlueprintScan)> =
+        HashMap::new();
+    let mut seen_packages = HashSet::new();
+    for (mod_info, path) in &mods {
+        let raw_mod_file = fs::File::open(path).with_context(|_| CtxtIoSnafu {
+            mod_info: mod_info.clone(),
+        })?;
+        let mut reader = get_pak_from_data(Box::new(BufReader::new(raw_mod_file)))?;
+        let pak = repak::PakBuilder::new()
+            .reader(&mut reader)
+            .with_context(|_| CtxtRepakSnafu {
+                mod_info: mod_info.clone(),
+            })?;
+        let mount = PakPath::new(pak.mount_point());
+        let pak_files = pak
+            .files()
+            .into_iter()
+            .map(|file| -> Result<_, IntegrationError> {
+                let mounted = mount.join(&file);
+                Ok((
+                    mounted
+                        .strip_prefix("../../../")
+                        .map_err(|_| IntegrationError::ModfileInvalidPrefix {
+                            mod_info: mod_info.clone().into(),
+                            modfile_path: mounted.to_string(),
+                        })?
+                        .to_path_buf(),
+                    file,
+                ))
+            })
+            .collect::<Result<HashMap<_, _>, _>>()?;
+        for (normalized, pak_path) in &pak_files {
+            if !matches!(normalized.extension(), Some("uasset" | "umap")) {
+                continue;
+            }
+            let Some(uexp_path) = pak_files.get(&normalized.with_extension("uexp")) else {
+                continue;
+            };
+            let stem = normalized.with_extension("").as_str().to_ascii_lowercase();
+            if !seen_packages.insert(stem.clone()) {
+                continue; // The writer also gives the earlier mod precedence.
+            }
+            let uasset = pak.get(pak_path, &mut reader).with_context(|_| CtxtRepakSnafu {
+                mod_info: mod_info.clone(),
+            })?;
+            let uexp = pak.get(uexp_path, &mut reader).with_context(|_| CtxtRepakSnafu {
+                mod_info: mod_info.clone(),
+            })?;
+            match blueprint_guard::scan(&uasset, &uexp) {
+                Ok(scan) => {
+                    selected_blueprints.insert(stem, (mod_info.name.clone(), scan));
+                }
+                Err(error) => {
+                    tracing::debug!(
+                        "Blueprint dependency guard: cannot inspect {} from '{}': {}; no verdict",
+                        normalized, mod_info.name, error
+                    );
+                }
+            }
+        }
+    }
+
+    // Dependencies are keyed by *target* package, while source identifies the
+    // selected mod package with the cooked reference. This includes packages
+    // appearing later in mod priority order (such as Elytras vs OBNC).
+    let mut required_by: HashMap<String, Vec<(String, blueprint_guard::Dependency)>> =
+        HashMap::new();
+    for (source, (_, scan)) in &selected_blueprints {
+        for dependency in &scan.dependencies {
+            required_by
+                .entry(dependency.target.clone())
+                .or_default()
+                .push((source.clone(), dependency.clone()));
+        }
+    }
+    let mut rejected_blueprints = HashSet::new();
+    let mut candidates = selected_blueprints.keys().cloned().collect::<Vec<_>>();
+    candidates.sort();
+    for stem in candidates {
+        let Some(references) = required_by.get(&stem) else {
+            continue; // No *installed* package has a hard reference to this one.
+        };
+        let Some(vanilla_asset_path) = vanilla_files.get(&format!("{stem}.uasset")) else {
+            continue; // No vanilla Blueprint is replaced.
+        };
+        let Some(vanilla_exp_path) = vanilla_files.get(&format!("{stem}.uexp")) else {
+            continue;
+        };
+        let Some((mod_name, replacement)) = selected_blueprints.get(&stem) else {
+            continue;
+        };
+        let needed = references
+            .iter()
+            .filter(|(source, _)| !rejected_blueprints.contains(source))
+            .map(|(_, dep)| dep)
+            .collect::<Vec<_>>();
+        if needed.is_empty() {
+            continue;
+        }
+        let original_uasset = fsd_pak.get(vanilla_asset_path, &mut fsd_pak_reader)?;
+        let original_uexp = fsd_pak.get(vanilla_exp_path, &mut fsd_pak_reader)?;
+        let original = match blueprint_guard::scan(&original_uasset, &original_uexp) {
+            Ok(original) => original,
+            Err(error) => {
+                warn!("Blueprint dependency guard: cannot inspect vanilla {}: {}; no verdict", stem, error);
+                continue;
+            }
+        };
+        let missing = blueprint_guard::broken_references(&original, replacement, needed);
+        if !missing.is_empty() {
+            let referers = references
+                .iter()
+                .filter(|(source, _)| !rejected_blueprints.contains(source))
+                .map(|(source, _)| source.as_str())
+                .collect::<HashSet<_>>();
+            warn!(
+                "Blueprint dependency guard: excluded {} from mod '{}': unresolved imported SuperIndex symbol(s) [{}] required by {:?}; vanilla package retained",
+                stem, mod_name, missing.join(", "), referers
+            );
+            rejected_blueprints.insert(stem);
+        }
+    }
+    info!(
+        "Blueprint dependency guard: scanned {} winning mod package(s); rejected {} conflicting vanilla replacement(s)",
+        selected_blueprints.len(), rejected_blueprints.len()
+    );
     let mut added_paths = HashSet::new();
 
     for (mod_info, path) in &mods {
@@ -375,6 +515,12 @@ pub fn integrate<P: AsRef<Path>>(
             .collect::<Result<HashMap<_, _>, _>>()?;
 
         for (normalized, pak_path) in &pak_files {
+            if blueprint_guard::rejected_sidecar(normalized.as_str(), &rejected_blueprints) {
+                continue;
+            }
+            if added_paths.contains(&normalized.as_str().to_ascii_lowercase()) {
+                continue;
+            }
             match normalized.extension() {
                 Some("uasset" | "umap")
                     if pak_files.contains_key(&normalized.with_extension("uexp")) =>
@@ -419,6 +565,9 @@ pub fn integrate<P: AsRef<Path>>(
         }
 
         for (normalized, pak_path) in pak_files {
+            if blueprint_guard::rejected_sidecar(normalized.as_str(), &rejected_blueprints) {
+                continue;
+            }
             let lowercase = normalized.as_str().to_ascii_lowercase();
             if added_paths.contains(&lowercase) {
                 continue;
@@ -514,11 +663,12 @@ pub fn integrate<P: AsRef<Path>>(
             })?;
         let base_path = uasset_path.strip_suffix(".uasset").unwrap();
         let uexp_path = format!("{base_path}.uexp");
-        let uasset = *int_files
-            .get(&uasset_path)
-            .ok_or_else(|| IntegrationError::GenericError {
-                msg: format!("missing bundled {asset_name}.uasset"),
-            })?;
+        let uasset =
+            *int_files
+                .get(&uasset_path)
+                .ok_or_else(|| IntegrationError::GenericError {
+                    msg: format!("missing bundled {asset_name}.uasset"),
+                })?;
         let uexp = *int_files
             .get(&uexp_path)
             .ok_or_else(|| IntegrationError::GenericError {
@@ -569,6 +719,12 @@ pub fn integrate<P: AsRef<Path>>(
     bundle.write_file(&buf, ar_path)?;
 
     bundle.finish()?;
+    if !rejected_blueprints.is_empty() {
+        warn!(
+            "Blueprint dependency guard: excluded {} conflicting vanilla package(s) from mods_P.pak",
+            rejected_blueprints.len()
+        );
+    }
 
     #[cfg(feature = "hook")]
     if let Err(err) = crate::crash_reporter::install(
@@ -576,7 +732,9 @@ pub fn integrate<P: AsRef<Path>>(
         &installation.installation_type,
     ) {
         // Optional diagnostics must not prevent installing mods.
-        warn!("BP-Crash-Reporter installation failed (mods installed, enhanced logging unavailable): {err:#}");
+        warn!(
+            "BP-Crash-Reporter installation failed (mods installed, enhanced logging unavailable): {err:#}"
+        );
     }
 
     // Log only after the complete output pak has been written successfully.

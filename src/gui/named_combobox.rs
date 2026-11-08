@@ -40,7 +40,11 @@ impl NamedEntries<ModProfile> for ModData {
         }
     }
     fn duplicate_named(&mut self, source: &str, new_name: String) {
-        let profile = self.profiles.get(source).expect("existing profile").duplicate();
+        let profile = self
+            .profiles
+            .get(source)
+            .expect("existing profile")
+            .duplicate();
         self.profiles.insert(new_name, profile);
         // Managing another profile must not silently switch the active profile.
     }
@@ -140,7 +144,10 @@ mod tests {
         data.profiles.insert("other".to_owned(), Default::default());
         data.duplicate_named("other", "copy".to_owned());
         assert_eq!(data.active_profile, "default");
-        assert_eq!(data.profiles["copy"].mods.len(), data.profiles["other"].mods.len());
+        assert_eq!(
+            data.profiles["copy"].mods.len(),
+            data.profiles["other"].mods.len()
+        );
         assert_ne!(data.profiles["copy"].id, data.profiles["other"].id);
     }
 }

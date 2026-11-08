@@ -66,8 +66,12 @@ where
         target.clear();
     }
     let response = ui.add(
-        egui::Button::new(if target.is_empty() { "Choose profile" } else { target.as_str() })
-            .min_size(egui::vec2(135.0, ui.spacing().interact_size.y)),
+        egui::Button::new(if target.is_empty() {
+            "Choose profile"
+        } else {
+            target.as_str()
+        })
+        .min_size(egui::vec2(135.0, ui.spacing().interact_size.y)),
     );
     if response.clicked() {
         *picker_open = !*picker_open;
@@ -76,9 +80,17 @@ where
     let x = response.rect.right() - 12.0;
     let y = response.rect.center().y;
     let arrow = if *picker_open {
-        [egui::pos2(x - 4.0, y + 2.0), egui::pos2(x + 4.0, y + 2.0), egui::pos2(x, y - 2.0)]
+        [
+            egui::pos2(x - 4.0, y + 2.0),
+            egui::pos2(x + 4.0, y + 2.0),
+            egui::pos2(x, y - 2.0),
+        ]
     } else {
-        [egui::pos2(x - 4.0, y - 2.0), egui::pos2(x + 4.0, y - 2.0), egui::pos2(x, y + 2.0)]
+        [
+            egui::pos2(x - 4.0, y - 2.0),
+            egui::pos2(x + 4.0, y - 2.0),
+            egui::pos2(x, y + 2.0),
+        ]
     };
     ui.painter().add(egui::Shape::convex_polygon(
         arrow.to_vec(),
@@ -172,7 +184,10 @@ pub(super) fn ui<E, N>(
                     .id_salt("manage-rename-profile")
                     .show(ui, |ui| {
                         if choose_profile(
-                            ui, entries, &mut editor.rename_target, &mut editor.rename_picker_open,
+                            ui,
+                            entries,
+                            &mut editor.rename_target,
+                            &mut editor.rename_picker_open,
                         ) {
                             editor.rename_success = None;
                         }
@@ -208,9 +223,8 @@ pub(super) fn ui<E, N>(
                             editor.rename_name.clear();
                             editor.rename_target.clear();
                             editor.rename_picker_open = false;
-                            editor.rename_success = Some(format!(
-                                "Renamed profile \"{current}\" to \"{candidate}\"."
-                            ));
+                            editor.rename_success =
+                                Some(format!("Renamed profile \"{current}\" to \"{candidate}\"."));
                         }
                         if let Some(message) = &editor.rename_success {
                             ui.colored_label(egui::Color32::from_rgb(100, 200, 120), message);
@@ -222,13 +236,17 @@ pub(super) fn ui<E, N>(
                     .show(ui, |ui| {
                         let previous_target = editor.duplicate_target.clone();
                         if choose_profile(
-                            ui, entries, &mut editor.duplicate_target, &mut editor.duplicate_picker_open,
+                            ui,
+                            entries,
+                            &mut editor.duplicate_target,
+                            &mut editor.duplicate_picker_open,
                         ) {
                             editor.duplicate_success = None;
                             if editor.duplicate_name.is_empty()
                                 || editor.duplicate_name == format!("{previous_target} - Copy")
                             {
-                                editor.duplicate_name = format!("{} - Copy", editor.duplicate_target);
+                                editor.duplicate_name =
+                                    format!("{} - Copy", editor.duplicate_target);
                             }
                         }
                         let target = editor.duplicate_target.clone();
@@ -280,7 +298,10 @@ pub(super) fn ui<E, N>(
                         if let Some(result) = &editor.export_feedback {
                             match result {
                                 Ok(message) => {
-                                    ui.colored_label(egui::Color32::from_rgb(100, 200, 120), message);
+                                    ui.colored_label(
+                                        egui::Color32::from_rgb(100, 200, 120),
+                                        message,
+                                    );
                                 }
                                 Err(message) => {
                                     ui.colored_label(ui.visuals().warn_fg_color, message);
