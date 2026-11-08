@@ -1,5 +1,5 @@
-# Build two genuine source versions of mintfixed (latest release tag and current
-# checkout), and package each one as an EXE plus a ZIP containing that EXE.
+# Build the current checkout once, then publish the SAME binary twice:
+# latest mintfixed tag name and mintfixed_experimental, each as EXE and ZIP.
 # Usage from repository root: .\build.cmd
 # Offline (use locally fetched tags): .\build.cmd -NoFetch
 param(
@@ -8,25 +8,19 @@ param(
     [string] $Tag = '',
     [string] $OutputDirectory = ''
 )
-
 $ErrorActionPreference = 'Stop'
 $repo = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 $releaseRoot = Join-Path $repo 'target\release'
 $dist = Join-Path $releaseRoot 'dist'
-# A persistent, ignored worktree + Cargo target preserve incremental builds.
-$stableTree = Join-Path $repo 'target\mintfixed-stable-src'
-$stableTarget = Join-Path $repo 'target\mintfixed-stable-build'
 $normalTarget = Join-Path $repo 'target'
 $originalTarget = $env:CARGO_TARGET_DIR
 $originalReleaseTag = $env:MINTFIXED_RELEASE_TAG
 $stage = $null
-
 function Assert-Success([string] $description) {
     if ($LASTEXITCODE -ne 0) {
         throw "$description failed (exit code $LASTEXITCODE)"
     }
 }
-
 function Package-Exe([string] $source, [string] $baseName, [string] $folder) {
     if (-not (Test-Path -LiteralPath $source -PathType Leaf)) {
         throw "Expected build output was not found: $source"
@@ -40,7 +34,6 @@ function Package-Exe([string] $source, [string] $baseName, [string] $folder) {
         throw "Failed to create ZIP: $zip"
     }
 }
-
 Push-Location $repo
 try {
     # GitHub Actions compiles the exact tag before packaging. In this mode,
@@ -90,7 +83,6 @@ try {
     if ($Tag -or $OutputDirectory) {
         throw '-Tag and -OutputDirectory are only supported together with -NoBuild.'
     }
-
     & git rev-parse --is-inside-work-tree | Out-Null
     Assert-Success 'Repository check'
     & cargo --version | Out-Null
@@ -101,7 +93,6 @@ try {
         & git fetch --tags origin
         Assert-Success 'git fetch --tags origin'
     }
-
     # Version sorting chooses mintfixed_1.10 before mintfixed_1.9. Ignore
     # historical upstream/legacy tags that aren't mintfixed release versions.
     $tagCandidates = @(& git tag --list 'mintfixed_*' --sort=-version:refname)
@@ -113,61 +104,41 @@ try {
         throw 'No mintfixed_X.Y[.Z] Git tag found. Fetch or create a release tag first.'
     }
     Write-Host "Latest release tag: $latestTag"
-
-    # Keep the tagged source out of the user's current beta checkout. Reuse
-    # the same worktree so a second run does not recompile everything.
-    if (Test-Path -LiteralPath $stableTree) {
-        $worktreeRoot = @(& git -C $stableTree rev-parse --show-toplevel)
-        Assert-Success 'Existing tagged worktree check'
-        if (-not $worktreeRoot -or
-            [IO.Path]::GetFullPath($worktreeRoot[0]).TrimEnd('\') -ine
-            [IO.Path]::GetFullPath($stableTree).TrimEnd('\')) {
-            throw "Refusing to modify an unexpected directory: $stableTree"
-        }
-        $changes = @(& git -C $stableTree status --porcelain --untracked-files=all)
-        Assert-Success 'Tagged worktree status check'
-        if ($changes.Count -gt 0) {
-            throw "Tagged build worktree has local changes: $stableTree (inspect it before continuing)"
-        }
-        & git -C $stableTree checkout --detach "refs/tags/$latestTag"
-        Assert-Success 'Switching tagged build worktree'
-    } else {
-        New-Item -ItemType Directory -Path $normalTarget -Force | Out-Null
-        & git worktree add --detach $stableTree "refs/tags/$latestTag"
-        Assert-Success 'Creating tagged build worktree'
-    }
-
-    $tagCommit = @(& git -C $stableTree rev-parse HEAD)
-    Assert-Success 'Tagged commit lookup'
-    Write-Host "Building release source $latestTag ($($tagCommit[0].Substring(0,7)))..."
-    $env:CARGO_TARGET_DIR = $stableTarget
-    $env:MINTFIXED_RELEASE_TAG = $latestTag
-    Push-Location $stableTree
-    try {
-        & cargo build --release
-        Assert-Success "Release build ($latestTag)"
-    } finally {
-        Pop-Location
-    }
-    $releaseExe = Join-Path $stableTarget 'release\mint.exe'
-
-    # Current checkout is *not* given a release tag; its own compile-time
-    # version metadata continues to report commit distance / modifications.
-    Write-Host 'Building experimental source from the current checkout...'
+    # The latest tag supplies a FILENAME only. Never check out that older
+    # tag or build a second executable from it.
+    $headCommit = @(& git rev-parse HEAD)
+    Assert-Success 'Current commit lookup'
+    Write-Host "Building current checkout ($($headCommit[0].Substring(0, 7))) once..."
     $env:CARGO_TARGET_DIR = $normalTarget
     Remove-Item Env:MINTFIXED_RELEASE_TAG -ErrorAction SilentlyContinue
-    & cargo build --release
-    Assert-Success 'Experimental build'
-    $experimentalExe = Join-Path $normalTarget 'release\mint.exe'
+    $compiledExe = Join-Path $normalTarget 'release\mint.exe'
+    # Force Cargo to recreate the executable, while retaining cached dependencies.
+    if (Test-Path -LiteralPath $compiledExe -PathType Leaf) {
+        Remove-Item -LiteralPath $compiledExe -Force
+    }
+    & cargo build --release --locked
+    Assert-Success 'Current checkout build'
+    if (-not (Test-Path -LiteralPath $compiledExe -PathType Leaf)) {
+        throw "Cargo did not create the expected executable: $compiledExe"
+    }
 
-    # Package into a staging directory, then replace the four previous
-    # distributables as a group only after both builds have succeeded.
+    # Stage all four outputs before replacing the previous dist directory.
     New-Item -ItemType Directory -Path $releaseRoot -Force | Out-Null
     $stage = Join-Path $releaseRoot ('.mintfixed-dist-new-' + [guid]::NewGuid().ToString('N'))
     New-Item -ItemType Directory -Path $stage -Force | Out-Null
-    Package-Exe $releaseExe $latestTag $stage
-    Package-Exe $experimentalExe 'mintfixed_experimental' $stage
+    Package-Exe $compiledExe $latestTag $stage
+    Package-Exe $compiledExe 'mintfixed_experimental' $stage
 
+    # Verify that the two distributable EXEs are byte-for-byte identical
+    # to the newly compiled source executable (not a stale tagged build).
+    $compiledHash = (Get-FileHash -LiteralPath $compiledExe -Algorithm SHA256).Hash
+    foreach ($name in @($latestTag, 'mintfixed_experimental')) {
+        $packagedExe = Join-Path $stage ($name + '.exe')
+        $packagedHash = (Get-FileHash -LiteralPath $packagedExe -Algorithm SHA256).Hash
+        if ($compiledHash -cne $packagedHash) {
+            throw "Build verification failed: $packagedExe differs from $compiledExe"
+        }
+    }
     $oldDist = Join-Path $releaseRoot ('.mintfixed-dist-old-' + [guid]::NewGuid().ToString('N'))
     $hadOldDist = Test-Path -LiteralPath $dist
     if ($hadOldDist) {
@@ -185,7 +156,6 @@ try {
     if ($hadOldDist) {
         Remove-Item -LiteralPath $oldDist -Recurse -Force
     }
-
     Write-Host ''
     Write-Host 'Build complete. Distributables:' -ForegroundColor Green
     Get-ChildItem -LiteralPath $dist -File | Sort-Object Name |
