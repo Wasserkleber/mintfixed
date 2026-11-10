@@ -382,17 +382,21 @@ pub(in crate::gui) fn drop_files(
         let files = tokio::task::spawn_blocking(move || {
             let mut specs = Vec::new();
             for path in paths {
-                if !path
-                    .extension()
-                    .is_some_and(|ext| ext.eq_ignore_ascii_case("pak"))
-                {
-                    return Err(format!("Expected a .pak file: {}", path.display()));
+                let ext = path.extension().and_then(|ext| ext.to_str());
+                if ext.is_some_and(|ext| ext.eq_ignore_ascii_case("lua")) {
+                    // A bitfix patch: installed beside the game exe, not packed.
+                } else if ext.is_some_and(|ext| ext.eq_ignore_ascii_case("pak")) {
+                    let file = std::fs::File::open(&path)
+                        .map_err(|e| format!("{}: {e}", path.display()))?;
+                    repak::PakBuilder::new()
+                        .reader(&mut std::io::BufReader::new(file))
+                        .map_err(|e| format!("{}: {e}", path.display()))?;
+                } else {
+                    return Err(format!(
+                        "Expected a .pak or bitfix .lua file: {}",
+                        path.display()
+                    ));
                 }
-                let file =
-                    std::fs::File::open(&path).map_err(|e| format!("{}: {e}", path.display()))?;
-                repak::PakBuilder::new()
-                    .reader(&mut std::io::BufReader::new(file))
-                    .map_err(|e| format!("{}: {e}", path.display()))?;
                 let path = path
                     .into_os_string()
                     .into_string()
@@ -400,7 +404,7 @@ pub(in crate::gui) fn drop_files(
                 specs.push(ModSpecification::new(path));
             }
             if specs.is_empty() {
-                return Err("No local .pak files in the drop".into());
+                return Err("No local .pak or .lua files in the drop".into());
             }
             identity_specs.extend(specs.iter().cloned());
             store.refresh_local_files(&identity_specs);

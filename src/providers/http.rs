@@ -154,8 +154,15 @@ impl ModProvider for HttpProvider {
                     let content_type = mime.to_str().context(InvalidMimeSnafu {
                         url: url.0.to_string(),
                     })?;
+                    // A bitfix .lua patch is text; raw hosts serve it as text/plain.
+                    let lua = url
+                        .0
+                        .split(['?', '#'])
+                        .next()
+                        .is_some_and(|path| path.to_ascii_lowercase().ends_with(".lua"));
                     ensure!(
-                        ["application/zip", "application/octet-stream"].contains(&content_type),
+                        ["application/zip", "application/octet-stream"].contains(&content_type)
+                            || (lua && content_type.starts_with("text/")),
                         UnexpectedContentTypeSnafu {
                             found_content_type: content_type.to_string(),
                             url: url.0.to_string(),

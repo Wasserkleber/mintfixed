@@ -96,6 +96,19 @@ in game:
 You can either drag and drop a local `.pak` file on to the tool window, or add the path to the
 local `.pak` in the same "Add mods..." field.
 
+#### Adding a bitfix patch
+
+[bitfix](https://github.com/trumank/bitfix) applies small Lua byte patches to the game exe at
+startup. Add a `.lua` patch like any other mod: drop the file on the window, or put its path or URL
+in the "Add mods..." field. It shows up in the mod list and is enabled, disabled and ordered there.
+
+On install, mint copies the enabled patches into `FSD/Binaries/Win64/bitfix/` and installs bitfix
+as `d3d9.dll` beside the game exe; disabling every patch, or uninstalling, removes both. Only files
+mint placed are removed (they are listed in `bitfix/mint_installed.txt`): hand-installed patches and
+`*.lua.disabled` files are left alone, and the DLL stays while hand-installed patches still need it.
+mint refuses to replace a `d3d9.dll` it did not install (ReShade, or a hand-installed bitfix); delete
+it first to let mint manage bitfix. Steam version only.
+
 ### Sorting mods
 
 Sorting changes the displayed order only; selecting Manual restores the stored order.
