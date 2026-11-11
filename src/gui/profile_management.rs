@@ -156,7 +156,10 @@ pub(super) fn ui<E, N>(
         &response,
         egui::PopupCloseBehavior::CloseOnClickOutside,
         |ui| {
-            ui.set_min_width(385.0);
+            // Keep collapsed sections compact and wrap long messages instead of growing wide.
+            ui.set_min_width(290.0);
+            ui.set_max_width(310.0);
+            ui.spacing_mut().item_spacing.y = 3.0;
             // Match the Groups menu: size the popup to its expanded sections.
             // Only the JSON text editor has its own bounded scroll area.
             ui.vertical(|ui| {

@@ -5,6 +5,7 @@ mod edit_history;
 mod find_string;
 mod folder_import;
 mod group_controls;
+mod mod_list_style;
 use group_controls::{Drag, Target};
 mod message;
 mod named_combobox;
@@ -849,6 +850,11 @@ impl App {
                     }
                 };
 
+            let group_tint_snapshot: std::collections::BTreeMap<String, Option<String>> = groups
+                .iter()
+                .map(|(name, group)| (name.clone(), group.tint_color.clone()))
+                .collect();
+
             let mut ui_item = |ctx: &mut Ctx,
                                ui: &mut Ui,
                                mc: &mut ModOrGroup,
@@ -888,10 +894,15 @@ impl App {
                             && self
                                 .groups_to_open
                                 .remove(&(profile_name.to_owned(), group_name.clone()));
+                        let selected_group_tint = groups
+                            .get(group_name)
+                            .and_then(|group| group.tint_color.clone());
                         let group_description = groups
                             .get(group_name)
                             .and_then(|group| group.description.clone())
                             .filter(|text| !text.trim().is_empty());
+                        let group_member_count =
+                            groups.get(group_name).map_or(0, |group| group.mods.len());
                         // Match children even when the collapsing group does not render their rows.
                         let search_needle = self.search_string.to_lowercase();
                         let matching_mod_in_group = !search_needle.trim().is_empty()
@@ -922,10 +933,11 @@ impl App {
                             // Highlight the group while its matching members are hidden.
                             let group_title = if fully_closed && matching_mod_in_group {
                                 RichText::new(group_name.as_str())
+                                    .strong()
                                     .background_color(Color32::YELLOW)
                                     .color(Color32::BLACK)
                             } else {
-                                RichText::new(group_name.as_str())
+                                RichText::new(group_name.as_str()).strong()
                             };
                             let mut title_clicked = false;
                             let mut header = collapse.show_header(ui, |ui| {
@@ -933,8 +945,61 @@ impl App {
                                     .add(egui::Label::new(group_title).sense(egui::Sense::click()))
                                     .on_hover_cursor(egui::CursorIcon::PointingHand)
                                     .clicked();
-                                if let Some(description) = group_description.as_deref() {
-                                    description_help_button(ui, description);
+                                ui.label(
+                                    RichText::new(format!(
+                                        "{} mod{}",
+                                        group_member_count,
+                                        if group_member_count == 1 { "" } else { "s" }
+                                    ))
+                                    .small()
+                                    .weak(),
+                                );
+                                let selected_color = groups
+                                    .get(group_name)
+                                    .and_then(|group| group.tint_color.clone());
+                                let mut requested_color: Option<Option<String>> = None;
+                                // group color control — right aligned in the remaining header width
+                                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                                    ui.scope(|ui| {
+                                        ui.spacing_mut().button_padding = egui::vec2(2.0, 0.0);
+                                        // Invisible at rest; highlight only when hovered or selected.
+                                        ui.visuals_mut().widgets.inactive.weak_bg_fill = egui::Color32::TRANSPARENT;
+                                        ui.visuals_mut().widgets.inactive.bg_stroke = egui::Stroke::NONE;
+                                        ui.menu_image_button(
+                                            egui::Image::new(egui::include_image!("../../assets/icons/group_palette.svg"))
+                                                .fit_to_exact_size(egui::vec2(15.0, 15.0))
+                                                .tint(mod_list_style::swatch_color(
+                                                    selected_color.as_deref(),
+                                                    ui.visuals().dark_mode,
+                                                )),
+                                            |ui| {
+                                                if ui.selectable_label(selected_color.is_none(), "None").clicked() {
+                                                    requested_color = Some(None);
+                                                    ui.close_menu();
+                                                }
+                                                for &(key, label) in mod_list_style::COLOR_OPTIONS {
+                                                    let text = RichText::new(format!("●  {label}"))
+                                                        .color(mod_list_style::swatch_color(Some(key), ui.visuals().dark_mode));
+                                                    if ui.selectable_label(selected_color.as_deref() == Some(key), text).clicked() {
+                                                        requested_color = Some(Some(key.to_owned()));
+                                                        ui.close_menu();
+                                                    }
+                                                }
+                                            },
+                                        )
+                                        .response
+                                        .on_hover_text("Group color");
+                                    });
+                                    if let Some(description) = group_description.as_deref() {
+                                        description_help_button(ui, description);
+                                    }
+                                });
+                                if let Some(color) = requested_color {
+                                    if let Some(group) = groups.get_mut(group_name) {
+                                        group.tint_color = color;
+                                        ctx.needs_save = true;
+                                        ui.ctx().request_repaint();
+                                    }
                                 }
                             });
                             if title_clicked {
@@ -948,11 +1013,15 @@ impl App {
                                     sorting_config.as_ref(),
                                     |spec| self.state.store.get_mod_info(spec),
                                 );
-                                for index in order {
+                                for (visual_index, index) in order.into_iter().enumerate() {
                                     if bitfix_menu::is_lua_spec(&group.mods[index].spec) {
                                         continue;
                                     }
-                                    let member = Drag::paint_row(ui, profile_name, Some(group_name), index, |ui| ui.push_id(("group", group_name.as_str(), index), |ui| {
+                                    let member = Drag::paint_row(ui, profile_name, Some(group_name), index, |ui| {
+                                        mod_list_style::row_frame(ui, visual_index, false, selected_group_tint.as_deref(), true, false)
+                                            .show(ui, |ui| {
+                                                ui.set_min_width(ui.available_width());
+ui.push_id(("group", group_name.as_str(), index), |ui| {
                                         ui.horizontal(|ui| {
                                             if sorting_config.is_none() {
                                                 Drag::handle(ui, profile_name, Some(group_name), index, &group.mods[index].id, false);
@@ -977,7 +1046,10 @@ impl App {
                                                 Some(member_overrides),
                                             );
                                         });
-                                    }));
+                                    })
+                                            })
+                                            .inner
+                                    });
                                     if sorting_config.is_none() {
                                         group_controls::row_target(ui, &member.response, &mut ctx.drag, Some(group_name), index);
                                     }
@@ -1119,33 +1191,97 @@ impl App {
                     sorting_config.as_ref(),
                     |spec| self.state.store.get_mod_info(spec),
                 );
+                let mut previous_group_row_tint: Option<&str> = None;
+                let mut matching_color_run_offset: usize = 0;
                 for (visual_index, store_index) in order.into_iter().enumerate() {
+                    // Compare only consecutive visible rows, not unrelated groups.
+                    let current_group_row_tint = match &profile.mods[store_index] {
+                        ModOrGroup::Group { group_name, .. } => group_tint_snapshot
+                            .get(group_name)
+                            .and_then(|tint| tint.as_deref()),
+                        _ => None,
+                    };
+                    let same_color_as_previous = mod_list_style::same_selected_color(
+                        previous_group_row_tint,
+                        current_group_row_tint,
+                    );
+                    matching_color_run_offset = if same_color_as_previous {
+                        matching_color_run_offset + 1
+                    } else {
+                        0
+                    };
+                    let stripe_matching_color =
+                        current_group_row_tint.is_some() && matching_color_run_offset % 2 == 1;
+                    previous_group_row_tint = current_group_row_tint;
+
                     if matches!(&profile.mods[store_index], ModOrGroup::Individual(mc) if bitfix_menu::is_lua_spec(&mc.spec))
                     {
                         continue;
                     }
-                    let mut frame = egui::Frame::NONE;
-                    if visual_index % 2 == 1 {
-                        frame.fill = ui.visuals().faint_bg_color
-                    }
+                    let frame = match &profile.mods[store_index] {
+                        ModOrGroup::Group { group_name, .. } => mod_list_style::row_frame(
+                            ui,
+                            visual_index,
+                            true,
+                            group_tint_snapshot
+                                .get(group_name)
+                                .and_then(|tint| tint.as_deref()),
+                            false,
+                            stripe_matching_color,
+                        ),
+                        _ => mod_list_style::row_frame(ui, visual_index, false, None, false, false),
+                    };
                     frame.show(ui, |ui| {
+                        ui.set_min_width(ui.available_width());
                         ui.horizontal(|ui| {
                             ui_item(&mut ctx, ui, &mut profile.mods[store_index], store_index);
                         });
                     });
                 }
             } else {
+                let mut previous_group_row_tint: Option<&str> = None;
+                let mut matching_color_run_offset: usize = 0;
                 for (index, item) in profile.mods.iter_mut().enumerate() {
+                    // Compare only consecutive visible rows, not unrelated groups.
+                    let current_group_row_tint = match &*item {
+                        ModOrGroup::Group { group_name, .. } => group_tint_snapshot
+                            .get(group_name)
+                            .and_then(|tint| tint.as_deref()),
+                        _ => None,
+                    };
+                    let same_color_as_previous = mod_list_style::same_selected_color(
+                        previous_group_row_tint,
+                        current_group_row_tint,
+                    );
+                    matching_color_run_offset = if same_color_as_previous {
+                        matching_color_run_offset + 1
+                    } else {
+                        0
+                    };
+                    let stripe_matching_color =
+                        current_group_row_tint.is_some() && matching_color_run_offset % 2 == 1;
+                    previous_group_row_tint = current_group_row_tint;
+
                     if matches!(&*item, ModOrGroup::Individual(mc) if bitfix_menu::is_lua_spec(&mc.spec))
                     {
                         continue;
                     }
-                    let mut frame = egui::Frame::NONE;
-                    if index % 2 == 1 {
-                        frame.fill = ui.visuals().faint_bg_color;
-                    }
+                    let frame = match item {
+                        ModOrGroup::Group { group_name, .. } => mod_list_style::row_frame(
+                            ui,
+                            index,
+                            true,
+                            group_tint_snapshot
+                                .get(group_name)
+                                .and_then(|tint| tint.as_deref()),
+                            false,
+                            stripe_matching_color,
+                        ),
+                        _ => mod_list_style::row_frame(ui, index, false, None, false, false),
+                    };
                     let row = Drag::paint_row(ui, profile_name, None, index, |ui| {
                         frame.show(ui, |ui| {
+                            ui.set_min_width(ui.available_width());
                             ui.horizontal(|ui| {
                                 let (key, is_group) = match item {
                                     ModOrGroup::Individual(mc) => (mc.id.as_str(), false),

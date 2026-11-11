@@ -165,6 +165,7 @@ fn apply_json(raw: &str, data: &mut ModData) -> Result<bool, String> {
                 groups.insert(
                     name.clone(),
                     ModGroup {
+                        tint_color: None,
                         id: crate::state::new_id(),
                         description: clean_description(description),
                         mods: mods

@@ -348,6 +348,7 @@ fn grouped_profile_renders_every_sort_mode_after_reload() {
     test.app.state.mod_data.groups.insert(
         "Group".into(),
         ModGroup {
+            tint_color: None,
             id: crate::state::new_id(),
             description: None,
             mods: vec![zulu, alpha],
@@ -407,6 +408,7 @@ fn sorted_group_toggle_preserves_identical_standalone_entry() {
     test.app.state.mod_data.groups.insert(
         "Group".into(),
         ModGroup {
+            tint_color: None,
             id: crate::state::new_id(),
             description: None,
             mods: vec![zulu, alpha],
@@ -490,6 +492,7 @@ fn dropping_files_on_closed_group_prepends_batch_and_opens_it() {
     test.app.state.mod_data.groups.insert(
         "Tools".into(),
         ModGroup {
+            tint_color: None,
             id: crate::state::new_id(),
             description: None,
             mods: vec![existing],

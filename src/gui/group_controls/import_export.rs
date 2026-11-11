@@ -78,6 +78,7 @@ pub(super) fn parse_mod_list_txt(
     Ok(std::collections::BTreeMap::from([(
         group_name.to_owned(),
         crate::state::ModGroup {
+            tint_color: None,
             id: crate::state::new_id(),
             mods,
             description: None,
@@ -251,6 +252,7 @@ mod group_import_export_tests {
     #[test]
     fn json_roundtrip_preserves_group_settings() {
         let group = crate::state::ModGroup {
+            tint_color: None,
             id: crate::state::new_id(),
             description: None,
             mods: vec![ModConfig {

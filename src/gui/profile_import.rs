@@ -199,9 +199,10 @@ pub(super) fn ui_inline(ui: &mut egui::Ui, data: &mut Data, modified: &mut bool)
         .id_salt("profile-import-json-scroll")
         .max_height(165.0)
         .show(ui, |ui| {
+            let width = ui.available_width();
             ui.add(
                 egui::TextEdit::multiline(&mut editor.json)
-                    .desired_width(380.0)
+                    .desired_width(width)
                     .desired_rows(6)
                     .hint_text("Paste profile JSON here (Ctrl+V)"),
             )
@@ -273,6 +274,7 @@ mod tests {
         let mut overrides = MemberOverrides::default();
         overrides.set(&mut member, false);
         let group = ModGroup {
+            tint_color: None,
             id: crate::state::new_id(),
             mods: vec![member],
             description: Some("Group description".into()),

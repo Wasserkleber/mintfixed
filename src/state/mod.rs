@@ -116,6 +116,8 @@ pub struct ModGroup {
     /// Optional description of this shared collection.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tint_color: Option<String>,
     pub mods: Vec<ModConfig>,
 }
 
@@ -747,6 +749,7 @@ fn read_mod_data_or_default(
 impl Default for ModGroup {
     fn default() -> Self {
         Self {
+            tint_color: None,
             id: new_id(),
             description: None,
             mods: Vec::new(),
@@ -893,6 +896,7 @@ mod mod_data_tests {
             groups: [(
                 "mg1".to_string(),
                 ModGroup {
+                    tint_color: None,
                     id: crate::state::new_id(),
                     description: None,
                     mods: vec![mod_2, mod_3],
@@ -962,6 +966,7 @@ mod mod_data_tests {
             groups: [(
                 "mg1".to_string(),
                 ModGroup {
+                    tint_color: None,
                     id: crate::state::new_id(),
                     description: None,
                     mods: vec![mod_2, mod_3],
@@ -1031,6 +1036,7 @@ mod mod_data_tests {
             groups: [(
                 "mg1".to_string(),
                 ModGroup {
+                    tint_color: None,
                     id: crate::state::new_id(),
                     description: None,
                     mods: vec![mod_2, mod_3],
@@ -1063,5 +1069,28 @@ mod mod_data_tests {
         data.bitfix_scripts[0].enabled = false;
         assert!(data.ordered_install_specs("default").is_empty());
         assert!(data.ordered_install_specs("other").is_empty());
+    }
+}
+
+#[cfg(test)]
+mod group_tint_serialization_tests {
+    use super::ModGroup;
+
+    #[test]
+    fn chosen_tint_survives_serialization_and_legacy_groups_default_to_none() {
+        let mut group = ModGroup::default();
+        group.tint_color = Some("red".to_owned());
+        let value = serde_json::to_value(&group).unwrap();
+        assert_eq!(
+            value.get("tint_color").and_then(|v| v.as_str()),
+            Some("red")
+        );
+        let decoded: ModGroup = serde_json::from_value(value.clone()).unwrap();
+        assert_eq!(decoded.tint_color.as_deref(), Some("red"));
+
+        let mut legacy = value;
+        legacy.as_object_mut().unwrap().remove("tint_color");
+        let decoded: ModGroup = serde_json::from_value(legacy).unwrap();
+        assert!(decoded.tint_color.is_none());
     }
 }

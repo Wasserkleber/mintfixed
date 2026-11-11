@@ -350,6 +350,7 @@ fn disabled_groups_warn_but_do_not_block_and_shared_members_are_not_duplicates()
             (
                 "same".into(),
                 ModGroup {
+                    tint_color: None,
                     id: crate::state::new_id(),
                     description: None,
                     mods: vec![member(a)],
@@ -358,6 +359,7 @@ fn disabled_groups_warn_but_do_not_block_and_shared_members_are_not_duplicates()
             (
                 "other".into(),
                 ModGroup {
+                    tint_color: None,
                     id: crate::state::new_id(),
                     description: None,
                     mods: vec![member(b), member(b)],
