@@ -1,132 +1,67 @@
-This version of Mint fixes these issues:
-- Fixed HTTP 403 errors (mod lookup) by removing the deprecated `visible` filter from mod.io API requests.
-- Fixed HTTP 403 errors by replacing direct mod file metadata requests (`GET /mods/{id}/files/{file_id}`) with filtered list queries, restoring mod downloads.
-- Limits the mission selector/server browser mod list to 100 entries, preventing hosting/invites from breaking when the mission selector mod list string becomes too large.
-- Updated Trumans Repaker to make mods that need oodle compression work again automatically without needing to manually add a DLL (for example: https://mod.io/g/drg/m/missions-hud)
+# mintfixed
 
-If you'd like to build it yourself from the original mint-repo, take a look at my commits to see the fixes I implemented.
+**An actively maintained, feature-rich fork of [MINT](https://github.com/trumank/mint) for Deep Rock Galactic.**
 
-# mint
+Mintfixed is an external mod manager that allows you to download, organize, and install mods independently of Deep Rock Galactic's built-in mod integration.
 
-3rd party mod integration tool for Deep Rock Galactic to download and integrate mods completely
-externally of the game. This enables more stable mod usage as well as offline mod usage. Works for
-both Steam and Microsoft Store versions.
+Originally forked from MINT after its development stopped, Mintfixed introduces new features, performance optimizations, compatibility fixes, and stability improvements.
 
-<img alt="Graphical User Interface" src="https://github.com/trumank/mint/assets/1144160/0305419f-a2af-4349-9d63-12e19d97102f">
+Supports both **Steam** and **Microsoft Store** versions of Deep Rock Galactic.
 
-Mods are added via URL to a .pak or .zip containing a .pak. Mods can also be pulled from mod.io.
-Examples:
+## Download & Installation
 
- - `C:\Path\To\Local\Mod.zip`
- - `https://example.org/some-online-mod-repository/public-mod.pak`
- - `https://mod.io/g/drg/m/sandbox-utilities`
+- **[Download the Latest Release](https://github.com/Wasserkleber/mintfixed/releases/latest)**
+- **[Mintfixed Installation & Usage Guide](https://mod.io/g/drg/r/mint-installation-usage-guide-mintfixed)**
 
-Mods from mod.io will require an OAuth token which can be obtained from <https://mod.io/me/access>
-when prompted.
+## Major Features
 
-Most mods work just as if they were loaded via the official integration, but there are still some
-behavioural differences. If a mod is crashing or otherwise behaving differently than when using the
-official integration, *please* create an
-[issue](https://github.com/trumank/mint/issues/new) so it can be addressed.
+- **Mod Groups** — Organize mods into collapsible groups with drag-and-drop, group toggles, and import/export functionality.
+- **97% Lower Background CPU Usage** — Significantly reduced idle CPU usage through GUI performance optimizations.
+- **No `-disablemodding` Required** — Removes the need for the additional Steam launch parameter.
+- **Custom In-Game Mod Menu** — Adds a dedicated in-game interface for Mintfixed's mod integration.
+- **Integrated Crash Reporter** — Automatically generates detailed crash reports to help diagnose game crashes and mod compatibility issues.
+- **Bitfix Support** — Supports Bitfix DLL integration and Lua scripts for advanced game modifications beyond traditional `.pak` mods.
 
-For more details, please consult our [user guide](https://github.com/trumank/mint/wiki).
+## Additional Improvements Over MINT
 
-## Usage
+### Mod Management
 
-This section assumes that you are on Windows and is using the steam version of DRG, working with
-either local `.pak`s or mod.io mods.
+- Improved profile management, including renaming, duplication, import, and export.
+- Bulk importing of local `.pak` and `.zip` mods.
+- Improved searching, sorting, and drag-and-drop functionality.
+- Dedicated native DLL management.
+- Offline mod support.
 
-First, download the [latest release](https://github.com/trumank/mint/releases/latest)
-compatible with your architecture. For windows, this will be the
-`mint-x86_64-pc-windows-msvc.zip`. Extract this to anywhere you'd like to keep the
-executable.
+### Compatibility & Stability
 
-Then, we'll need to perform some first-time setup.
+- Updated mod.io integration and improved download reliability.
+- Blueprint compatibility checks to prevent certain crashes.
+- Improved mod packaging and Oodle compression support.
+- Configuration backups and improved migration handling.
+- Additional diagnostic logging and error reporting.
 
-### First Time Setup
+### Quality of Life
 
-We need to provide the tool with the path to `FSD-WindowsNoEditor.pak` and a mod.io OAuth token if
-you want to use mod.io mods. These can be configured in the settings menu (cogwheel located in the
-bottom toolbar).
+- Improved and modernized user interface.
+- More intuitive mod and group management.
+- Better error messages and notifications.
+- Improved group and profile import/export workflows.
+- Numerous bug fixes and performance improvements.
 
-<img alt="Settings menu" src="https://github.com/trumank/mint/assets/1144160/b009a74c-b13a-4b84-95f9-4c59c6debb62">
+## Issues & Feedback
 
-#### Locating the DRG `FSD-WindowsNoEditor.pak`
+Found a bug, experienced a crash, or have a feature suggestion?
 
-If the tool fails to detect your DRG installation, then you can manually browse to add the path to
-`FSD-WindowsNoEditor.pak`.
+**[Report an Issue on GitHub](https://github.com/Wasserkleber/mintfixed/issues)**
 
-This file is located under the `FSD` folder inside your DRG installation directory, e.g.
+Please include relevant logs, reproduction steps, and affected mods whenever possible.
 
-```
-E:\SteamLibrary\steamapps\common\Deep Rock Galactic\FSD\FSD-WindowsNoEditor.pak
-```
+## Credits
 
-#### Adding a mod.io OAuth Token
+Mintfixed builds upon the work of several open-source projects:
 
-Inside the settings menu, there is a modio setting (cogwheel). If you click on that, it will prompt
-for an mod.io OAuth token.
+- **[trumank/MINT](https://github.com/trumank/mint)** — Original external mod manager and integration system for Deep Rock Galactic, developed by Truman and contributors.
+- **[trumank/bitfix](https://github.com/trumank/bitfix)** — Lua-scriptable runtime binary patcher developed by Truman.
+- **[Elytras/BP-Crash-Reporter](https://github.com/Elytras/BP-Crash-Reporter)** — Unreal Engine 4 crash reporting tool with detailed Blueprint diagnostics, developed by Elytras.
 
-To generate a mod.io OAuth token, you'll need to visit <https://mod.io/me/access>. You'll need to
-accept the API terms and conditions.
-
-<img alt="mod.io Access page" src="https://github.com/trumank/mint/assets/1144160/2aeb6135-71c2-4c3c-8979-49e84b276bed">
-
-Then, you'll need to add a new client under OAuth Access, call it e.g. "DRG Mod Integration".
-
-For that client, create a new token named e.g. "modio-access" with Read-only scope. Copy the token
-into the integration tool's prompt.
-
-### Adding Mods
-
-After these steps, you can now add local mods or mod.io mods.
-
-#### Adding mod.io mods
-
-Copy the URL to the mod into the "Add mods..." field and hit enter.
-
-You can obtain a list of your subscribed mods list using the "Copy Mod URLs"
-button via [A Better Modding Menu](https://mod.io/g/drg/m/a-better-modding-menu)
-in game:
-
-![Copy Mod URLs](https://github.com/trumank/mint/assets/1144160/375f441f-4762-4549-a241-1b54ed391b2f)
-
-#### Adding a local mod
-
-You can either drag and drop a local `.pak` file on to the tool window, or add the path to the
-local `.pak` in the same "Add mods..." field.
-
-#### Adding a bitfix patch
-
-[bitfix](https://github.com/trumank/bitfix) applies small Lua byte patches to the game exe at
-startup. Add a `.lua` patch like any other mod: drop the file on the window, or put its path or URL
-in the "Add mods..." field. It shows up in the mod list and is enabled, disabled and ordered there.
-
-On install, mint copies the enabled patches into `FSD/Binaries/Win64/bitfix/` and installs bitfix
-as `d3d9.dll` beside the game exe; disabling every patch, or uninstalling, removes both. Only files
-mint placed are removed (they are listed in `bitfix/mint_installed.txt`): hand-installed patches and
-`*.lua.disabled` files are left alone, and the DLL stays while hand-installed patches still need it.
-mint refuses to replace a `d3d9.dll` it did not install (ReShade, or a hand-installed bitfix); delete
-it first to let mint manage bitfix. Steam version only.
-
-### Sorting mods
-
-Sorting changes the displayed order only; selecting Manual restores the stored order.
-Groups stay in place. Mods are sorted within each group and within each contiguous
-run of individual mods between groups.
-
-### Updating Cache
-
-The versioned mod.io mods are *cached*. If you want to update to the latest version of your mods,
-you'll need to press the "Update cache" button.
-
-### Installing/uninstalling mods
-
-Once you are happy with your mod profile, you can install the mods by pressing the "Install mods"
-button, and uninstall them with the "Uninstall mods" button. **This must be done while the game is
-closed.**
-
-## Using integrated mod support again
-
-If you want to go back to the integrated mod support again, you must uninstall the mods installed by
-mint. Then, launch the game normally.
+Special thanks to the original developers and contributors of these projects. Mintfixed builds upon their work with continued maintenance, additional features, compatibility updates, and performance improvements.
