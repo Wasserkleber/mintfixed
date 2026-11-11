@@ -323,6 +323,7 @@ fn disabled_groups_warn_but_do_not_block_and_shared_members_are_not_duplicates()
     let a = "https://mod.io/g/drg/m/a#123/10";
     let b = "https://mod.io/g/drg/m/a#123/11";
     let data = Data {
+        bitfix_scripts: Default::default(),
         active_profile: "p".into(),
         profiles: BTreeMap::from([(
             "p".into(),

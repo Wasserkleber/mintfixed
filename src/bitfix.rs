@@ -43,6 +43,20 @@ fn remove_if_exists(path: &Path) -> std::io::Result<()> {
     }
 }
 
+/// Return an existing foreign d3d9 proxy without changing any files.
+/// A bytewise match is an already-installed bundled bitfix DLL.
+pub fn conflicting_proxy(
+    installation: &DRGInstallation,
+) -> std::io::Result<Option<std::path::PathBuf>> {
+    let path = installation.binaries_directory().join(PROXY_NAME);
+    match fs::read(&path) {
+        Ok(existing) if existing == DLL => Ok(None),
+        Ok(_) => Ok(Some(path)),
+        Err(e) if e.kind() == ErrorKind::NotFound => Ok(None),
+        Err(e) => Err(e),
+    }
+}
+
 /// Make the game's bitfix setup match `patches` (mod name, local file): an empty list removes
 /// what mint installed. Called at the end of integration and by uninstall.
 pub fn sync(
@@ -52,8 +66,17 @@ pub fn sync(
     let bin = installation.binaries_directory();
     let dir = bin.join(PATCH_DIR);
     let manifest = dir.join(MANIFEST);
+    // Check for an incompatible proxy before deleting managed scripts.
+    if !patches.is_empty() {
+        if let Some(path) = conflicting_proxy(installation)? {
+            return Err(err(format!(
+                "{} exists and is not mint's bitfix build; open the Bitfix menu to resolve the conflict",
+                path.display()
+            )));
+        }
+    }
 
-    // First we drop every patch the previous install placed; the selection below writes them anew.
+    // Now remove old managed patches after DLL validation.
     let old: HashSet<String> = match fs::read_to_string(&manifest) {
         Ok(text) => text.lines().map(str::to_string).collect(),
         Err(e) if e.kind() == ErrorKind::NotFound => HashSet::new(),
@@ -153,6 +176,29 @@ fn remove_dll_if_unused(bin: &Path, dir: &Path) -> Result<(), IntegrationError> 
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn conflicting_proxy_does_not_delete_previous_patches() {
+        let tmp = tempfile::tempdir().unwrap();
+        let installation = DRGInstallation {
+            root: tmp.path().join("FSD"),
+            installation_type: DRGInstallationType::Steam,
+        };
+        let bin = installation.binaries_directory();
+        let dir = bin.join(PATCH_DIR);
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(dir.join("old.lua"), "return {}").unwrap();
+        fs::write(dir.join(MANIFEST), "old.lua").unwrap();
+        fs::write(bin.join(PROXY_NAME), "other tool").unwrap();
+        let source = tmp.path().join("new.lua");
+        fs::write(&source, "return {}").unwrap();
+        assert!(sync(&installation, &[("new.lua", &source)]).is_err());
+        assert_eq!(
+            fs::read_to_string(dir.join("old.lua")).unwrap(),
+            "return {}"
+        );
+        assert_eq!(fs::read_to_string(dir.join(MANIFEST)).unwrap(), "old.lua");
+        assert_eq!(fs::read(bin.join(PROXY_NAME)).unwrap(), b"other tool");
+    }
     use super::*;
     use sha2::{Digest, Sha256};
 

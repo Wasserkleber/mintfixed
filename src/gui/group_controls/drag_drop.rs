@@ -365,6 +365,15 @@ pub(in crate::gui) fn drop_files(
     prepend: bool,
     paths: Vec<PathBuf>,
 ) {
+    if paths.iter().any(|path| {
+        path.extension()
+            .is_some_and(|ext| ext.eq_ignore_ascii_case("lua"))
+    }) {
+        app.last_action = Some(LastAction::failure(
+            crate::gui::bitfix_menu::REDIRECT_HINT.into(),
+        ));
+        return;
+    }
     let Some(target) = GroupDestination::capture(&app.state.mod_data, &profile, &group) else {
         app.last_action = Some(LastAction::failure(
             "The group destination no longer exists.".into(),

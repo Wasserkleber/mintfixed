@@ -63,6 +63,7 @@ pub(crate) fn all_specs(data: &Data) -> Vec<ModSpecification> {
     for group in data.groups.values() {
         specs.extend(group.mods.iter().map(|mc| mc.spec.clone()));
     }
+    specs.extend(data.bitfix_scripts.iter().map(|mc| mc.spec.clone()));
     specs.into_iter().collect()
 }
 
@@ -269,6 +270,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let store = ModStore::new(dir.path(), &HashMap::new()).unwrap();
         let data = Data {
+            bitfix_scripts: Vec::new(),
             active_profile: "p".into(),
             groups: BTreeMap::new(),
             profiles: BTreeMap::from([(
@@ -310,6 +312,7 @@ mod tests {
         // An old or renamed URL slug must not override the real cached title.
         // The fixture deliberately has no cached dependency metadata.
         let issues_data = Data {
+            bitfix_scripts: Vec::new(),
             active_profile: "p".into(),
             profiles: BTreeMap::from([(
                 "p".into(),

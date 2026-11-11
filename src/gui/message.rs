@@ -129,6 +129,7 @@ pub struct ResolveMods {
     specs: Vec<ModSpecification>,
     result: Result<HashMap<ModSpecification, ModInfo>, ProviderError>,
     is_dependency: bool,
+    from_bitfix: bool,
 }
 
 impl ResolveMods {
@@ -138,6 +139,34 @@ impl ResolveMods {
         specs: Vec<ModSpecification>,
         is_dependency: bool,
     ) {
+        Self::send_inner(app, ctx, specs, is_dependency, false);
+    }
+    pub fn send_bitfix(app: &mut App, ctx: &egui::Context, specs: Vec<ModSpecification>) {
+        Self::send_inner(app, ctx, specs, false, true);
+    }
+    fn send_inner(
+        app: &mut App,
+        ctx: &egui::Context,
+        specs: Vec<ModSpecification>,
+        is_dependency: bool,
+        from_bitfix: bool,
+    ) {
+        // Reject even mixed lists before inserting anything into the active profile.
+        if !from_bitfix && specs.iter().any(super::bitfix_menu::is_lua_spec) {
+            app.last_action = Some(LastAction::failure(
+                super::bitfix_menu::REDIRECT_HINT.into(),
+            ));
+            return;
+        }
+        if from_bitfix
+            && (specs.is_empty() || specs.iter().any(|s| !super::bitfix_menu::is_lua_spec(s)))
+        {
+            app.last_action = Some(LastAction::failure(
+                "The Bitfix menu only accepts .lua script paths or URLs.".into(),
+            ));
+            return;
+        }
+
         if app.resolve_mod_rid.is_some() {
             app.last_action = Some(LastAction::failure(
                 "An addition is already running. Wait for it to finish, then try again.".into(),
@@ -146,7 +175,11 @@ impl ResolveMods {
         }
         let profile = app.state.mod_data.active_profile.clone();
         let profile_id = app.state.mod_data.profiles[&profile].id.clone();
-        let input = app.resolve_mod.clone();
+        let input = if from_bitfix {
+            app.bitfix_menu.input.clone()
+        } else {
+            app.resolve_mod.clone()
+        };
         let rid = app.request_counter.next();
         let store = app.state.store.clone();
         let identity_specs = specs
@@ -179,6 +212,7 @@ impl ResolveMods {
                 specs,
                 result,
                 is_dependency,
+                from_bitfix,
             }))
             .await
             .unwrap();
@@ -194,6 +228,56 @@ impl ResolveMods {
 
     fn receive(mut self, app: &mut App) {
         if Some(self.rid) == app.resolve_mod_rid.as_ref().map(|r| r.rid) {
+            if self.from_bitfix {
+                // Bitfix additions are global; they must not depend on a profile still existing.
+                match self.result {
+                    Ok(_) => {
+                        let before = app.state.mod_data.deref().deref().clone();
+                        let mut added = 0;
+                        for spec in self.specs {
+                            let global = &mut app.state.mod_data.bitfix_scripts;
+                            if let Some(existing) = global.iter_mut().find(|mc| mc.spec == spec) {
+                                existing.enabled = true;
+                            } else {
+                                global.push(ModConfig {
+                                    id: crate::state::new_id(),
+                                    description: None,
+                                    member_id: None,
+                                    spec,
+                                    required: false,
+                                    enabled: true,
+                                    priority: 0,
+                                });
+                                added += 1;
+                            }
+                        }
+                        if let Err(error) = app.state.mod_data.save() {
+                            *app.state.mod_data.deref_mut().deref_mut() = before;
+                            app.last_action = Some(LastAction::failure(format!(
+                                "Could not save global Bitfix scripts: {error}"
+                            )));
+                        } else {
+                            if app.bitfix_menu.input == self.input {
+                                app.bitfix_menu.input.clear();
+                            }
+                            app.last_action = Some(LastAction::success(format!(
+                                "Added {added} global Bitfix script(s)"
+                            )));
+                        }
+                    }
+                    Err(ProviderError::NoProvider { factory, .. }) => {
+                        app.window_provider_parameters =
+                            Some(WindowProviderParameters::new(factory, &app.state));
+                        app.last_action = Some(LastAction::failure("no provider".into()));
+                    }
+                    Err(error) => {
+                        app.problematic_mod_id = error.opt_mod_id();
+                        app.last_action = Some(LastAction::failure(error.to_string()));
+                    }
+                }
+                app.resolve_mod_rid = None;
+                return;
+            }
             let destination = app
                 .state
                 .mod_data
@@ -313,7 +397,11 @@ impl ResolveMods {
                         )));
                         return;
                     }
-                    if app.resolve_mod == self.input {
+                    if self.from_bitfix {
+                        if app.bitfix_menu.input == self.input {
+                            app.bitfix_menu.input.clear();
+                        }
+                    } else if app.resolve_mod == self.input {
                         app.resolve_mod.clear();
                     }
                     app.last_action = Some(LastAction::success(format!(
@@ -1054,6 +1142,7 @@ mod addition_destination_tests {
             specs: vec![spec.clone()],
             result: Ok(HashMap::from([(spec, info)])),
             is_dependency: false,
+            from_bitfix: false,
         }
     }
 

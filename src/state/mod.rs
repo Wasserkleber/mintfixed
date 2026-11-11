@@ -168,6 +168,10 @@ pub struct ModData {
     pub profiles: BTreeMap<String, ModProfile!["0.1.0"]>,
     #[obake(cfg("0.1.0"))]
     pub groups: BTreeMap<String, ModGroup>,
+    /// Lua bitfix scripts are global, independent of active_profile.
+    #[obake(cfg("0.1.0"))]
+    #[serde(default)]
+    pub bitfix_scripts: Vec<ModConfig>,
 }
 
 impl ModData!["0.1.0"] {
@@ -268,15 +272,28 @@ impl ModData!["0.1.0"] {
 
     pub fn ordered_install_entries(&self, profile: &str) -> Vec<InstallEntry> {
         let mut entries = Vec::new();
-        for (row, item) in self.profiles[profile].mods.iter().enumerate() {
-            match item {
-                ModOrGroup::Individual(mc) if mc.enabled => entries.push((
+        // Global Bitfix scripts are installed regardless of the active profile.
+        for (index, mc) in self.bitfix_scripts.iter().enumerate() {
+            if mc.enabled {
+                entries.push((
                     mc.priority,
                     InstallEntry {
                         spec: mc.spec.clone(),
-                        location: format!("profile {profile:?}, standalone row {}", row + 1),
+                        location: format!("global Bitfix script #{}", index + 1),
                     },
-                )),
+                ));
+            }
+        }
+        for (row, item) in self.profiles[profile].mods.iter().enumerate() {
+            match item {
+                ModOrGroup::Individual(mc) if mc.enabled && !is_bitfix_url(&mc.spec.url) => entries
+                    .push((
+                        mc.priority,
+                        InstallEntry {
+                            spec: mc.spec.clone(),
+                            location: format!("profile {profile:?}, standalone row {}", row + 1),
+                        },
+                    )),
                 ModOrGroup::Group {
                     group_name,
                     enabled: true,
@@ -284,7 +301,7 @@ impl ModData!["0.1.0"] {
                     ..
                 } => {
                     for (index, mc) in self.groups[group_name].mods.iter().enumerate() {
-                        if member_overrides.enabled(mc) {
+                        if member_overrides.enabled(mc) && !is_bitfix_url(&mc.spec.url) {
                             entries.push((mc.priority, InstallEntry {
                                 spec: mc.spec.clone(),
                                 location: format!("profile {profile:?}, group {group_name:?} (row {}), mod #{}", row + 1, index + 1),
@@ -407,6 +424,7 @@ impl Default for ModData!["0.1.0"] {
             groups: [("default".to_string(), Default::default())]
                 .into_iter()
                 .collect(),
+            bitfix_scripts: Vec::new(),
         }
     }
 }
@@ -430,8 +448,18 @@ impl From<ModData!["0.0.0"]> for ModData!["0.1.0"] {
             active_profile: legacy.active_profile,
             profiles: new_profiles.into_iter().collect(),
             groups: BTreeMap::default(),
+            bitfix_scripts: Vec::new(),
         }
     }
+}
+
+/// Recognize `.lua` script paths and URLs without mistaking `.lua.zip` for a patch.
+fn is_bitfix_url(url: &str) -> bool {
+    url.split(['?', '#'])
+        .next()
+        .unwrap_or(url)
+        .to_ascii_lowercase()
+        .ends_with(".lua")
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -844,6 +872,7 @@ mod mod_data_tests {
         };
 
         let mod_data = ModData {
+            bitfix_scripts: Vec::new(),
             active_profile: "default".to_string(),
             profiles: [(
                 "default".to_string(),
@@ -912,6 +941,7 @@ mod mod_data_tests {
         };
 
         let mod_data = ModData {
+            bitfix_scripts: Vec::new(),
             active_profile: "default".to_string(),
             profiles: [(
                 "default".to_string(),
@@ -980,6 +1010,7 @@ mod mod_data_tests {
         };
 
         let mod_data = ModData {
+            bitfix_scripts: Vec::new(),
             active_profile: "default".to_string(),
             profiles: [(
                 "default".to_string(),
@@ -1010,5 +1041,27 @@ mod mod_data_tests {
 
         let any_required = mod_data.any_mod("default", |mc, _| mc.required);
         assert!(any_required);
+    }
+    #[test]
+    fn global_bitfix_is_identical_in_every_profile() {
+        let mut data = ModData::default();
+        data.profiles.insert("other".into(), ModProfile::default());
+        data.bitfix_scripts.push(ModConfig {
+            id: crate::state::new_id(),
+            description: None,
+            member_id: None,
+            spec: ModSpecification::new("C:\\mods\\test.lua".into()),
+            required: false,
+            enabled: true,
+            priority: 0,
+        });
+        assert_eq!(
+            data.ordered_install_specs("default"),
+            data.ordered_install_specs("other")
+        );
+        assert_eq!(data.ordered_install_specs("other").len(), 1);
+        data.bitfix_scripts[0].enabled = false;
+        assert!(data.ordered_install_specs("default").is_empty());
+        assert!(data.ordered_install_specs("other").is_empty());
     }
 }

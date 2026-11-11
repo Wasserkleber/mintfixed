@@ -44,6 +44,14 @@ fn validate_ids(value: &Value) -> Result<(), StateError> {
             }
         }
     }
+    if let Some(scripts) = value.get("bitfix_scripts") {
+        let scripts = scripts
+            .as_array()
+            .ok_or_else(|| invalid("invalid global Bitfix scripts"))?;
+        for script in scripts {
+            check_id(script, &mut seen)?;
+        }
+    }
     Ok(())
 }
 

@@ -1,3 +1,4 @@
+mod bitfix_menu;
 mod crash_history;
 mod crash_notice;
 mod find_string;
@@ -162,6 +163,7 @@ fn description_help_button(ui: &mut Ui, description: &str) {
 
 pub struct App {
     crash_history: crash_history::CrashHistory,
+    bitfix_menu: bitfix_menu::BitfixMenu,
     args: Option<Vec<String>>,
     tx: Sender<message::Message>,
     rx: Receiver<message::Message>,
@@ -287,6 +289,7 @@ impl App {
 
         Ok(Self {
             crash_history: crash_history::CrashHistory::default(),
+            bitfix_menu: bitfix_menu::BitfixMenu::default(),
             args,
             tx,
             rx,
@@ -925,6 +928,9 @@ impl App {
                                     |spec| self.state.store.get_mod_info(spec),
                                 );
                                 for index in order {
+                                    if bitfix_menu::is_lua_spec(&group.mods[index].spec) {
+                                        continue;
+                                    }
                                     let member = Drag::paint_row(ui, profile_name, Some(group_name), index, |ui| ui.push_id(("group", group_name.as_str(), index), |ui| {
                                         ui.horizontal(|ui| {
                                             if sorting_config.is_none() {
@@ -1093,6 +1099,10 @@ impl App {
                     |spec| self.state.store.get_mod_info(spec),
                 );
                 for (visual_index, store_index) in order.into_iter().enumerate() {
+                    if matches!(&profile.mods[store_index], ModOrGroup::Individual(mc) if bitfix_menu::is_lua_spec(&mc.spec))
+                    {
+                        continue;
+                    }
                     let mut frame = egui::Frame::NONE;
                     if visual_index % 2 == 1 {
                         frame.fill = ui.visuals().faint_bg_color
@@ -1105,6 +1115,10 @@ impl App {
                 }
             } else {
                 for (index, item) in profile.mods.iter_mut().enumerate() {
+                    if matches!(&*item, ModOrGroup::Individual(mc) if bitfix_menu::is_lua_spec(&mc.spec))
+                    {
+                        continue;
+                    }
                     let mut frame = egui::Frame::NONE;
                     if index % 2 == 1 {
                         frame.fill = ui.visuals().faint_bg_color;
@@ -2342,6 +2356,9 @@ impl eframe::App for App {
             {
                 // Use the same profile ordering and integration as the Install Mods button.
                 if let Some(fsd_pak) = self.state.config.drg_pak_path.clone() {
+                    if !self.preflight_bitfix_proxy() {
+                        continue;
+                    }
                     let data = &self.state.mod_data;
                     let mods = data.ordered_install_entries(&data.active_profile);
                     self.integrate_rid = Some(message::Integrate::send(
@@ -2379,10 +2396,15 @@ impl eframe::App for App {
         crash_notice::show(ctx, &mut self.recent_crash);
 
         self.crash_history.show(ctx, &self.state);
+        self.show_bitfix_menu(ctx);
+        self.show_bitfix_conflict(ctx);
         egui::TopBottomPanel::bottom("bottom_panel").show(ctx, |ui| {
             ui.horizontal(|ui| {
                 if crash_history::toolbar_button(ui) {
                     self.crash_history.open(&self.state);
+                }
+                if bitfix_menu::toolbar_button(ui) {
+                    self.bitfix_menu.open = true;
                 }
             ui.with_layout(egui::Layout::right_to_left(Align::TOP), |ui| {
                 ui.add_enabled_ui(
@@ -2430,6 +2452,9 @@ impl eframe::App for App {
                             }
 
                             if button.clicked() {
+                                if !self.preflight_bitfix_proxy() {
+                                    return;
+                                }
                                 let data = &self.state.mod_data;
                                 let mods = data.ordered_install_entries(&data.active_profile);
 
