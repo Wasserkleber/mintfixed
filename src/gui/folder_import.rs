@@ -120,10 +120,10 @@ fn candidates(
         if !path.is_file() {
             continue;
         }
-        if let Ok(path) = std::fs::canonicalize(path) {
-            if known_paths.insert(path_key(&path)) {
-                existing_local.push(path);
-            }
+        if let Ok(path) = std::fs::canonicalize(path)
+            && known_paths.insert(path_key(&path))
+        {
+            existing_local.push(path);
         }
     }
     let mut found = Vec::new();
@@ -438,17 +438,46 @@ fn show_inline_exclusions(app: &mut App, ui: &mut egui::Ui) -> bool {
             }
         }
     }
-    if let Some(key) = remove {
-        if exclusions.excluded_paths.remove(&key) {
-            if let Err(error) = exclusions.save(cache_dir) {
-                exclusions.excluded_paths.insert(key);
-                app.last_action = Some(LastAction::failure(error));
-            } else {
-                changed = true;
-            }
+    if let Some(key) = remove
+        && exclusions.excluded_paths.remove(&key)
+    {
+        if let Err(error) = exclusions.save(cache_dir) {
+            exclusions.excluded_paths.insert(key);
+            app.last_action = Some(LastAction::failure(error));
+        } else {
+            changed = true;
         }
     }
     changed
+}
+
+/// Save the watched folder independently of the main Settings Save button.
+/// Invalid intermediate text is not persisted, and a failed disk write is rolled back.
+pub(super) fn save_folder_setting(state: &mut State, text: &str) -> Result<bool, String> {
+    let folder = if text.trim().is_empty() {
+        None
+    } else {
+        let path = std::fs::canonicalize(text.trim())
+            .map_err(|e| format!("Invalid local mods folder: {e}"))?;
+        if !path.is_dir() {
+            return Err("Local mods path is not a folder".into());
+        }
+        Some(path)
+    };
+    if state.config.local_mod_folder == folder {
+        return Ok(false);
+    }
+    let previous = std::mem::replace(&mut state.config.local_mod_folder, folder);
+    if let Err(error) = state.config.save() {
+        state.config.local_mod_folder = previous;
+        return Err(format!("Failed to save local mods folder: {error}"));
+    }
+    Ok(true)
+}
+
+pub(super) fn reset_schedule(app: &mut App) {
+    app.folder_import.scan = None;
+    app.folder_import.preview = None;
 }
 
 #[cfg(test)]
@@ -515,33 +544,4 @@ mod tests {
         std::fs::write(temp.path().join(EXCLUSIONS_FILE), b"not json").unwrap();
         assert!(Exclusions::load(temp.path()).is_err());
     }
-}
-
-/// Save the watched folder independently of the main Settings Save button.
-/// Invalid intermediate text is not persisted, and a failed disk write is rolled back.
-pub(super) fn save_folder_setting(state: &mut State, text: &str) -> Result<bool, String> {
-    let folder = if text.trim().is_empty() {
-        None
-    } else {
-        let path = std::fs::canonicalize(text.trim())
-            .map_err(|e| format!("Invalid local mods folder: {e}"))?;
-        if !path.is_dir() {
-            return Err("Local mods path is not a folder".into());
-        }
-        Some(path)
-    };
-    if state.config.local_mod_folder == folder {
-        return Ok(false);
-    }
-    let previous = std::mem::replace(&mut state.config.local_mod_folder, folder);
-    if let Err(error) = state.config.save() {
-        state.config.local_mod_folder = previous;
-        return Err(format!("Failed to save local mods folder: {error}"));
-    }
-    Ok(true)
-}
-
-pub(super) fn reset_schedule(app: &mut App) {
-    app.folder_import.scan = None;
-    app.folder_import.preview = None;
 }

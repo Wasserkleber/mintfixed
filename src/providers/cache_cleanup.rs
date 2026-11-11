@@ -143,10 +143,10 @@ pub(super) fn prune(
         while let Some(id) = pending.pop() {
             if let Some(entries) = dependencies.get(&id).and_then(Value::as_array) {
                 for entry in entries {
-                    if let Some(dep) = entry.as_u64().map(|n| n.to_string()) {
-                        if keep_ids.insert(dep.clone()) {
-                            pending.push(dep);
-                        }
+                    if let Some(dep) = entry.as_u64().map(|n| n.to_string())
+                        && keep_ids.insert(dep.clone())
+                    {
+                        pending.push(dep);
                     }
                 }
             }

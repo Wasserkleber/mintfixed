@@ -59,7 +59,10 @@ impl BlueprintScan {
 fn game_package_key(path: &str) -> Option<String> {
     let path = path.replace('\\', "/");
     let base = path.split('.').next()?;
-    if !base.get(..6).is_some_and(|prefix| prefix.eq_ignore_ascii_case("/game/")) {
+    if !base
+        .get(..6)
+        .is_some_and(|prefix| prefix.eq_ignore_ascii_case("/game/"))
+    {
         return None;
     }
     Some(format!("fsd/content/{}", base[6..].to_ascii_lowercase()))
@@ -68,10 +71,7 @@ fn game_package_key(path: &str) -> Option<String> {
 /// Resolve a SuperIndex import: Function -> generated class -> Package.
 /// Do not treat every import-map entry as a hard dependency: imports can be
 /// unreferenced. SuperIndex is strong evidence that the linker will need it.
-fn super_dependency(
-    imports: &[unreal_asset::Import],
-    start: i32,
-) -> Option<Dependency> {
+fn super_dependency(imports: &[unreal_asset::Import], start: i32) -> Option<Dependency> {
     if start >= 0 {
         return None;
     }
@@ -145,7 +145,8 @@ pub(super) fn scan(uasset: &[u8], uexp: &[u8]) -> Result<BlueprintScan, unreal_a
             continue;
         }
         let is_function = if base.class_index.index < 0 {
-            asset.imports
+            asset
+                .imports
                 .get((-1_i64 - i64::from(base.class_index.index)) as usize)
                 .is_some_and(|import| import.object_name.get_owned_content() == "Function")
         } else {
@@ -161,9 +162,9 @@ pub(super) fn scan(uasset: &[u8], uexp: &[u8]) -> Result<BlueprintScan, unreal_a
             .functions
             .insert((owner.to_ascii_lowercase(), name.to_ascii_lowercase()));
     }
-    result.dependencies.sort_by(|a, b| {
-        (&a.target, a.symbol.display()).cmp(&(&b.target, b.symbol.display()))
-    });
+    result
+        .dependencies
+        .sort_by(|a, b| (&a.target, a.symbol.display()).cmp(&(&b.target, b.symbol.display())));
     result.dependencies.dedup();
     Ok(result)
 }
@@ -187,10 +188,12 @@ pub(super) fn broken_references<'a>(
 /// Exclude the whole cooked-package family; keep the game's vanilla files.
 pub(super) fn rejected_sidecar(path: &str, rejected: &HashSet<String>) -> bool {
     let lower = path.to_ascii_lowercase();
-    [".m.ubulk", ".o.ubulk", ".uptnl", ".uasset", ".uexp", ".ubulk"]
-        .iter()
-        .find_map(|suffix| lower.strip_suffix(suffix))
-        .is_some_and(|stem| rejected.contains(stem))
+    [
+        ".m.ubulk", ".o.ubulk", ".uptnl", ".uasset", ".uexp", ".ubulk",
+    ]
+    .iter()
+    .find_map(|suffix| lower.strip_suffix(suffix))
+    .is_some_and(|stem| rejected.contains(stem))
 }
 
 #[cfg(test)]
@@ -201,7 +204,8 @@ mod tests {
         let mut scan = BlueprintScan::default();
         scan.classes.insert(class.to_ascii_lowercase());
         for name in functions {
-            scan.functions.insert((class.to_ascii_lowercase(), name.to_ascii_lowercase()));
+            scan.functions
+                .insert((class.to_ascii_lowercase(), name.to_ascii_lowercase()));
         }
         scan
     }
@@ -222,7 +226,10 @@ mod tests {
         let old = demo("EWC_SW_Plague_RockpoxInfectedEnemies_C", &["StartWave"]);
         let obnc = demo("EWC_Generic_C", &["StartWave"]);
         let reference = needed(key, "EWC_SW_Plague_RockpoxInfectedEnemies_C", "StartWave");
-        assert_eq!(broken_references(&old, &obnc, [&reference]), vec!["function ewc_sw_plague_rockpoxinfectedenemies_c:startwave"]);
+        assert_eq!(
+            broken_references(&old, &obnc, [&reference]),
+            vec!["function ewc_sw_plague_rockpoxinfectedenemies_c:startwave"]
+        );
     }
 
     #[test]
@@ -250,15 +257,23 @@ mod tests {
 
     #[test]
     fn package_key_handles_game_path_and_ignores_script() {
-        assert_eq!(game_package_key("/Game/Enemies/A.A"), Some("fsd/content/enemies/a".to_string()));
+        assert_eq!(
+            game_package_key("/Game/Enemies/A.A"),
+            Some("fsd/content/enemies/a".to_string())
+        );
         assert_eq!(game_package_key("/Script/CoreUObject"), None);
     }
 
     #[test]
     fn rejected_package_excludes_its_uexp_and_bulk_sidecars() {
         let rejected = HashSet::from(["fsd/content/a".to_string()]);
-        for suffix in [".uasset", ".uexp", ".m.ubulk", ".o.ubulk", ".ubulk", ".uptnl"] {
-            assert!(rejected_sidecar(&format!("FSD/Content/A{suffix}"), &rejected));
+        for suffix in [
+            ".uasset", ".uexp", ".m.ubulk", ".o.ubulk", ".ubulk", ".uptnl",
+        ] {
+            assert!(rejected_sidecar(
+                &format!("FSD/Content/A{suffix}"),
+                &rejected
+            ));
         }
         assert!(!rejected_sidecar("FSD/Content/AB.uasset", &rejected));
     }

@@ -76,10 +76,10 @@ pub(crate) fn take_explicit(
     let mut seen = HashSet::new();
     let mut entries = Vec::new();
     for spec in specs {
-        if let Some(info) = resolved.remove(&spec) {
-            if seen.insert(Artifact::cached(store, &spec)) {
-                entries.push((spec, info));
-            }
+        if let Some(info) = resolved.remove(&spec)
+            && seen.insert(Artifact::cached(store, &spec))
+        {
+            entries.push((spec, info));
         }
     }
     entries
@@ -96,13 +96,13 @@ pub(crate) fn promote_standalone(
     let identity = Artifact::cached(store, spec);
     let mut first = None;
     profile.mods.retain(|item| {
-        if let ModOrGroup::Individual(mc) = item {
-            if mc.spec == *spec || Artifact::cached(store, &mc.spec) == identity {
-                if first.is_none() {
-                    first = Some(mc.clone());
-                }
-                return false;
+        if let ModOrGroup::Individual(mc) = item
+            && (mc.spec == *spec || Artifact::cached(store, &mc.spec) == identity)
+        {
+            if first.is_none() {
+                first = Some(mc.clone());
             }
+            return false;
         }
         true
     });
@@ -165,11 +165,11 @@ impl ProfileIssues {
                 // group, a disabled duplicate is still a duplicate membership.
                 if group.is_some() || enabled {
                     let scope = group.map(str::to_owned);
-                    if let Some(first) = seen.insert((scope.clone(), artifact), index) {
-                        if first != index {
-                            result.duplicates.insert((scope.clone(), first));
-                            result.duplicates.insert((scope, index));
-                        }
+                    if let Some(first) = seen.insert((scope.clone(), artifact), index)
+                        && first != index
+                    {
+                        result.duplicates.insert((scope.clone(), first));
+                        result.duplicates.insert((scope, index));
                     }
                 }
             };
@@ -391,7 +391,7 @@ mod tests {
         };
         assert!(!promote_standalone(&mut profile, &b, &store));
         std::fs::remove_file(&b.url).unwrap();
-        store.refresh_local_files(&[b.clone()]);
+        store.refresh_local_files(std::slice::from_ref(&b));
         assert!(store.cached_local_file(&b).is_none());
     }
 

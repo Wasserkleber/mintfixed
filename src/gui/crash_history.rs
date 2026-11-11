@@ -111,13 +111,13 @@ impl CrashHistory {
                                                         report.path.display().to_string(),
                                                     );
                                                 }
-                                                if ui.button("Open report").clicked() {
-                                                    if let Err(error) = open_report(&report.path) {
-                                                        self.error = Some(format!(
-                                                            "Could not open {}: {error}",
-                                                            report.name
-                                                        ));
-                                                    }
+                                                if ui.button("Open report").clicked()
+                                                    && let Err(error) = open_report(&report.path)
+                                                {
+                                                    self.error = Some(format!(
+                                                        "Could not open {}: {error}",
+                                                        report.name
+                                                    ));
                                                 }
                                             },
                                         );

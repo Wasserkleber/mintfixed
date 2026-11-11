@@ -219,10 +219,9 @@ impl Drag {
                             member_overrides,
                             ..
                         } = entry
+                            && group_name == source
                         {
-                            if group_name == source {
-                                member_overrides.forget(id);
-                            }
+                            member_overrides.forget(id);
                         }
                     }
                 }
@@ -236,10 +235,9 @@ impl Drag {
                         member_overrides,
                         ..
                     } = entry
+                        && group_name == destination
                     {
-                        if group_name == destination {
-                            member_overrides.set(mc, effective);
-                        }
+                        member_overrides.set(mc, effective);
                     }
                 }
             } else {
