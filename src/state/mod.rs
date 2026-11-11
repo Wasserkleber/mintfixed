@@ -710,10 +710,69 @@ fn read_config_or_default(config_path: &PathBuf) -> Result<VersionAnnotatedConfi
 }
 
 fn read_mod_data_or_default(
-    mod_data_path: &PathBuf,
+    mod_data_path: &std::path::Path,
     legacy_mod_profiles_path: PathBuf,
 ) -> Result<VersionAnnotatedModData, StateError> {
     migration::load(mod_data_path, &legacy_mod_profiles_path)
+}
+
+impl Default for ModGroup {
+    fn default() -> Self {
+        Self {
+            id: new_id(),
+            description: None,
+            mods: Vec::new(),
+        }
+    }
+}
+// ponytail: obake's versioned structs can't take #[derive(Default)] (it conflicts across versions).
+#[allow(clippy::derivable_impls)]
+impl Default for ModProfile_v0_0_0 {
+    fn default() -> Self {
+        Self { mods: Vec::new() }
+    }
+}
+impl Default for ModProfile_v0_1_0 {
+    fn default() -> Self {
+        Self {
+            id: new_id(),
+            mods: Vec::new(),
+        }
+    }
+}
+impl ModOrGroup {
+    pub fn id(&self) -> &str {
+        match self {
+            Self::Group { id, .. } => id,
+            Self::Individual(member) => &member.id,
+        }
+    }
+}
+impl ModProfile_v0_1_0 {
+    /// Copy occurrences, but keep references pointing at the same shared groups.
+    pub fn duplicate(&self) -> Self {
+        let mut copy = self.clone();
+        copy.id = new_id();
+        for row in &mut copy.mods {
+            match row {
+                ModOrGroup::Group { id, .. } => *id = new_id(),
+                ModOrGroup::Individual(member) => {
+                    member.id = new_id();
+                    member.member_id = None;
+                }
+            }
+        }
+        copy
+    }
+}
+
+impl ModConfig {
+    pub fn duplicate(&self) -> Self {
+        let mut copy = self.clone();
+        copy.id = new_id();
+        copy.member_id = self.member_id.as_ref().map(|_| new_id());
+        copy
+    }
 }
 
 #[cfg(test)]
@@ -951,62 +1010,5 @@ mod mod_data_tests {
 
         let any_required = mod_data.any_mod("default", |mc, _| mc.required);
         assert!(any_required);
-    }
-}
-
-impl Default for ModGroup {
-    fn default() -> Self {
-        Self {
-            id: new_id(),
-            description: None,
-            mods: Vec::new(),
-        }
-    }
-}
-impl Default for ModProfile_v0_0_0 {
-    fn default() -> Self {
-        Self { mods: Vec::new() }
-    }
-}
-impl Default for ModProfile_v0_1_0 {
-    fn default() -> Self {
-        Self {
-            id: new_id(),
-            mods: Vec::new(),
-        }
-    }
-}
-impl ModOrGroup {
-    pub fn id(&self) -> &str {
-        match self {
-            Self::Group { id, .. } => id,
-            Self::Individual(member) => &member.id,
-        }
-    }
-}
-impl ModProfile_v0_1_0 {
-    /// Copy occurrences, but keep references pointing at the same shared groups.
-    pub fn duplicate(&self) -> Self {
-        let mut copy = self.clone();
-        copy.id = new_id();
-        for row in &mut copy.mods {
-            match row {
-                ModOrGroup::Group { id, .. } => *id = new_id(),
-                ModOrGroup::Individual(member) => {
-                    member.id = new_id();
-                    member.member_id = None;
-                }
-            }
-        }
-        copy
-    }
-}
-
-impl ModConfig {
-    pub fn duplicate(&self) -> Self {
-        let mut copy = self.clone();
-        copy.id = new_id();
-        copy.member_id = self.member_id.as_ref().map(|_| new_id());
-        copy
     }
 }

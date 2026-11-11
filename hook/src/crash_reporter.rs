@@ -109,8 +109,10 @@ fn running_under_wine() -> bool {
 fn reporter_process_running() -> Result<bool> {
     let snapshot = unsafe { CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0) }?;
     let result = (|| -> Result<bool> {
-        let mut entry = PROCESSENTRY32W::default();
-        entry.dwSize = std::mem::size_of::<PROCESSENTRY32W>() as u32;
+        let mut entry = PROCESSENTRY32W {
+            dwSize: std::mem::size_of::<PROCESSENTRY32W>() as u32,
+            ..Default::default()
+        };
         unsafe { Process32FirstW(snapshot, &mut entry) }?;
         loop {
             let end = entry

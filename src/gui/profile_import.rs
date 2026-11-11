@@ -149,9 +149,10 @@ fn import_profile(data: &mut Data, text: &str, requested_name: &str) -> Result<S
         }
     }
 
-    let mut profile = Profile::default();
-    profile.id = crate::state::new_id();
-    profile.mods = entries;
+    let profile = Profile {
+        id: crate::state::new_id(),
+        mods: entries,
+    };
     data.groups.extend(new_groups);
     data.profiles.insert(profile_name.clone(), profile);
     data.active_profile = profile_name.clone();
@@ -166,32 +167,31 @@ pub(super) fn ui_inline(ui: &mut egui::Ui, data: &mut Data, modified: &mut bool)
     let mut success = None;
 
     ui.label("Paste a JSON profile export, or select a .json file.");
-    if ui.button("Load JSON file...").clicked() {
-        if let Some(path) = rfd::FileDialog::new()
+    if ui.button("Load JSON file...").clicked()
+        && let Some(path) = rfd::FileDialog::new()
             .add_filter("mintfixed profile JSON", &["json"])
             .pick_file()
-        {
-            let contents = std::fs::metadata(&path)
-                .map_err(|e| format!("Cannot read JSON file: {e}"))
-                .and_then(|meta| {
-                    if meta.len() > MAX_PROFILE_JSON_BYTES as u64 {
-                        Err("Profile JSON must not exceed 8 MiB".into())
-                    } else {
-                        std::fs::read_to_string(&path)
-                            .map_err(|e| format!("Cannot read JSON file: {e}"))
-                    }
-                });
-            match contents.and_then(|json| {
-                let parsed = parse_profile(&json)?;
-                Ok((json, parsed.profile_name))
-            }) {
-                Ok((json, name)) => {
-                    editor.json = json;
-                    editor.name = name;
-                    editor.error = None;
+    {
+        let contents = std::fs::metadata(&path)
+            .map_err(|e| format!("Cannot read JSON file: {e}"))
+            .and_then(|meta| {
+                if meta.len() > MAX_PROFILE_JSON_BYTES as u64 {
+                    Err("Profile JSON must not exceed 8 MiB".into())
+                } else {
+                    std::fs::read_to_string(&path)
+                        .map_err(|e| format!("Cannot read JSON file: {e}"))
                 }
-                Err(error) => editor.error = Some(error),
+            });
+        match contents.and_then(|json| {
+            let parsed = parse_profile(&json)?;
+            Ok((json, parsed.profile_name))
+        }) {
+            Ok((json, name)) => {
+                editor.json = json;
+                editor.name = name;
+                editor.error = None;
             }
+            Err(error) => editor.error = Some(error),
         }
     }
     // Large JSON must scroll inside its own bounded editor, never grow the menu.
@@ -209,10 +209,10 @@ pub(super) fn ui_inline(ui: &mut egui::Ui, data: &mut Data, modified: &mut bool)
         .inner;
     if edited.changed() {
         editor.error = None;
-        if editor.name.trim().is_empty() {
-            if let Ok(parsed) = parse_profile(&editor.json) {
-                editor.name = parsed.profile_name;
-            }
+        if editor.name.trim().is_empty()
+            && let Ok(parsed) = parse_profile(&editor.json)
+        {
+            editor.name = parsed.profile_name;
         }
     }
     ui.label("Imported profile name:");
