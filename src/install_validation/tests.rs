@@ -196,7 +196,9 @@ fn packer_rechecks_versions_before_reading_game_or_truncating_output() {
     let missing = dir.path().join("not-downloaded.pak");
     let error = crate::integrate::integrate(
         dir.path().join("FSD-WindowsNoEditor.pak"),
-        mint_lib::mod_info::MetaConfig {},
+        mint_lib::mod_info::MetaConfig {
+            bundled_crash_reporter: false,
+        },
         vec![
             (info("file", "Local", "local"), missing.clone()),
             (a, missing.clone()),

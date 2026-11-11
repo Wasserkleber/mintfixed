@@ -1594,6 +1594,17 @@ impl App {
                         });
                         ui.end_row();
 
+                        ui.label("Bundled crash reporter:");
+                        let config = &mut self.state.config;
+                        if ui
+                            .add(toggle_switch(&mut config.bundled_crash_reporter))
+                            .on_hover_text("Install and autolaunch the pinned BP-Crash-Reporter. Turn off to run your own; applied on the next Install.")
+                            .changed()
+                        {
+                            config.save().unwrap();
+                        }
+                        ui.end_row();
+
                         ui.label("Mod providers:");
                         ui.end_row();
 
