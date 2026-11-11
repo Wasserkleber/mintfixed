@@ -63,6 +63,9 @@ use request_counter::{RequestCounter, RequestID};
 
 use self::toggle_switch::toggle_switch;
 
+/// A profile's issues, keyed by the revisions they were computed against.
+type ProfileIssuesEntry = ((u64, (u64, u64)), crate::mod_identity::ProfileIssues);
+
 pub fn gui(dirs: Dirs, args: Option<Vec<String>>) -> Result<(), MintError> {
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
@@ -164,7 +167,7 @@ pub struct App {
     rx: Receiver<message::Message>,
     state: State,
     undo_group_move: Option<group_controls::UndoMove>,
-    profile_issues: HashMap<String, ((u64, (u64, u64)), crate::mod_identity::ProfileIssues)>,
+    profile_issues: HashMap<String, ProfileIssuesEntry>,
     groups_to_open: HashSet<(String, String)>,
     new_group_name: String,
     pending_group_files: usize,
@@ -1679,10 +1682,8 @@ impl App {
                         self.last_action = Some(LastAction::failure(error));
                     }
                 }
-            } else if committed {
-                if let Some(window) = &mut self.settings_window {
-                    window.local_mod_folder_err = Some(format!("Not a folder: {}", folder.trim()));
-                }
+            } else if committed && let Some(window) = &mut self.settings_window {
+                window.local_mod_folder_err = Some(format!("Not a folder: {}", folder.trim()));
             }
         }
         if rescan_folder {
@@ -2278,10 +2279,10 @@ impl eframe::App for App {
         // VSync limits frames to the monitor's refresh rate, which may exceed 60 Hz.
         // Pace updates during rapid input without requesting any frames when idle.
         const MIN_FRAME_INTERVAL: Duration = Duration::from_nanos(16_666_667);
-        if let Some(previous) = self.last_ui_frame_start {
-            if let Some(remaining) = MIN_FRAME_INTERVAL.checked_sub(previous.elapsed()) {
-                std::thread::sleep(remaining);
-            }
+        if let Some(previous) = self.last_ui_frame_start
+            && let Some(remaining) = MIN_FRAME_INTERVAL.checked_sub(previous.elapsed())
+        {
+            std::thread::sleep(remaining);
         }
         self.last_ui_frame_start = Some(Instant::now());
 
@@ -2753,11 +2754,10 @@ impl eframe::App for App {
                 });
             });
 
-            if open_local_folder_import {
-                if let Some(folder) = self.state.config.local_mod_folder.clone() {
+            if open_local_folder_import
+                && let Some(folder) = self.state.config.local_mod_folder.clone() {
                     folder_import::open_preview(self, ctx, folder);
                 }
-            }
             let profile = self.state.mod_data.active_profile.clone();
 
             ui.horizontal(|ui| {
@@ -2818,7 +2818,7 @@ impl eframe::App for App {
                         i.key_pressed(egui::Key::Enter) || i.key_pressed(egui::Key::Escape)
                     })
                 {
-                    *search_string = String::new();
+                    search_string.clear();
                     self.scroll_to_match = false;
                 } else if self.focus_search {
                     res.request_focus();
@@ -2889,13 +2889,12 @@ impl eframe::App for App {
                                 }
                             }
                         }
-                        egui::Event::Text(text) => {
-                            if !is_anything_focused && !text.trim().is_empty() {
+                        egui::Event::Text(text)
+                            if !is_anything_focused && !text.trim().is_empty() => {
                                 self.search_string = text.to_string();
                                 self.scroll_to_match = true;
                                 self.focus_search = true;
                             }
-                        }
                         _ => {}
                     }
                 }
@@ -2910,32 +2909,6 @@ impl eframe::App for App {
 fn looks_like_structured_json(text: &str) -> bool {
     let text = text.trim_start();
     text.starts_with('{') || text.starts_with('[')
-}
-
-#[cfg(test)]
-mod structured_json_paste_tests {
-    use super::looks_like_structured_json;
-
-    #[test]
-    fn rejects_profile_json_before_mod_resolution() {
-        assert!(looks_like_structured_json(
-            "{\n  \"format\": \"mintfixed-profile-mod-list\",\n  \"id\": \"c91ff9fb9d8bfb6192777bdcccc6be60\"\n}"
-        ));
-        assert!(looks_like_structured_json(
-            "  [\n  \"https://mod.io/g/drg/m/example\"\n]"
-        ));
-    }
-
-    #[test]
-    fn accepts_regular_mod_lists() {
-        assert!(!looks_like_structured_json(
-            "https://mod.io/g/drg/m/example#123"
-        ));
-        assert!(!looks_like_structured_json("C:\\mods\\example.pak"));
-        assert!(!looks_like_structured_json(
-            "https://mod.io/g/drg/m/example\nC:\\mods\\example.pak"
-        ));
-    }
 }
 
 fn is_committed(res: &egui::Response) -> bool {
@@ -2962,4 +2935,30 @@ pub enum SelfUpdateProgress {
     Pending,
     Progress { progress: u64, size: u64 },
     Complete,
+}
+
+#[cfg(test)]
+mod structured_json_paste_tests {
+    use super::looks_like_structured_json;
+
+    #[test]
+    fn rejects_profile_json_before_mod_resolution() {
+        assert!(looks_like_structured_json(
+            "{\n  \"format\": \"mintfixed-profile-mod-list\",\n  \"id\": \"c91ff9fb9d8bfb6192777bdcccc6be60\"\n}"
+        ));
+        assert!(looks_like_structured_json(
+            "  [\n  \"https://mod.io/g/drg/m/example\"\n]"
+        ));
+    }
+
+    #[test]
+    fn accepts_regular_mod_lists() {
+        assert!(!looks_like_structured_json(
+            "https://mod.io/g/drg/m/example#123"
+        ));
+        assert!(!looks_like_structured_json("C:\\mods\\example.pak"));
+        assert!(!looks_like_structured_json(
+            "https://mod.io/g/drg/m/example\nC:\\mods\\example.pak"
+        ));
+    }
 }

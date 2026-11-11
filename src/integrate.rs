@@ -69,6 +69,7 @@ pub fn uninstall<P: AsRef<Path>>(path_pak: P, modio_mods: HashSet<u32>) -> Resul
     if let Err(err) = crate::crash_reporter::stop(&installation.binaries_directory()) {
         warn!("failed to stop Mintfixed crash reporter: {err:#}");
     }
+    crate::bitfix::sync(&installation, &[]).whatever_context("failed to remove bitfix")?;
     uninstall_modio(&installation, modio_mods).ok();
     Ok(())
 }
@@ -232,6 +233,9 @@ pub fn integrate<P: AsRef<Path>>(
     // Read now: `config` is moved into the pak's meta further down.
     #[cfg(feature = "hook")]
     let bundled_crash_reporter = config.bundled_crash_reporter;
+    let (bitfix_patches, mods): (Vec<_>, Vec<_>) = mods
+        .into_iter()
+        .partition(|(info, _)| crate::bitfix::is_patch(info));
     let Ok(installation) = DRGInstallation::from_pak_path(&path_pak) else {
         return Err(IntegrationError::DrgInstallationNotFound {
             path: path_pak.as_ref().to_path_buf(),
@@ -305,6 +309,13 @@ pub fn integrate<P: AsRef<Path>>(
             Err(e) => Err(e),
         }?;
     }
+
+    // Before mods_P.pak is truncated, so a refused bitfix install changes nothing.
+    let bitfix_patches: Vec<_> = bitfix_patches
+        .iter()
+        .map(|(info, path)| (info.name.as_str(), path.as_path()))
+        .collect();
+    crate::bitfix::sync(&installation, &bitfix_patches)?;
 
     let mut bundle = ModBundleWriter::new(
         BufWriter::new(
@@ -392,12 +403,16 @@ pub fn integrate<P: AsRef<Path>>(
             if !seen_packages.insert(stem.clone()) {
                 continue; // The writer also gives the earlier mod precedence.
             }
-            let uasset = pak.get(pak_path, &mut reader).with_context(|_| CtxtRepakSnafu {
-                mod_info: mod_info.clone(),
-            })?;
-            let uexp = pak.get(uexp_path, &mut reader).with_context(|_| CtxtRepakSnafu {
-                mod_info: mod_info.clone(),
-            })?;
+            let uasset = pak
+                .get(pak_path, &mut reader)
+                .with_context(|_| CtxtRepakSnafu {
+                    mod_info: mod_info.clone(),
+                })?;
+            let uexp = pak
+                .get(uexp_path, &mut reader)
+                .with_context(|_| CtxtRepakSnafu {
+                    mod_info: mod_info.clone(),
+                })?;
             match blueprint_guard::scan(&uasset, &uexp) {
                 Ok(scan) => {
                     selected_blueprints.insert(stem, (mod_info.name.clone(), scan));
@@ -405,7 +420,9 @@ pub fn integrate<P: AsRef<Path>>(
                 Err(error) => {
                     tracing::debug!(
                         "Blueprint dependency guard: cannot inspect {} from '{}': {}; no verdict",
-                        normalized, mod_info.name, error
+                        normalized,
+                        mod_info.name,
+                        error
                     );
                 }
             }
@@ -454,7 +471,10 @@ pub fn integrate<P: AsRef<Path>>(
         let original = match blueprint_guard::scan(&original_uasset, &original_uexp) {
             Ok(original) => original,
             Err(error) => {
-                warn!("Blueprint dependency guard: cannot inspect vanilla {}: {}; no verdict", stem, error);
+                warn!(
+                    "Blueprint dependency guard: cannot inspect vanilla {}: {}; no verdict",
+                    stem, error
+                );
                 continue;
             }
         };
@@ -467,14 +487,18 @@ pub fn integrate<P: AsRef<Path>>(
                 .collect::<HashSet<_>>();
             warn!(
                 "Blueprint dependency guard: excluded {} from mod '{}': unresolved imported SuperIndex symbol(s) [{}] required by {:?}; vanilla package retained",
-                stem, mod_name, missing.join(", "), referers
+                stem,
+                mod_name,
+                missing.join(", "),
+                referers
             );
             rejected_blueprints.insert(stem);
         }
     }
     info!(
         "Blueprint dependency guard: scanned {} winning mod package(s); rejected {} conflicting vanilla replacement(s)",
-        selected_blueprints.len(), rejected_blueprints.len()
+        selected_blueprints.len(),
+        rejected_blueprints.len()
     );
     let mut added_paths = HashSet::new();
 
@@ -1334,7 +1358,7 @@ fn patch<C: Seek + Read>(asset: &mut Asset<C>) -> Result<(), IntegrationError> {
     let is_modded = find_function("FSDIsModdedServer");
     let is_modded_sandbox = find_function("FSDIsModdedSandboxServer");
 
-    for (_pi, statements) in statements.iter_mut() {
+    for statements in statements.values_mut() {
         *statements = std::mem::take(statements)
             .into_iter()
             .filter_map(|s| patch_ismodded(is_modded, is_modded_sandbox, s))
@@ -1348,7 +1372,7 @@ fn patch_modding_tab<C: Seek + Read>(asset: &mut Asset<C>) -> Result<(), Integra
     let ver = AssetVersion::new_from(asset);
     let mut statements = extract_tracked_statements(asset, ver, &None);
 
-    for (_pi, statements) in statements.iter_mut() {
+    for statements in statements.values_mut() {
         for statement in statements {
             walk(&mut statement.ex, &|ex| {
                 if let KismetExpression::ExSetArray(arr) = ex

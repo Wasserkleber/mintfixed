@@ -127,10 +127,10 @@ pub(super) fn rename_group(
     data.groups.insert(name.to_owned(), group);
     for profile in data.profiles.values_mut() {
         for item in &mut profile.mods {
-            if let ModOrGroup::Group { group_name, .. } = item {
-                if group_name == old {
-                    *group_name = name.to_owned();
-                }
+            if let ModOrGroup::Group { group_name, .. } = item
+                && group_name == old
+            {
+                *group_name = name.to_owned();
             }
         }
     }

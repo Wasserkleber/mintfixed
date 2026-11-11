@@ -169,23 +169,21 @@ pub(super) fn show(ctx: &egui::Context, recent: &mut Option<RecentCrash>) {
                 .link(crash.name.as_str())
                 .on_hover_text(crash.path.display().to_string())
                 .clicked()
+                && let Err(e) = open_report(&crash.path)
             {
-                if let Err(e) = open_report(&crash.path) {
-                    crash.open_error = Some(format!("Could not open report: {e}"));
-                }
+                crash.open_error = Some(format!("Could not open report: {e}"));
             }
             ui.horizontal(|ui| {
-                if ui.button("Open report").clicked() {
-                    if let Err(e) = open_report(&crash.path) {
-                        crash.open_error = Some(format!("Could not open report: {e}"));
-                    }
+                if ui.button("Open report").clicked()
+                    && let Err(e) = open_report(&crash.path)
+                {
+                    crash.open_error = Some(format!("Could not open report: {e}"));
                 }
-                if ui.button("Open folder").clicked() {
-                    if let Some(dir) = crash.path.parent() {
-                        if let Err(e) = opener::open(dir) {
-                            crash.open_error = Some(format!("Could not open folder: {e}"));
-                        }
-                    }
+                if ui.button("Open folder").clicked()
+                    && let Some(dir) = crash.path.parent()
+                    && let Err(e) = opener::open(dir)
+                {
+                    crash.open_error = Some(format!("Could not open folder: {e}"));
                 }
                 if ui.button("Copy path").clicked() {
                     ui.ctx().copy_text(crash.path.display().to_string());

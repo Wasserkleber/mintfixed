@@ -278,14 +278,14 @@ impl ModStore {
                 .map_err(|e| format!("invalid {name} provider metadata: {e}"))
         }
         let active_modio: Option<super::modio::ModioCache> =
-            parse_provider(&current_json, "modio").map_err(&fail)?;
+            parse_provider(&current_json, "modio").map_err(fail)?;
         let active_http: Option<super::http::HttpProviderCache> =
-            parse_provider(&current_json, "http").map_err(&fail)?;
+            parse_provider(&current_json, "http").map_err(fail)?;
         // Validate the archive before persisting it too.
         let _: Option<super::modio::ModioCache> =
-            parse_provider(&archived_json, "modio").map_err(&fail)?;
+            parse_provider(&archived_json, "modio").map_err(fail)?;
         let _: Option<super::http::HttpProviderCache> =
-            parse_provider(&archived_json, "http").map_err(&fail)?;
+            parse_provider(&archived_json, "http").map_err(fail)?;
 
         // Archive first: if interrupted, duplicate archive records are safer than data loss.
         let mut temp =

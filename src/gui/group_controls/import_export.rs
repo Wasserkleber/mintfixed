@@ -100,12 +100,11 @@ pub(super) fn parse_single_group_json(text: &str) -> Result<PendingGroupImport, 
         let (name, group) = groups.into_iter().next().unwrap();
         (Some(name), group)
     } else {
-        if let Some(format) = value.get("format") {
-            if format.as_str() != Some("mintfixed-group")
-                || value.get("version").and_then(|v| v.as_u64()) != Some(1)
-            {
-                return Err("Unsupported group export format/version".into());
-            }
+        if let Some(format) = value.get("format")
+            && (format.as_str() != Some("mintfixed-group")
+                || value.get("version").and_then(|v| v.as_u64()) != Some(1))
+        {
+            return Err("Unsupported group export format/version".into());
         }
         // Also accept one bare ModGroup or { "name": "...", "group": {...} }.
         let content = value.get("group").unwrap_or(&value);
@@ -334,8 +333,10 @@ mod group_import_export_tests {
     #[test]
     fn exporting_one_json_group_preserves_its_name_and_mod_settings() {
         let mut data = Data::default();
-        let mut group = crate::state::ModGroup::default();
-        group.description = Some("A group description".into());
+        let mut group = crate::state::ModGroup {
+            description: Some("A group description".into()),
+            ..Default::default()
+        };
         group.mods.push(ModConfig {
             id: crate::state::new_id(),
             description: Some("A mod description".into()),

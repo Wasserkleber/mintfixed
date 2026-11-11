@@ -1,3 +1,4 @@
+mod bitfix;
 mod crash_reporter;
 pub mod gui;
 mod install_validation;

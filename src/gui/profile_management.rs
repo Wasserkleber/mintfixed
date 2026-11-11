@@ -290,10 +290,10 @@ pub(super) fn ui<E, N>(
                 egui::CollapsingHeader::new("Export Profile")
                     .id_salt("manage-copy-profile")
                     .show(ui, |ui| {
-                        if let Some(copy_ui) = copy_ui.take() {
-                            if let Some(result) = copy_ui(ui, entries) {
-                                editor.export_feedback = Some(result);
-                            }
+                        if let Some(copy_ui) = copy_ui.take()
+                            && let Some(result) = copy_ui(ui, entries)
+                        {
+                            editor.export_feedback = Some(result);
                         }
                         if let Some(result) = &editor.export_feedback {
                             match result {

@@ -168,10 +168,9 @@ fn install_inner(bin_dir: &Path, installation_type: &DRGInstallationType) -> Res
             if name.starts_with("bpcrash-")
                 && name.ends_with(".installed")
                 && name != format!("bpcrash-{VERSION}.installed")
+                && let Err(err) = fs::remove_file(entry.path())
             {
-                if let Err(err) = fs::remove_file(entry.path()) {
-                    warn!("BP-Crash-Reporter: could not clean obsolete marker {name}: {err}");
-                }
+                warn!("BP-Crash-Reporter: could not clean obsolete marker {name}: {err}");
             }
         }
         info!(
@@ -291,12 +290,10 @@ fn install_verified_executable(dir: &Path, bytes: &[u8], exe_digest: &str) -> Re
         )?;
     }
     if let Err(err) = fs::rename(&staging, &exe) {
-        if had_previous {
-            if let Err(restore_err) = fs::rename(&previous, &exe) {
-                return Err(anyhow::anyhow!(
-                    "install failed: {err}; rollback failed: {restore_err}"
-                ));
-            }
+        if had_previous && let Err(restore_err) = fs::rename(&previous, &exe) {
+            return Err(anyhow::anyhow!(
+                "install failed: {err}; rollback failed: {restore_err}"
+            ));
         }
         return Err(err).context("cannot install updated crash reporter");
     }
@@ -322,13 +319,11 @@ fn install_verified_executable(dir: &Path, bytes: &[u8], exe_digest: &str) -> Re
         }
         return Err(err).context("could not finalize crash reporter update");
     }
-    if had_previous {
-        if let Err(err) = fs::remove_file(&previous) {
-            warn!(
-                "BP-Crash-Reporter: old executable backup left at {}: {err}",
-                previous.display()
-            );
-        }
+    if had_previous && let Err(err) = fs::remove_file(&previous) {
+        warn!(
+            "BP-Crash-Reporter: old executable backup left at {}: {err}",
+            previous.display()
+        );
     }
     Ok(())
 }
@@ -339,8 +334,10 @@ fn target_game_is_running(exe_name: &str) -> Result<bool> {
     let snapshot = unsafe { CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0) }
         .context("cannot enumerate running processes")?;
     let result = (|| -> Result<bool> {
-        let mut entry = PROCESSENTRY32W::default();
-        entry.dwSize = std::mem::size_of::<PROCESSENTRY32W>() as u32;
+        let mut entry = PROCESSENTRY32W {
+            dwSize: std::mem::size_of::<PROCESSENTRY32W>() as u32,
+            ..Default::default()
+        };
         unsafe { Process32FirstW(snapshot, &mut entry) }
             .context("failed to enumerate Windows processes")?;
         loop {
