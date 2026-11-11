@@ -1,6 +1,7 @@
 mod bitfix_menu;
 mod crash_history;
 mod crash_notice;
+mod edit_history;
 mod find_string;
 mod folder_import;
 mod group_controls;
@@ -168,7 +169,7 @@ pub struct App {
     tx: Sender<message::Message>,
     rx: Receiver<message::Message>,
     state: State,
-    undo_group_move: Option<group_controls::UndoMove>,
+    edit_history: edit_history::ModEditHistory,
     profile_issues: HashMap<String, ProfileIssuesEntry>,
     groups_to_open: HashSet<(String, String)>,
     new_group_name: String,
@@ -288,6 +289,8 @@ impl App {
             });
         }
 
+        let edit_history =
+            edit_history::ModEditHistory::new(&state.mod_data, state.mod_data.revision());
         Ok(Self {
             crash_history: crash_history::CrashHistory::default(),
             bitfix_menu: bitfix_menu::BitfixMenu::default(),
@@ -296,7 +299,7 @@ impl App {
             rx,
             request_counter: Default::default(),
             state,
-            undo_group_move: None,
+            edit_history,
             profile_issues: HashMap::new(),
             groups_to_open: HashSet::new(),
             new_group_name: String::new(),
@@ -339,6 +342,20 @@ impl App {
         })
     }
 
+    fn apply_mod_history(&mut self, redo: bool) {
+        match self.edit_history.restore(&mut self.state.mod_data, redo) {
+            Ok(true) => {
+                self.profile_issues.clear();
+                self.last_action = Some(LastAction::success(if redo {
+                    "Redid mod-list change".into()
+                } else {
+                    "Undid mod-list change".into()
+                }));
+            }
+            Ok(false) => {}
+            Err(error) => self.last_action = Some(LastAction::failure(error)),
+        }
+    }
     fn ui_profile(&mut self, ui: &mut Ui, profile: &str) -> Option<(String, bool)> {
         if egui::DragAndDrop::payload::<Drag>(ui.ctx()).is_some() {
             ui.style_mut().interaction.selectable_labels = false;
@@ -678,7 +695,7 @@ impl App {
                             }
                             _ => {}
                         }
-                        ui.add(
+                        if ui.add(
                             egui::DragValue::new(&mut mc.priority)
                                 .custom_formatter(|n, _| {
                                     if n == 0. {
@@ -700,7 +717,9 @@ impl App {
                         )
                         .on_hover_text_at_pointer(
                             "Load Priority\nIn case of asset conflict, mods with higher priority take precedent.\nCan have duplicate values.",
-                        );
+                        ).changed() {
+                            ctx.needs_save = true;
+                        }
                     });
 
                         if ui
@@ -1199,8 +1218,6 @@ impl App {
                     }
                     match self.state.mod_data.save() {
                         Ok(()) => {
-                            self.undo_group_move =
-                                Some(group_controls::UndoMove::new(before, &self.state.mod_data));
                             ctx.needs_save = false;
                         }
                         Err(error) => {
@@ -2385,6 +2402,34 @@ impl eframe::App for App {
             }
         }
 
+        // Record finished edits, including asynchronously resolved mods.
+        if !ctx.input(|i| i.pointer.primary_down()) {
+            self.edit_history
+                .sync(&self.state.mod_data, self.state.mod_data.revision());
+        }
+        // Preserve native text-edit undo while the user is typing.
+        if !ctx.wants_keyboard_input()
+            && self.integrate_rid.is_none()
+            && self.update_rid.is_none()
+            && self.lint_rid.is_none()
+        {
+            let shortcut = ctx.input(|i| {
+                if !i.modifiers.command {
+                    return None;
+                }
+                if i.key_pressed(egui::Key::Y) || (i.modifiers.shift && i.key_pressed(egui::Key::Z))
+                {
+                    Some(true)
+                } else if !i.modifiers.shift && i.key_pressed(egui::Key::Z) {
+                    Some(false)
+                } else {
+                    None
+                }
+            });
+            if let Some(redo) = shortcut {
+                self.apply_mod_history(redo);
+            }
+        }
         // begin draw
 
         self.show_update_window(ctx);
@@ -2696,7 +2741,7 @@ impl eframe::App for App {
                 copy_feedback = profile_management::copy_options(ui, mod_data);
                 copy_feedback.clone()
             };
-            if named_combobox::ui(
+            let profile_toolbar_changed = named_combobox::ui(
                 ui,
                 "profile",
                 self.state.mod_data.deref_mut().deref_mut(),
@@ -2704,9 +2749,10 @@ impl eframe::App for App {
                 Some(profile_import_button),
                 Some(profile_copy_button),
                 self.resolve_mod_rid.is_none() && self.pending_group_files == 0,
-            ) || group_changed
-            {
+            );
+            if profile_toolbar_changed || group_changed {
                 self.state.mod_data.save().unwrap();
+                self.edit_history.reset(&self.state.mod_data, self.state.mod_data.revision());
             }
             if let Some(message) = group_success {
                 self.last_action = Some(LastAction::success(message));
@@ -2721,22 +2767,38 @@ impl eframe::App for App {
                 });
             }
 
-            if self.undo_group_move.is_some()
-                && ui.button("Undo move").clicked()
-                && let Some(undo) = self.undo_group_move.take()
-            {
-                match undo.apply(&mut self.state.mod_data) {
-                    Ok(()) => self.state.mod_data.save().unwrap(),
-                    Err(e) => self.last_action = Some(LastAction::failure(e.into())),
-                }
-            }
-
             ui.separator();
 
             let mut open_local_folder_import = false;
             ui.with_layout(egui::Layout::right_to_left(Align::TOP), |ui| {
                 if self.resolve_mod_rid.is_some() {
                     ui.spinner();
+                }
+                let history_enabled = self.resolve_mod_rid.is_none()
+                    && self.integrate_rid.is_none()
+                    && self.update_rid.is_none()
+                    && self.lint_rid.is_none();
+                let redo_image = egui::Image::new(egui::include_image!("../../assets/icons/redo.svg"))
+                    .fit_to_exact_size(egui::vec2(17.0, 17.0))
+                    .tint(ui.visuals().text_color());
+                if ui.add_enabled(
+                    history_enabled && self.edit_history.can_redo(),
+                    egui::Button::image(redo_image),
+                )
+                .on_hover_text("Redo mod-list change (Ctrl+Y / Ctrl+Shift+Z)")
+                .clicked() {
+                    self.apply_mod_history(true);
+                }
+                let undo_image = egui::Image::new(egui::include_image!("../../assets/icons/undo.svg"))
+                    .fit_to_exact_size(egui::vec2(17.0, 17.0))
+                    .tint(ui.visuals().text_color());
+                if ui.add_enabled(
+                    history_enabled && self.edit_history.can_undo(),
+                    egui::Button::image(undo_image),
+                )
+                .on_hover_text("Undo mod-list change (Ctrl+Z)")
+                .clicked() {
+                    self.apply_mod_history(false);
                 }
                 if ui
                     .add_enabled(
@@ -2928,6 +2990,10 @@ impl eframe::App for App {
             });
         });
         self.show_group_mod_removal_confirmation(ctx);
+        if !ctx.input(|i| i.pointer.primary_down()) {
+            self.edit_history
+                .sync(&self.state.mod_data, self.state.mod_data.revision());
+        }
     }
 }
 

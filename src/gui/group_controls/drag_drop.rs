@@ -490,28 +490,6 @@ pub(in crate::gui) fn add_files(
     });
 }
 
-pub(in crate::gui) struct UndoMove {
-    before: Data,
-    after: Vec<u8>,
-}
-
-impl UndoMove {
-    pub fn new(before: Data, after: &Data) -> Self {
-        Self {
-            before,
-            after: serde_json::to_vec(after).expect("serializable mod data"),
-        }
-    }
-
-    pub fn apply(self, data: &mut Data) -> Result<(), &'static str> {
-        if serde_json::to_vec(data).expect("serializable mod data") != self.after {
-            return Err("The profile or groups have changed since the move");
-        }
-        *data = self.before;
-        Ok(())
-    }
-}
-
 /// Hover timers are scoped to the rendered group header, including its window.
 /// Requiring a recent observation prevents an old timer surviving a profile switch.
 #[derive(Clone, Copy, Default)]
@@ -700,10 +678,14 @@ mod move_switch_tests {
         assert_eq!(mc.priority, 7);
         assert_eq!(mc.id, before.groups["Source"].mods[0].id);
         assert!(!mc.enabled);
-        let undo = UndoMove::new(before.clone(), &data);
-        undo.apply(&mut data).unwrap();
+        let mut history = crate::gui::edit_history::ModEditHistory::new(&before, 0);
+        history.sync(&data, 1);
+        let mut wrapped = crate::state::config::ConfigWrapper::memory(
+            crate::state::VersionAnnotatedModData::V0_3_0(data),
+        );
+        history.restore(&mut wrapped, false).unwrap();
         assert_eq!(
-            serde_json::to_value(data).unwrap(),
+            serde_json::to_value(&**wrapped).unwrap(),
             serde_json::to_value(before).unwrap()
         );
     }

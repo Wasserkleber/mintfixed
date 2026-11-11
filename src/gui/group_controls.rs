@@ -6,8 +6,7 @@ mod import_export;
 mod management;
 
 pub(super) use drag_drop::{
-    Drag, GroupDestination, Target, UndoMove, add_files, auto_scroll, drop_files, hover_open,
-    row_target,
+    Drag, GroupDestination, Target, add_files, auto_scroll, drop_files, hover_open, row_target,
 };
 pub(super) use management::{controls, remove_group_member};
 
