@@ -69,6 +69,7 @@ pub fn uninstall<P: AsRef<Path>>(path_pak: P, modio_mods: HashSet<u32>) -> Resul
     if let Err(err) = crate::crash_reporter::stop(&installation.binaries_directory()) {
         warn!("failed to stop Mintfixed crash reporter: {err:#}");
     }
+    crate::bitfix::sync(&installation, &[]).whatever_context("failed to remove bitfix")?;
     uninstall_modio(&installation, modio_mods).ok();
     Ok(())
 }
@@ -229,6 +230,9 @@ pub fn integrate<P: AsRef<Path>>(
     mods: Vec<(ModInfo, PathBuf)>,
 ) -> Result<(), IntegrationError> {
     let mods = crate::install_validation::prepare_packer_inputs(mods)?;
+    let (bitfix_patches, mods): (Vec<_>, Vec<_>) = mods
+        .into_iter()
+        .partition(|(info, _)| crate::bitfix::is_patch(info));
     let Ok(installation) = DRGInstallation::from_pak_path(&path_pak) else {
         return Err(IntegrationError::DrgInstallationNotFound {
             path: path_pak.as_ref().to_path_buf(),
@@ -302,6 +306,13 @@ pub fn integrate<P: AsRef<Path>>(
             Err(e) => Err(e),
         }?;
     }
+
+    // Before mods_P.pak is truncated, so a refused bitfix install changes nothing.
+    let bitfix_patches: Vec<_> = bitfix_patches
+        .iter()
+        .map(|(info, path)| (info.name.as_str(), path.as_path()))
+        .collect();
+    crate::bitfix::sync(&installation, &bitfix_patches)?;
 
     let mut bundle = ModBundleWriter::new(
         BufWriter::new(
