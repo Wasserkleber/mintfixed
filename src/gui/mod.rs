@@ -209,6 +209,7 @@ pub struct App {
     problematic_mod_id: Option<u32>,
     pending_group_mod_removal: Option<PendingGroupModRemoval>,
     recent_crash: Option<crash_notice::RecentCrash>,
+    crash_monitor: Option<crash_notice::CrashMonitor>,
 }
 
 #[derive(Default)]
@@ -334,6 +335,7 @@ impl App {
             problematic_mod_id: None,
             pending_group_mod_removal: None,
             recent_crash,
+            crash_monitor: None,
         })
     }
 
@@ -2393,6 +2395,17 @@ impl eframe::App for App {
         folder_import::show_preview(self, ctx);
         self.show_lints_toggle(ctx);
         self.show_lint_report(ctx);
+        // Check the configured installation without accessing the disk every frame.
+        if self
+            .crash_monitor
+            .as_ref()
+            .is_none_or(|monitor| !monitor.matches_installation(&self.state))
+        {
+            self.crash_monitor = Some(crash_notice::CrashMonitor::start(&self.state, ctx));
+        }
+        if let Some(monitor) = &mut self.crash_monitor {
+            monitor.poll(&mut self.recent_crash);
+        }
         crash_notice::show(ctx, &mut self.recent_crash);
 
         self.crash_history.show(ctx, &self.state);
