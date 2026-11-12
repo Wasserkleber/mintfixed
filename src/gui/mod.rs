@@ -969,6 +969,12 @@ impl App {
                                 collapse.set_open(true);
                             }
                             let fully_closed = collapse.openness(ui.ctx()) <= 0.0;
+                            // Tinted names are slightly desaturated for legibility on
+                            // the existing colored header background in both themes.
+                            let group_header_color = mod_list_style::group_header_text_color(
+                                ui,
+                                selected_group_tint.as_deref(),
+                            );
                             // Highlight the group while its matching members are hidden.
                             let group_title = if fully_closed && matching_mod_in_group {
                                 RichText::new(group_name.as_str())
@@ -976,9 +982,41 @@ impl App {
                                     .background_color(Color32::YELLOW)
                                     .color(Color32::BLACK)
                             } else {
-                                RichText::new(group_name.as_str()).strong()
+                                let mut title = RichText::new(group_name.as_str()).strong();
+                                if let Some(color) = group_header_color {
+                                    title = title.color(color);
+                                }
+                                title
+                            };
+                            // mintfixed: soft neutral text for uncolored group headers
+                            let group_title = if selected_group_tint.is_none()
+                                && !(fully_closed && matching_mod_in_group)
+                            {
+                                group_title.color(if ui.visuals().dark_mode {
+                                    Color32::from_gray(164)
+                                } else {
+                                    Color32::from_gray(92)
+                                })
+                            } else {
+                                group_title
                             };
                             let mut title_clicked = false;
+                            // egui draws its built-in collapse arrow before the header
+                            // callback, so tint its foreground only while painting this
+                            // group header. Save/restore widget styling for the mod rows.
+                            let previous_arrow_widgets = group_header_color.map(|color| {
+                                let widgets = &mut ui.visuals_mut().widgets;
+                                let previous = widgets.clone();
+                                for state in [
+                                    &mut widgets.inactive,
+                                    &mut widgets.hovered,
+                                    &mut widgets.active,
+                                    &mut widgets.open,
+                                ] {
+                                    state.fg_stroke.color = color;
+                                }
+                                previous
+                            });
                             let mut header = collapse.show_header(ui, |ui| {
                                 title_clicked = ui
                                     .add(egui::Label::new(group_title).sense(egui::Sense::click()))
@@ -1012,14 +1050,17 @@ impl App {
                                                     ui.visuals().dark_mode,
                                                 )),
                                             |ui| {
-                                                if ui.selectable_label(selected_color.is_none(), "None").clicked() {
+                                                if mod_list_style::color_menu_option(ui, None, "None", selected_color.is_none()) {
                                                     requested_color = Some(None);
                                                     ui.close_menu();
                                                 }
                                                 for &(key, label) in mod_list_style::COLOR_OPTIONS {
-                                                    let text = RichText::new(format!("●  {label}"))
-                                                        .color(mod_list_style::swatch_color(Some(key), ui.visuals().dark_mode));
-                                                    if ui.selectable_label(selected_color.as_deref() == Some(key), text).clicked() {
+                                                    if mod_list_style::color_menu_option(
+                                                        ui,
+                                                        Some(key),
+                                                        label,
+                                                        selected_color.as_deref() == Some(key),
+                                                    ) {
                                                         requested_color = Some(Some(key.to_owned()));
                                                         ui.close_menu();
                                                     }
@@ -1045,6 +1086,10 @@ impl App {
                                 header.toggle();
                             }
                             let (_toggle_response, header_contents, body_response) = header.body(|ui| {
+                                // The tinted arrow must not recolor the group's mods.
+                                if let Some(previous) = &previous_arrow_widgets {
+                                    ui.visuals_mut().widgets = previous.clone();
+                                }
                                 let group = groups.get_mut(group_name).unwrap();
                                 let order = sorted_mod_indices(
                                     Some(member_overrides),
@@ -1097,6 +1142,10 @@ ui.push_id(("group", group_name.as_str(), index), |ui| {
                                     }
                                 }
                             });
+                            // Closed groups have no body, so restore the header UI too.
+                            if let Some(previous) = previous_arrow_widgets {
+                                ui.visuals_mut().widgets = previous;
+                            }
                             let header_response = header_contents.response;
                             if fully_closed && matching_mod_in_group && ctx.scroll_to_match {
                                 header_response.scroll_to_me(None);

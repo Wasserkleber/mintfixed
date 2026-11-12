@@ -16,6 +16,26 @@ pub(in crate::gui) struct Target {
     pub slot: usize,
 }
 
+// The dragged row is still laid out inside the scrolling list. Keep its first
+// painted position so the preview can cancel any later scroll displacement.
+#[derive(Clone, Copy)]
+struct DragPaintAnchor {
+    press_origin: egui::Pos2,
+    row_origin: egui::Pos2,
+}
+
+const DRAG_PAINT_ANCHOR_ID: &str = "mintfixed-drag-paint-anchor";
+
+fn drag_paint_translation(
+    pointer: egui::Pos2,
+    press_origin: egui::Pos2,
+    initial_row: egui::Pos2,
+    current_row: egui::Pos2,
+) -> egui::Vec2 {
+    // Pointer movement moves the preview; scrolling must not move it twice.
+    (pointer - press_origin) + (initial_row - current_row)
+}
+
 impl Drag {
     pub fn paint_row<R>(
         ui: &mut Ui,
@@ -30,16 +50,34 @@ impl Drag {
         if !active {
             return draw(ui);
         }
-        let delta = ui.input(|i| Some(i.pointer.interact_pos()? - i.pointer.press_origin()?));
-        let Some(delta) = delta else { return draw(ui) };
-        // Move only the paint. Keep the layout and drop targets in their saved positions.
+        let positions = ui.input(|i| Some((i.pointer.interact_pos()?, i.pointer.press_origin()?)));
+        let Some((pointer, press_origin)) = positions else {
+            return draw(ui);
+        };
+        // Move only the paint. Keep layout and drop targets in their saved positions.
         let layer = egui::LayerId::new(egui::Order::Tooltip, ui.id().with("moving-row"));
-        let result = ui
-            .scope_builder(egui::UiBuilder::new().layer_id(layer), draw)
-            .inner;
+        let painted = ui.scope_builder(egui::UiBuilder::new().layer_id(layer), draw);
+        let current_row = painted.response.rect.min;
+        let anchor_id = egui::Id::new(DRAG_PAINT_ANCHOR_ID);
+        let initial_row = ui.ctx().data_mut(|data| {
+            if let Some(anchor) = data.get_temp::<DragPaintAnchor>(anchor_id) {
+                if anchor.press_origin == press_origin {
+                    return anchor.row_origin;
+                }
+            }
+            data.insert_temp(
+                anchor_id,
+                DragPaintAnchor {
+                    press_origin,
+                    row_origin: current_row,
+                },
+            );
+            current_row
+        });
+        let delta = drag_paint_translation(pointer, press_origin, initial_row, current_row);
         ui.ctx()
             .transform_layer_shapes(layer, egui::emath::TSTransform::from_translation(delta));
-        result
+        painted.inner
     }
 
     pub fn handle(
@@ -65,6 +103,11 @@ impl Drag {
         let response = response.on_hover_cursor(egui::CursorIcon::Grab);
 
         if response.drag_started() {
+            // Reset the preview origin for every drag, even if it begins at the
+            // same cursor coordinates as the previous drag.
+            ui.ctx().data_mut(|data| {
+                data.remove::<DragPaintAnchor>(egui::Id::new(DRAG_PAINT_ANCHOR_ID));
+            });
             response.dnd_set_drag_payload(Self {
                 profile: profile.into(),
                 group: group.map(str::to_owned),
@@ -542,15 +585,18 @@ pub(in crate::gui) fn hover_open(
     open
 }
 
+const EDGE_SCROLL_ZONE: f32 = 80.0;
+const EDGE_SCROLL_MAX_SPEED: f32 = 2_400.0;
+
 fn edge_scroll_delta(view: egui::Rect, pointer: egui::Pos2, dt: f32) -> f32 {
     if !view.contains(pointer) || view.height() <= 0.0 {
         return 0.0;
     }
-    let band = 36.0_f32.min(view.height() * 0.25);
+    let band = EDGE_SCROLL_ZONE.min(view.height() * 0.45);
     let top = ((view.top() + band - pointer.y) / band).clamp(0.0, 1.0);
     let bottom = ((pointer.y - (view.bottom() - band)) / band).clamp(0.0, 1.0);
     // Positive moves content down (scroll up); negative scrolls down.
-    (top - bottom) * 480.0 * dt.clamp(0.0, 0.05)
+    (top * top - bottom * bottom) * EDGE_SCROLL_MAX_SPEED * dt.clamp(0.0, 0.05)
 }
 
 pub(in crate::gui) fn auto_scroll(ui: &Ui, profile: &str, manual: bool) {
@@ -580,6 +626,48 @@ mod drag_polish_tests {
     use super::*;
 
     #[test]
+    fn edge_scroll_reaches_2400_pixels_per_second_near_edges() {
+        let rect = egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(200.0, 400.0));
+        let dt = 1.0 / 60.0;
+        let upward = edge_scroll_delta(rect, egui::pos2(100.0, 1.0), dt);
+        let downward = edge_scroll_delta(rect, egui::pos2(100.0, 399.0), dt);
+        let expected = 2_400.0 * dt * (79.0_f32 / 80.0).powi(2);
+        assert!((upward - expected).abs() < 0.001);
+        assert!((downward + expected).abs() < 0.001);
+    }
+
+    #[test]
+    fn drag_preview_stays_with_pointer_when_scrolling_down() {
+        let press = egui::pos2(100.0, 150.0);
+        let pointer = egui::pos2(105.0, 220.0);
+        let initial_row = egui::pos2(30.0, 130.0);
+        let scrolled_row = egui::pos2(30.0, -70.0);
+        let translation = drag_paint_translation(pointer, press, initial_row, scrolled_row);
+        assert_eq!(scrolled_row + translation, egui::pos2(35.0, 200.0));
+    }
+
+    #[test]
+    fn drag_preview_stays_with_pointer_when_scrolling_up() {
+        let press = egui::pos2(100.0, 150.0);
+        let pointer = egui::pos2(105.0, 80.0);
+        let initial_row = egui::pos2(30.0, 130.0);
+        let scrolled_row = egui::pos2(30.0, 330.0);
+        let translation = drag_paint_translation(pointer, press, initial_row, scrolled_row);
+        assert_eq!(scrolled_row + translation, egui::pos2(35.0, 60.0));
+    }
+
+    #[test]
+    fn drag_preview_does_not_drift_when_pointer_is_stationary() {
+        let press = egui::pos2(100.0, 150.0);
+        let initial_row = egui::pos2(30.0, 130.0);
+        for y in [-170.0, 80.0, 130.0, 270.0] {
+            let current_row = egui::pos2(30.0, y);
+            let delta = drag_paint_translation(press, press, initial_row, current_row);
+            assert_eq!(current_row + delta, initial_row);
+        }
+    }
+
+    #[test]
     fn hover_requires_dwell_and_resets_after_leaving_or_missing_frames() {
         let mut timer = HoverOpen::default();
         assert!(!timer.update(1.0, true));
@@ -600,7 +688,7 @@ mod drag_polish_tests {
         assert!(edge_scroll_delta(rect, egui::pos2(50.0, 419.0), 0.016) < 0.0);
         assert_eq!(edge_scroll_delta(rect, rect.center(), 0.016), 0.0);
         assert_eq!(edge_scroll_delta(rect, egui::pos2(9.0, 21.0), 0.016), 0.0);
-        assert!(edge_scroll_delta(rect, egui::pos2(50.0, 20.0), 10.0) <= 24.0);
+        assert!(edge_scroll_delta(rect, egui::pos2(50.0, 20.0), 10.0) <= 120.0);
         assert_eq!(
             edge_scroll_delta(rect, egui::pos2(50.0, 20.0), 0.032),
             2.0 * edge_scroll_delta(rect, egui::pos2(50.0, 20.0), 0.016)

@@ -45,6 +45,20 @@ fn mix(base: Color32, tint: Color32, percent: u8) -> Color32 {
     )
 }
 
+/// Readable group-header text and arrow accent, blended with the active theme.
+/// Uncolored groups use a quieter neutral gray instead of the bright theme foreground.
+pub(super) fn group_header_text_color(ui: &Ui, selected: Option<&str>) -> Option<Color32> {
+    Some(match selected.and_then(accent) {
+        Some(accent) => mix(
+            ui.visuals().text_color(),
+            accent,
+            if ui.visuals().dark_mode { 58 } else { 38 },
+        ),
+        None if ui.visuals().dark_mode => Color32::from_rgb(170, 173, 180),
+        None => Color32::from_rgb(93, 98, 108),
+    })
+}
+
 /// Only matching selected colors can be striped; other colors remain uniform.
 pub(super) fn same_selected_color(previous: Option<&str>, current: Option<&str>) -> bool {
     matches!((previous, current), (Some(a), Some(b)) if a == b)
@@ -186,4 +200,73 @@ pub(super) fn tint_group_member_controls(ui: &mut Ui, selected: Option<Color32>)
     let text = visuals.text_color();
     visuals.override_text_color = Some(mix(text, accent, if dark { 26 } else { 22 }));
     visuals.extreme_bg_color = mix(visuals.extreme_bg_color, accent, edit_strength);
+}
+
+// Draw an entire palette entry as one click target. The filled swatch and
+// colored text use the existing group accent; selection is shown on the right.
+// No group settings or save behavior are changed here.
+pub(super) fn color_menu_option(
+    ui: &mut Ui,
+    color_key: Option<&str>,
+    label: &str,
+    selected: bool,
+) -> bool {
+    let dark = ui.visuals().dark_mode;
+    let foreground = color_key
+        .map(|key| swatch_color(Some(key), dark))
+        .unwrap_or_else(|| ui.visuals().text_color());
+    let size = egui::vec2(92.0, 18.0);
+    let (rect, response) = ui.allocate_exact_size(size, egui::Sense::click());
+
+    if ui.is_rect_visible(rect) {
+        let background = if selected {
+            ui.visuals().selection.bg_fill
+        } else if response.hovered() {
+            ui.visuals().widgets.hovered.weak_bg_fill
+        } else {
+            Color32::TRANSPARENT
+        };
+        if background != Color32::TRANSPARENT {
+            ui.painter().rect_filled(rect, 3.0, background);
+        }
+
+        let center_y = rect.center().y;
+        if color_key.is_some() {
+            // Solid, small rectangular swatch (rather than an outlined glyph).
+            let swatch = egui::Rect::from_center_size(
+                egui::pos2(rect.left() + 12.0, center_y),
+                egui::vec2(14.0, 10.0),
+            );
+            ui.painter().rect_filled(swatch, 2.0, foreground);
+        }
+        let font = egui::TextStyle::Body.resolve(ui.style());
+        ui.painter().text(
+            egui::pos2(rect.left() + 26.0, center_y),
+            egui::Align2::LEFT_CENTER,
+            label,
+            font.clone(),
+            foreground,
+        );
+        if selected {
+            // Draw the check mark ourselves: the UI font may not contain U+2713.
+            let color = ui.visuals().text_color();
+            let center = egui::pos2(rect.right() - 9.0, center_y);
+            let stroke = egui::Stroke::new(1.5_f32, color);
+            ui.painter().line_segment(
+                [
+                    center + egui::vec2(-4.0, 0.0),
+                    center + egui::vec2(-1.0, 3.0),
+                ],
+                stroke,
+            );
+            ui.painter().line_segment(
+                [
+                    center + egui::vec2(-1.0, 3.0),
+                    center + egui::vec2(4.0, -3.0),
+                ],
+                stroke,
+            );
+        }
+    }
+    response.clicked()
 }
