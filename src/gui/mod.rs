@@ -164,6 +164,29 @@ fn description_help_button(ui: &mut Ui, description: &str) {
     });
 }
 
+// A single-line, width-bounded status label. Never let diagnostics reserve toolbar space.
+// Hover exposes the unabridged message; clicking opens the copyable details window.
+fn status_message(ui: &mut Ui, message: &str) -> bool {
+    let width = ui.available_width();
+    if width < 18.0 {
+        return false;
+    }
+    // A frameless Button keeps the text left-aligned and truncates without
+    // Label's automatic tooltip (egui 0.31), avoiding duplicate hover popups.
+    ui.add(
+        Button::new(RichText::new(message).text_style(egui::TextStyle::Body))
+            .frame(false)
+            .truncate(),
+    )
+    .on_hover_ui_at_pointer(|ui| {
+        ui.set_max_width(500.0);
+        ui.label(message);
+        ui.small("Click to open and copy the complete message");
+    })
+    .on_hover_cursor(egui::CursorIcon::PointingHand)
+    .clicked()
+}
+
 pub struct App {
     crash_history: crash_history::CrashHistory,
     bitfix_menu: bitfix_menu::BitfixMenu,
@@ -197,6 +220,7 @@ pub struct App {
     folder_import: folder_import::FolderImport,
     modio_texture_handle: Option<egui::TextureHandle>,
     last_action: Option<LastAction>,
+    status_details: Option<String>,
     available_update: Option<GitHubRelease>,
     show_update_time: Option<SystemTime>,
     open_profiles: HashSet<String>,
@@ -325,6 +349,7 @@ impl App {
             folder_import: Default::default(),
             modio_texture_handle: None,
             last_action: None,
+            status_details: None,
             available_update: None,
             show_update_time: None,
             open_profiles: Default::default(),
@@ -2846,61 +2871,94 @@ impl eframe::App for App {
                     ui.ctx()
                         .open_url(egui::OpenUrl::new_tab(&available_update.html_url));
                 }
-                ui.with_layout(egui::Layout::left_to_right(Align::TOP), |ui| {
-                    if self.update_rid.is_some() {
-                        if let Some((completed, total)) = self.cache_recovery_progress {
-                            // Repaint exactly when the 10-second inactivity threshold expires,
-                            // even when mod.io has not produced another progress event.
-                            let waiting = completed < total
-                                && self.cache_recovery_last_advance.is_some_and(|last| {
-                                    let elapsed = last.elapsed();
-                                    let threshold = std::time::Duration::from_secs(10);
-                                    if elapsed < threshold {
-                                        ui.ctx().request_repaint_after(threshold - elapsed);
-                                        false
-                                    } else {
-                                        true
+                // Render fixed action buttons first (right-to-left), then confine
+                // status text to the actual remainder of the toolbar row.
+                let status_width = ui.available_width().max(0.0);
+                if status_width >= 24.0 {
+                    ui.allocate_ui_with_layout(
+                        egui::vec2(status_width, ui.spacing().interact_size.y),
+                        egui::Layout::left_to_right(Align::Center),
+                        |ui| {
+                            if self.update_rid.is_some() {
+                                let progress = if let Some((completed, total)) = self.cache_recovery_progress {
+                                    // Repaint when the inactivity threshold expires, even if
+                                    // mod.io hasn't sent another progress event.
+                                    let waiting = completed < total
+                                        && self.cache_recovery_last_advance.is_some_and(|last| {
+                                            let elapsed = last.elapsed();
+                                            let threshold = Duration::from_secs(10);
+                                            if elapsed < threshold {
+                                                ui.ctx().request_repaint_after(threshold - elapsed);
+                                                false
+                                            } else {
+                                                true
+                                            }
+                                        });
+                                    format!(
+                                        "Recovering mod.io metadata: ({completed}/{total}){}",
+                                        if waiting { " (waiting for mod.io)" } else { "" }
+                                    )
+                                } else {
+                                    "Updating provider caches...".to_owned()
+                                };
+                                if status_message(ui, &progress) {
+                                    self.status_details = Some(progress);
+                                }
+                            } else if self.integrate_rid.is_some() {
+                                let progress = match self.install_phase {
+                                    message::InstallPhase::Resolving => "Resolving mod versions and dependencies...",
+                                    message::InstallPhase::Downloading => "Downloading / checking cached mods...",
+                                    message::InstallPhase::Integrating => "Writing mods_P.pak...",
+                                };
+                                if status_message(ui, progress) {
+                                    self.status_details = Some(progress.to_owned());
+                                }
+                            } else if let Some(last_action) = &self.last_action {
+                                // Hide the badge as well if no room remains for it.
+                                if ui.available_width() >= 64.0 {
+                                    let (color, message, outcome) = match &last_action.status {
+                                        LastActionStatus::Success(message) => (Color32::LIGHT_GREEN, message, "Success"),
+                                        LastActionStatus::Failure(message) => (Color32::LIGHT_RED, message, "Error"),
+                                    };
+                                    ui.label(
+                                        egui::RichText::new("STATUS")
+                                            .color(Color32::BLACK)
+                                            .background_color(color),
+                                    );
+                                    ui.ctx().request_repaint_after(Duration::from_secs(1));
+                                    let summary = format!("({}): {}", last_action.timeago(), message);
+                                    if status_message(ui, &summary) {
+                                        self.status_details = Some(format!("{outcome} {summary}"));
                                     }
-                                });
-                            ui.label(format!(
-                                "Recovering mod.io metadata: ({completed}/{total}){}",
-                                if waiting { " (waiting for mod.io)" } else { "" }
-                            ));
-                        } else {
-                            ui.label("Updating provider caches...");
-                        }
-                    } else if self.integrate_rid.is_some() {
-                        ui.label(match self.install_phase {
-                            message::InstallPhase::Resolving => "Resolving mod versions and dependencies...",
-                            message::InstallPhase::Downloading => "Downloading / checking cached mods...",
-                            message::InstallPhase::Integrating => "Writing mods_P.pak...",
-                        });
-                    } else if let Some(last_action) = &self.last_action {
-                        let msg = match &last_action.status {
-                            LastActionStatus::Success(msg) => {
-                                ui.label(
-                                    egui::RichText::new("STATUS")
-                                        .color(Color32::BLACK)
-                                        .background_color(Color32::LIGHT_GREEN),
-                                );
-                                msg
+                                }
                             }
-                            LastActionStatus::Failure(msg) => {
-                                ui.label(
-                                    egui::RichText::new("STATUS")
-                                        .color(Color32::BLACK)
-                                        .background_color(Color32::LIGHT_RED),
-                                );
-                                msg
-                            }
-                        };
-                        ui.ctx().request_repaint_after(std::time::Duration::from_secs(1)); // for continuously updating time
-                        ui.label(format!("({}): {}", last_action.timeago(), msg));
-                    }
-                });
+                        },
+                    );
+                }
             });
             });
         });
+        if let Some(details) = self.status_details.as_ref() {
+            let mut open = true;
+            egui::Window::new("Status details")
+                .open(&mut open)
+                .resizable(true)
+                .default_width(540.0)
+                .show(ctx, |ui| {
+                    if ui.button("Copy message").clicked() {
+                        ui.ctx().copy_text(details.clone());
+                    }
+                    ui.separator();
+                    egui::ScrollArea::vertical()
+                        .max_height(400.0)
+                        .show(ui, |ui| {
+                            ui.add(egui::Label::new(details.as_str()).wrap());
+                        });
+                });
+            if !open {
+                self.status_details = None;
+            }
+        }
         egui::CentralPanel::default().show(ctx, |ui| {
             if self.integrate_rid.is_some() || self.update_rid.is_some() || self.lint_rid.is_some()
             {

@@ -182,7 +182,7 @@ pub(super) fn ui<E, N>(
                     ui.memory_mut(|mem| mem.close_popup());
                 }
                 ui.separator();
-                egui::CollapsingHeader::new("Rename Profile")
+                let rename_section = egui::CollapsingHeader::new("Rename Profile")
                     .id_salt("manage-rename-profile")
                     .show(ui, |ui| {
                         if choose_profile(
@@ -232,8 +232,11 @@ pub(super) fn ui<E, N>(
                             ui.colored_label(egui::Color32::from_rgb(100, 200, 120), message);
                         }
                     });
+                if rename_section.header_response.clicked() {
+                    editor.rename_picker_open = false;
+                }
                 ui.separator();
-                egui::CollapsingHeader::new("Duplicate Profile")
+                let duplicate_section = egui::CollapsingHeader::new("Duplicate Profile")
                     .id_salt("manage-duplicate-profile")
                     .show(ui, |ui| {
                         let previous_target = editor.duplicate_target.clone();
@@ -288,6 +291,9 @@ pub(super) fn ui<E, N>(
                             ui.colored_label(egui::Color32::from_rgb(100, 200, 120), message);
                         }
                     });
+                if duplicate_section.header_response.clicked() {
+                    editor.duplicate_picker_open = false;
+                }
                 ui.separator();
                 egui::CollapsingHeader::new("Export Profile")
                     .id_salt("manage-copy-profile")

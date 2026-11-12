@@ -311,35 +311,15 @@ fn group_picker_button(
     response
 }
 
-/// Tint only actions associated with a selected group. Creation and import
-/// remain neutral because no existing group has been selected there.
+/// Action buttons retain normal theme styling, including disabled states.
 fn group_action_button(
     ui: &mut Ui,
     label: &str,
-    tint: Option<&str>,
+    _tint: Option<&str>,
     enabled: bool,
 ) -> egui::Response {
-    let accent = management_group_accent(ui, tint);
-    let mut text = RichText::new(label);
-    if let Some(tint) = accent {
-        text = text.color(management_text(ui, tint));
-    }
-    let mut button = Button::new(text);
-    if let Some(tint) = accent {
-        button = button
-            .fill(management_mix(
-                ui.visuals().widgets.inactive.weak_bg_fill,
-                tint,
-                if ui.visuals().dark_mode { 18 } else { 13 },
-            ))
-            .stroke(egui::Stroke::new(
-                1.0_f32,
-                management_mix(ui.visuals().widgets.inactive.bg_stroke.color, tint, 42),
-            ));
-    }
-    ui.add_enabled(enabled, button)
+    ui.add_enabled(enabled, Button::new(label))
 }
-
 /// Colored dropdown entries: subtle row tint, stronger selected/hover tint,
 /// a matching swatch, and hue-aware but readable name text.
 fn group_option_row(ui: &mut Ui, name: &str, selected: bool, tint: Option<&str>) -> egui::Response {
@@ -621,6 +601,7 @@ pub(in crate::gui) fn controls(
             });
             if rename_section.header_response.clicked() {
                 editor.success = None;
+                editor.picker_open = false;
             }
             ui.separator();
             let duplicate_section = egui::CollapsingHeader::new("Duplicate group")
@@ -716,6 +697,7 @@ pub(in crate::gui) fn controls(
                 });
             if duplicate_section.header_response.clicked() {
                 duplicate_editor.success = None;
+                duplicate_editor.picker_open = false;
             }
             ui.separator();
             let export_section = egui::CollapsingHeader::new("Export groups")
@@ -809,6 +791,7 @@ pub(in crate::gui) fn controls(
             if export_section.header_response.clicked() {
                 export_editor.success = None;
                 export_editor.error = None;
+                export_editor.picker_open = false;
             }
             ui.separator();
             let import_section = egui::CollapsingHeader::new("Import groups")
@@ -938,6 +921,7 @@ pub(in crate::gui) fn controls(
             });
             if delete_section.header_response.clicked() {
                 delete_editor.success = None;
+                delete_editor.picker_open = false;
             }
         },
     );
