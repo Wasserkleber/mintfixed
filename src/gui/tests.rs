@@ -499,7 +499,25 @@ fn sorted_individual_delete_targets_the_displayed_mod() {
     test.app.update_sorting_config(Some(SortBy::Name), false);
     let output = test.frame(vec![]);
     assert!(text_rect(&output, "alpha.pak").top() < text_rect(&output, "zulu.pak").top());
-    test.click(text_rect(&output, " 🗑 ").center());
+    // The delete control is an SVG image button, not a rendered text glyph.
+    // Locate its red button background on the first displayed (alpha) row.
+    let alpha_row = text_rect(&output, "alpha.pak");
+    let delete_pos = output
+        .shapes
+        .iter()
+        .find_map(|shape| match &shape.shape {
+            egui::Shape::Rect(shape)
+                if (shape.fill == egui::Color32::from_rgb(58, 41, 44)
+                    || shape.fill == egui::Color32::from_rgb(247, 231, 233))
+                    && (shape.rect.center().y - alpha_row.center().y).abs() < 12.0
+                    && shape.rect.right() < alpha_row.left() =>
+            {
+                Some(shape.rect.center())
+            }
+            _ => None,
+        })
+        .expect("SVG delete button visible on alpha row");
+    test.click(delete_pos);
     let mods = &test.app.state.mod_data.profiles["default"].mods;
     assert_eq!(mods.len(), 1);
     assert!(matches!(&mods[0], ModOrGroup::Individual(mc) if mc.spec.url.ends_with("zulu.pak")));
