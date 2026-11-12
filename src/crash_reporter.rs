@@ -41,7 +41,18 @@ const MAX_EXE_BYTES: u64 = 16 * 1024 * 1024;
 
 // Called from synchronous integration, which may itself execute inside Tokio.
 // reqwest::blocking must run outside that runtime to avoid a nested-runtime panic.
-pub(crate) fn install(bin_dir: &Path, installation_type: &DRGInstallationType) -> Result<()> {
+pub(crate) fn install(
+    bin_dir: &Path,
+    installation_type: &DRGInstallationType,
+    enabled: bool,
+) -> Result<()> {
+    sync_disabled_marker(&bin_dir.join("mintfixed-bpcrash"), enabled)?;
+    if !enabled {
+        #[cfg(target_os = "windows")]
+        stop(bin_dir)?;
+        info!("BP-Crash-Reporter: disabled in settings; not installing or autolaunching");
+        return Ok(());
+    }
     std::thread::scope(|scope| {
         scope
             .spawn(|| install_inner(bin_dir, installation_type))
@@ -196,6 +207,22 @@ fn install_inner(bin_dir: &Path, installation_type: &DRGInstallationType) -> Res
 
 /// A complete marker also binds the installed exe hash, not just the version.
 /// Markers created by the previous installer had only two lines; refresh them.
+/// The hook cannot read Mintfixed's config, so the setting reaches it as the
+/// `disabled` marker it already honours. Touches only `mintfixed-bpcrash/`.
+fn sync_disabled_marker(dir: &Path, enabled: bool) -> Result<()> {
+    let marker = dir.join("disabled");
+    if enabled {
+        match fs::remove_file(&marker) {
+            Err(e) if e.kind() != std::io::ErrorKind::NotFound => return Err(e.into()),
+            _ => {}
+        }
+    } else if dir.is_dir() {
+        // ponytail: no folder means nothing installed, so nothing for the hook to launch.
+        fs::write(&marker, "Disabled in Mintfixed settings.")?;
+    }
+    Ok(())
+}
+
 fn installed_release_matches(marker: &Path, exe: &Path) -> Result<bool> {
     let marker_text = match fs::read_to_string(marker) {
         Ok(text) => text,
@@ -443,6 +470,20 @@ mod tests {
         restore_interrupted_update(temp.path()).unwrap();
         assert_eq!(fs::read(temp.path().join("bpcrash.exe")).unwrap(), b"MZold");
         assert!(!previous.exists());
+    }
+
+    #[test]
+    fn disabled_marker_follows_setting() {
+        let dir = tempfile::tempdir().unwrap();
+        let reporter = dir.path().join("mintfixed-bpcrash");
+        sync_disabled_marker(&reporter, false).unwrap();
+        assert!(!reporter.exists());
+        fs::create_dir(&reporter).unwrap();
+        sync_disabled_marker(&reporter, false).unwrap();
+        assert!(reporter.join("disabled").is_file());
+        sync_disabled_marker(&reporter, true).unwrap();
+        assert!(!reporter.join("disabled").exists());
+        sync_disabled_marker(&reporter, true).unwrap();
     }
 
     #[test]

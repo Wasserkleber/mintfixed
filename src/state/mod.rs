@@ -546,6 +546,9 @@ pub struct Config {
     pub confirm_deletion: bool,
     #[serde(default = "default_true")]
     pub show_changelog: bool,
+    /// Install and autolaunch the pinned BP-Crash-Reporter on integrate.
+    #[serde(default = "default_true")]
+    pub bundled_crash_reporter: bool,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -624,13 +627,16 @@ impl Default for Config!["0.0.0"] {
             sorting_config: None,
             confirm_deletion: true,
             show_changelog: true,
+            bundled_crash_reporter: true,
         }
     }
 }
 
 impl From<&VersionAnnotatedConfig> for MetaConfig {
-    fn from(_value: &VersionAnnotatedConfig) -> Self {
-        MetaConfig {}
+    fn from(value: &VersionAnnotatedConfig) -> Self {
+        MetaConfig {
+            bundled_crash_reporter: value.bundled_crash_reporter,
+        }
     }
 }
 

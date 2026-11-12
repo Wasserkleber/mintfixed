@@ -131,7 +131,12 @@ pub struct Meta {
     pub config: MetaConfig,
 }
 #[derive(Debug, Serialize, Deserialize)]
-pub struct MetaConfig {}
+pub struct MetaConfig {
+    /// Install and autolaunch the bundled BP-Crash-Reporter. Read by integrate only, so it is
+    /// not serialized: the hook learns it from the `mintfixed-bpcrash/disabled` marker instead.
+    #[serde(skip)]
+    pub bundled_crash_reporter: bool,
+}
 #[derive(Debug, Serialize, Deserialize)]
 pub struct MetaMod {
     pub name: String,

@@ -230,6 +230,9 @@ pub fn integrate<P: AsRef<Path>>(
     mods: Vec<(ModInfo, PathBuf)>,
 ) -> Result<(), IntegrationError> {
     let mods = crate::install_validation::prepare_packer_inputs(mods)?;
+    // Read now: `config` is moved into the pak's meta further down.
+    #[cfg(feature = "hook")]
+    let bundled_crash_reporter = config.bundled_crash_reporter;
     let (bitfix_patches, mods): (Vec<_>, Vec<_>) = mods
         .into_iter()
         .partition(|(info, _)| crate::bitfix::is_patch(info));
@@ -754,6 +757,7 @@ pub fn integrate<P: AsRef<Path>>(
     if let Err(err) = crate::crash_reporter::install(
         &installation.binaries_directory(),
         &installation.installation_type,
+        bundled_crash_reporter,
     ) {
         // Optional diagnostics must not prevent installing mods.
         warn!(
