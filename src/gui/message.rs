@@ -516,7 +516,8 @@ impl FetchModProgress {
 #[derive(Debug)]
 pub struct UpdateCache {
     rid: RequestID,
-    result: Result<usize, ProviderError>,
+    // (references still missing metadata, cached mods, unavailable mod.io slugs)
+    result: Result<(usize, usize, usize), ProviderError>,
 }
 
 impl UpdateCache {
@@ -551,7 +552,17 @@ impl UpdateCache {
                         missing.len(),
                         spec.url
                     );
-                    store.resolve_mod(spec.clone(), false).await?;
+                    match store.resolve_mod(spec.clone(), false).await {
+                        Ok(_) => store.clear_modio_unavailable(spec),
+                        Err(error) if crate::providers::modio::is_unavailable_error(&error) => {
+                            warn!(
+                                "mod.io mod unavailable during metadata recovery: {} ({error})",
+                                spec.url
+                            );
+                            store.mark_modio_unavailable(spec);
+                        }
+                        Err(error) => return Err(error),
+                    }
                     tx.send(Message::CacheRecoveryProgress {
                         rid,
                         completed: index + 1,
@@ -561,12 +572,13 @@ impl UpdateCache {
                     .ok();
                     ctx.request_repaint();
                 }
-                Ok::<usize, ProviderError>(
-                    missing
-                        .iter()
-                        .filter(|spec| store.get_mod_info(spec).is_none())
-                        .count(),
-                )
+                let remaining = missing
+                    .iter()
+                    .filter(|spec| store.get_mod_info(spec).is_none())
+                    .count();
+                let (cached, unavailable) = store.modio_cache_counts();
+                store.save_cache_metadata()?;
+                Ok::<(usize, usize, usize), ProviderError>((remaining, cached, unavailable))
             }
             .await;
             tx.send(Message::UpdateCache(UpdateCache { rid, result: res }))
@@ -587,18 +599,26 @@ impl UpdateCache {
     fn receive(self, app: &mut App) {
         if Some(self.rid) == app.update_rid.as_ref().map(|r| r.rid) {
             match self.result {
-                Ok(0) => {
+                Ok((0, cached, 0)) => {
                     info!("cache update complete; referenced mod.io metadata recovered");
-                    app.last_action = Some(LastAction::success(
-                        "Cache updated; referenced mod.io metadata ready".to_string(),
-                    ));
+                    app.last_action = Some(LastAction::success(format!(
+                        "Cache updated: {cached} cached mod.io mods ready"
+                    )));
                 }
-                Ok(remaining) => {
-                    error!(
-                        "cache recovery incomplete: {remaining} referenced mod.io entries missing metadata"
+                Ok((0, cached, unavailable)) => {
+                    warn!("cache updated with {unavailable} unavailable mod.io mods");
+                    app.last_action = Some(LastAction::success(format!(
+                        "Cache updated: {cached} cached mod.io mods, {unavailable} unavailable (cached files preserved)"
+                    )));
+                }
+                Ok((remaining, cached, unavailable)) => {
+                    warn!(
+                        "cache updated with {remaining} references missing metadata and {unavailable} unavailable mods"
                     );
+                    // A missing active mod cannot be safely installed after updating.
+                    // The failure status prevents the automatic install from starting.
                     app.last_action = Some(LastAction::failure(format!(
-                        "Cache recovery incomplete: {remaining} mod.io entries still lack metadata"
+                        "Cache updated: {cached} cached mod.io mods, {unavailable} unavailable; {remaining} entries lack metadata"
                     )));
                 }
                 Err(ProviderError::NoProvider { url: _, factory }) => {

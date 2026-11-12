@@ -170,11 +170,31 @@ pub(super) fn prune(
             }
         }
 
+        // Clear obsolete unavailable warnings alongside unreferenced mod data.
+        let mut keep_names = HashSet::new();
+        for spec in live_specs {
+            if let Some((name, _, _)) = cache_identity(&spec.url) {
+                keep_names.insert(name.to_owned());
+            }
+        }
+        for (id, details) in mods {
+            if keep_ids.contains(id) {
+                if let Some(name) = details.get("name_id").and_then(Value::as_str) {
+                    keep_names.insert(name.to_owned());
+                }
+            }
+        }
         let archive = archive_provider(
             archive,
             "modio",
             provider,
-            &["mod_id_map", "modfile_blobs", "dependencies", "mods"],
+            &[
+                "mod_id_map",
+                "modfile_blobs",
+                "dependencies",
+                "mods",
+                "unavailable_names",
+            ],
         )?;
         archived_mods += move_unused(provider, archive, "mods", |id, _| keep_ids.contains(id))?;
         move_unused(provider, archive, "mod_id_map", |_, id| {
@@ -187,6 +207,12 @@ pub(super) fn prune(
         move_unused(provider, archive, "modfile_blobs", |file, _| {
             keep_files.contains(file)
         })?;
+        // Older caches and test fixtures may not have this field yet.
+        if provider.contains_key("unavailable_names") {
+            move_unused(provider, archive, "unavailable_names", |name, _| {
+                keep_names.contains(name)
+            })?;
+        }
     }
 
     if let Some(provider) = active.get_mut("http") {
@@ -226,6 +252,7 @@ mod tests {
                     },
                     "dependencies": {"1": [2], "2": [], "3": []},
                     "modfile_blobs": {"10": "hash10", "20": "hash20", "30": "hash30"},
+                    "unavailable_names": {"active": true, "old": true},
                     "last_update_time": null
                 },
                 "http": {"type": "HttpProviderCache", "url_blobs": {
@@ -254,6 +281,16 @@ mod tests {
                 .is_some()
         );
         assert!(archive["cache"]["modio"]["mods"].get("3").is_some());
+        assert_eq!(
+            active["cache"]["modio"]["unavailable_names"]["active"],
+            true
+        );
+        assert!(
+            active["cache"]["modio"]["unavailable_names"]
+                .get("old")
+                .is_none()
+        );
+        assert_eq!(archive["cache"]["modio"]["unavailable_names"]["old"], true);
         assert!(
             archive["cache"]["http"]["url_blobs"]
                 .get("https://example.com/old.pak")

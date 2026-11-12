@@ -70,6 +70,45 @@ pub(super) fn cached_file(url: &str, cache: &ProviderCache) -> Option<(u32, u32)
 const MODIO_DRG_ID: u32 = 2475;
 const MODIO_PROVIDER_ID: &str = "modio";
 
+// 404 and 410 imply that a specific mod resource is unavailable.
+// 403 can also indicate insufficient API permissions, so do NOT suppress it
+// on a status code alone. A genuine 403 therefore remains an error, not an
+// assumed deletion. This prevents mistaking global authorization issues for
+// removed mods.
+fn unavailable_modio_status(status: Option<u16>, auth_error: bool) -> bool {
+    let _ = auth_error;
+    matches!(status, Some(404 | 410))
+}
+
+fn unavailable_modio_response(error: &modio::Error) -> bool {
+    unavailable_modio_status(
+        error.status().map(|status| status.as_u16()),
+        error.is_auth(),
+    )
+}
+
+/// Only suppress errors representing an unavailable *specific mod*, never
+/// OAuth errors, rate limits, network failures, or general API failures.
+pub(crate) fn is_unavailable_error(error: &ProviderError) -> bool {
+    match error {
+        ProviderError::NoModsForNameId { .. } => true,
+        ProviderError::DrgModioError { source } => match source {
+            DrgModioError::FetchModFilesFailed { source, .. }
+            | DrgModioError::FetchModFailed { source, .. }
+            | DrgModioError::FetchModFileFailed { source, .. }
+            | DrgModioError::FetchDependenciesFailed { source, .. } => {
+                unavailable_modio_response(source)
+            }
+            DrgModioError::GenericError { msg } => {
+                *msg == "mod.io returned no mod for the requested ID"
+                    || *msg == "mod.io returned no mod file for the requested ID"
+            }
+            _ => false,
+        },
+        _ => false,
+    }
+}
+
 /// Look up the display name directly from cached mod.io metadata.
 /// Unlike `get_mod_info`, this does not require dependency metadata.
 pub(super) fn cached_name(id: u32, cache: &ProviderCache) -> Option<String> {
@@ -149,6 +188,8 @@ pub struct ModioCache {
     #[serde(deserialize_with = "deserialize_modio_id_map")]
     mods: HashMap<u32, ModioMod>,
     last_update_time: Option<SystemTime>,
+    #[serde(default)]
+    unavailable_names: HashMap<String, bool>,
 }
 
 impl Default for ModioCache {
@@ -159,8 +200,52 @@ impl Default for ModioCache {
             dependencies: Default::default(),
             mods: Default::default(),
             last_update_time: Some(SystemTime::now()),
+            unavailable_names: HashMap::new(),
         }
     }
+}
+
+// Only a canonical mod.io slug is persisted. Never remove cached metadata/blobs.
+pub(crate) fn mark_unavailable(cache: &ProviderCache, url: &str) {
+    if let Ok(parsed) = parse_url(url) {
+        cache
+            .write()
+            .unwrap()
+            .get_mut::<ModioCache>(MODIO_PROVIDER_ID)
+            .unavailable_names
+            .insert(parsed.name_id.to_owned(), true);
+    }
+}
+
+pub(crate) fn clear_unavailable(cache: &ProviderCache, url: &str) {
+    if let Ok(parsed) = parse_url(url) {
+        cache
+            .write()
+            .unwrap()
+            .get_mut::<ModioCache>(MODIO_PROVIDER_ID)
+            .unavailable_names
+            .remove(parsed.name_id);
+    }
+}
+
+pub(crate) fn is_unavailable(cache: &ProviderCache, url: &str) -> bool {
+    let Ok(parsed) = parse_url(url) else {
+        return false;
+    };
+    cache
+        .read()
+        .unwrap()
+        .get::<ModioCache>(MODIO_PROVIDER_ID)
+        .is_some_and(|c| c.unavailable_names.contains_key(parsed.name_id))
+}
+
+pub(crate) fn cache_counts(cache: &ProviderCache) -> (usize, usize) {
+    cache
+        .read()
+        .unwrap()
+        .get::<ModioCache>(MODIO_PROVIDER_ID)
+        .map(|c| (c.mods.len(), c.unavailable_names.len()))
+        .unwrap_or((0, 0))
 }
 
 #[typetag::serde]
@@ -975,11 +1060,11 @@ impl<M: DrgModio + Send + Sync> ModProvider for ModioProvider<M> {
     }
 
     async fn update_cache(&self, cache: ProviderCache) -> Result<(), ProviderError> {
-        use futures::stream::{self, StreamExt, TryStreamExt};
+        use futures::stream::{self, StreamExt};
 
         let now = SystemTime::now();
 
-        let (last_update, name_map) = {
+        let (last_update, name_map, previously_unavailable) = {
             let cache = cache.read().unwrap();
             let Some(prov) = cache.get::<ModioCache>(MODIO_PROVIDER_ID) else {
                 return Ok(()); // no existing mods, nothing to update
@@ -990,6 +1075,10 @@ impl<M: DrgModio + Send + Sync> ModProvider for ModioProvider<M> {
                     .iter()
                     .map(|(id, mod_)| (*id, mod_.name_id.clone()))
                     .collect::<HashMap<_, _>>(),
+                prov.unavailable_names
+                    .keys()
+                    .cloned()
+                    .collect::<HashSet<_>>(),
             )
         };
 
@@ -1003,13 +1092,19 @@ impl<M: DrgModio + Send + Sync> ModProvider for ModioProvider<M> {
             .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
             .unwrap_or_default();
 
-        let mod_ids = self
+        let mut mod_ids = self
             .modio
             .fetch_mod_updates_since(
                 name_map.keys().cloned().collect::<Vec<u32>>(),
                 last_update.as_secs(),
             )
             .await?;
+        // Recheck flagged mods even if mod.io reports no new event for them.
+        for (id, name) in &name_map {
+            if previously_unavailable.contains(name) {
+                mod_ids.insert(*id);
+            }
+        }
 
         // TODO most of this is ripped from generic provider code. the resolution process is overly
         // complex and should be redone now that there's a much better understanding of what
@@ -1040,25 +1135,47 @@ impl<M: DrgModio + Send + Sync> ModProvider for ModioProvider<M> {
             }
         }
 
+        // Track attempts as well as successes: an unavailable dependency must
+        // not be re-enqueued forever by the next dependency-expansion pass.
+        let mut attempted = HashSet::new();
         while !to_resolve.is_empty() {
-            for (u, m) in stream::iter(
-                to_resolve
-                    .iter()
-                    .map(|u| resolve_mod(self, cache.clone(), u.to_owned())),
-            )
+            let batch = std::mem::take(&mut to_resolve);
+            attempted.extend(batch.iter().cloned());
+            let results = stream::iter(batch.into_iter().map(|spec| {
+                let cache = cache.clone();
+                async move {
+                    let result = resolve_mod(self, cache, spec.clone()).await;
+                    (spec, result)
+                }
+            }))
             .boxed()
             .buffer_unordered(5)
-            .try_collect::<Vec<_>>()
-            .await?
-            {
-                precise_mod_specs.insert(m.spec.clone());
-                mods_map.insert(u, m);
-                to_resolve.clear();
-                for m in mods_map.values() {
-                    for d in &m.suggested_dependencies {
-                        if !precise_mod_specs.contains(d) {
-                            to_resolve.insert(d.clone());
-                        }
+            .collect::<Vec<_>>()
+            .await;
+
+            // Collect the whole batch before inspecting individual outcomes.
+            // A 404 must not cancel other already-running mod updates.
+            for (spec, result) in results {
+                match result {
+                    Ok((original, info)) => {
+                        clear_unavailable(&cache, &spec.url);
+                        precise_mod_specs.insert(info.spec.clone());
+                        mods_map.insert(original, info);
+                    }
+                    Err(error) if is_unavailable_error(&error) => {
+                        warn!(
+                            "mod.io mod unavailable; preserving cached files and metadata: {} ({error})",
+                            spec.url
+                        );
+                        mark_unavailable(&cache, &spec.url);
+                    }
+                    Err(error) => return Err(error),
+                }
+            }
+            for mod_info in mods_map.values() {
+                for dependency in &mod_info.suggested_dependencies {
+                    if !precise_mod_specs.contains(dependency) && !attempted.contains(dependency) {
+                        to_resolve.insert(dependency.clone());
                     }
                 }
             }
@@ -1258,6 +1375,86 @@ mod test {
 
         // should no panic
         parse_url("https://mod.io/g/drg/m/build-inspector#12345678912456789123456789").ok();
+    }
+
+    #[test]
+    fn unavailable_modio_error_classification_is_strict() {
+        assert!(unavailable_modio_status(Some(404), false));
+        assert!(unavailable_modio_status(Some(410), false));
+        assert!(!unavailable_modio_status(Some(403), false));
+        assert!(!unavailable_modio_status(Some(403), true));
+        assert!(!unavailable_modio_status(Some(401), true));
+        assert!(!unavailable_modio_status(Some(429), false));
+        assert!(!unavailable_modio_status(Some(500), false));
+        assert!(!unavailable_modio_status(None, false));
+        assert!(is_unavailable_error(&ProviderError::NoModsForNameId {
+            name_id: "deleted".into(),
+        }));
+        assert!(!is_unavailable_error(&ProviderError::DrgModioError {
+            source: DrgModioError::MissingOauthToken,
+        }));
+    }
+
+    #[tokio::test]
+    async fn deleted_mod_does_not_block_other_cache_updates() {
+        let cache = Arc::new(RwLock::new(ConfigWrapper::<VersionAnnotatedCache>::memory(
+            VersionAnnotatedCache::default(),
+        )));
+        let old = ModioMod {
+            name_id: "deleted".into(),
+            name: "Deleted mod".into(),
+            latest_modfile: Some(1),
+            modfiles: Vec::new(),
+            tags: HashSet::new(),
+        };
+        let updated = ModioMod {
+            name_id: "working".into(),
+            name: "Working mod (updated)".into(),
+            latest_modfile: Some(22),
+            modfiles: Vec::new(),
+            tags: HashSet::new(),
+        };
+        {
+            let mut lock = cache.write().unwrap();
+            let state = lock.get_mut::<ModioCache>(MODIO_PROVIDER_ID);
+            state.mods.insert(1, old.clone());
+            state.mods.insert(
+                2,
+                ModioMod {
+                    latest_modfile: Some(2),
+                    ..updated.clone()
+                },
+            );
+            state.mod_id_map.insert("deleted".into(), 1);
+            state.mod_id_map.insert("working".into(), 2);
+            state.dependencies.insert(1, Vec::new());
+            state.dependencies.insert(2, Vec::new());
+            state.last_update_time = Some(UNIX_EPOCH);
+        }
+        let mut mock = MockDrgModio::new();
+        mock.expect_fetch_mod_updates_since()
+            .times(1)
+            .returning(|_, _| Ok([1, 2].into_iter().collect()));
+        mock.expect_fetch_mod().returning(move |_, id| {
+            if id == 1 {
+                Err(DrgModioError::GenericError {
+                    msg: "mod.io returned no mod for the requested ID",
+                })
+            } else {
+                Ok(updated.clone())
+            }
+        });
+        mock.expect_fetch_dependencies()
+            .returning(|_, _| Ok(Vec::new()));
+        let provider = ModioProvider::new(mock);
+        provider.update_cache(cache.clone()).await.unwrap();
+        assert!(is_unavailable(&cache, "https://mod.io/g/drg/m/deleted#1"));
+        assert!(!is_unavailable(&cache, "https://mod.io/g/drg/m/working#2"));
+        let lock = cache.read().unwrap();
+        let c = lock.get::<ModioCache>(MODIO_PROVIDER_ID).unwrap();
+        assert_eq!(c.mods.get(&1), Some(&old));
+        assert_eq!(c.mods.get(&2).unwrap().latest_modfile, Some(22));
+        assert!(c.last_update_time.unwrap() > UNIX_EPOCH);
     }
 
     #[tokio::test]

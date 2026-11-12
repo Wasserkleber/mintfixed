@@ -213,6 +213,23 @@ impl ModStore {
             .await
     }
 
+    /// Status metadata is stored in cache.json, not in profiles or mod blobs.
+    pub fn is_modio_unavailable(&self, spec: &ModSpecification) -> bool {
+        super::modio::is_unavailable(&self.cache, &spec.url)
+    }
+
+    pub fn mark_modio_unavailable(&self, spec: &ModSpecification) {
+        super::modio::mark_unavailable(&self.cache, &spec.url);
+    }
+
+    pub fn clear_modio_unavailable(&self, spec: &ModSpecification) {
+        super::modio::clear_unavailable(&self.cache, &spec.url);
+    }
+
+    pub fn modio_cache_counts(&self) -> (usize, usize) {
+        super::modio::cache_counts(&self.cache)
+    }
+
     pub async fn update_cache(&self) -> Result<(), ProviderError> {
         let providers = self.providers.read().unwrap().clone();
         for (name, provider) in providers.iter() {
@@ -220,6 +237,17 @@ impl ModStore {
             provider.update_cache(self.cache.clone()).await?;
         }
         Ok(())
+    }
+
+    /// Write status flags and updated metadata immediately (not just on app exit).
+    pub fn save_cache_metadata(&self) -> Result<(), ProviderError> {
+        let mut cache = self.cache.write().unwrap();
+        cache.revision = cache.revision.wrapping_add(1);
+        cache
+            .save()
+            .map_err(|error| ProviderError::CacheCleanupFailed {
+                reason: format!("Could not save cache metadata: {error}"),
+            })
     }
 
     /// Run before Update Cache; all profile and group references, including disabled mods,

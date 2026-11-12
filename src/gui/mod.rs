@@ -652,7 +652,10 @@ impl App {
                     }
 
                     let info = self.state.store.get_mod_info(&mc.spec);
-
+                    if self.state.store.is_modio_unavailable(&mc.spec) {
+                        ui.label(RichText::new("⚠").color(ui.visuals().warn_fg_color))
+                            .on_hover_text("Unavailable on mod.io. Cached metadata and downloaded mod files were preserved; other mod updates can continue.");
+                    }
                     if let Some(ref info) = info
                         && let Some(modio_id) = info.modio_id
                         && self.problematic_mod_id.is_some_and(|id| id == modio_id)
