@@ -5,6 +5,7 @@
 param(
     [switch] $NoFetch,
     [switch] $NoBuild,
+    [switch] $SkipLinux,
     [string] $Tag = '',
     [string] $OutputDirectory = ''
 )
@@ -138,6 +139,34 @@ try {
         if ($compiledHash -cne $packagedHash) {
             throw "Build verification failed: $packagedExe differs from $compiledExe"
         }
+    }
+    if (-not $SkipLinux) {
+        Write-Host 'Building Linux x86_64 with the default WSL distribution...'
+        if (-not (Get-Command wsl.exe -ErrorAction SilentlyContinue)) {
+            throw 'wsl.exe is unavailable. Install WSL, or use .\build.cmd -SkipLinux.'
+        }
+        $linuxHelper = Join-Path $repo 'scripts\build_linux_wsl.sh'
+        if (-not (Test-Path -LiteralPath $linuxHelper -PathType Leaf)) {
+            throw "Linux build helper not found: $linuxHelper"
+        }
+        $wslPaths = @(& wsl.exe --exec wslpath -u $linuxHelper)
+        Assert-Success 'Converting Linux build helper path'
+        if ($wslPaths.Count -ne 1 -or [string]::IsNullOrWhiteSpace([string]$wslPaths[0])) {
+            throw 'WSL returned an invalid Linux build helper path.'
+        }
+        $linuxHelperWslPath = ([string]$wslPaths[0]).Trim()
+        & wsl.exe --exec bash $linuxHelperWslPath $repo $stage $latestTag
+        Assert-Success 'Linux compilation and packaging'
+        foreach ($name in @("${latestTag}-linux-x86_64", 'mintfixed_experimental-linux-x86_64')) {
+            foreach ($extension in @('', '.tar.gz')) {
+                $output = Join-Path $stage ($name + $extension)
+                if (-not (Test-Path -LiteralPath $output -PathType Leaf)) {
+                    throw "Missing Linux package: $output"
+                }
+            }
+        }
+    } else {
+        Write-Host 'Linux compilation skipped (-SkipLinux).'
     }
     $oldDist = Join-Path $releaseRoot ('.mintfixed-dist-old-' + [guid]::NewGuid().ToString('N'))
     $hadOldDist = Test-Path -LiteralPath $dist
