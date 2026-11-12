@@ -5,6 +5,7 @@ mod edit_history;
 mod find_string;
 mod folder_import;
 mod group_controls;
+mod icon_buttons;
 mod mod_list_style;
 use group_controls::{Drag, Target};
 mod message;
@@ -570,6 +571,11 @@ impl App {
                 }
             };
 
+            let group_tint_snapshot: std::collections::BTreeMap<String, Option<String>> = groups
+                .iter()
+                .map(|(name, group)| (name.clone(), group.tint_color.clone()))
+                .collect();
+
             let mut ui_mod =
                 |ctx: &mut Ctx,
                  ui: &mut Ui,
@@ -578,6 +584,12 @@ impl App {
                  mc: &mut ModConfig,
                  overrides: Option<&mut MemberOverrides>| {
                     let mut enabled = overrides.as_ref().map_or(mc.enabled, |o| o.enabled(mc));
+                    let group_control_tint = group
+                        .and_then(|name| group_tint_snapshot.get(name))
+                        .and_then(|color| color.as_deref())
+                        .map(|color| {
+                            mod_list_style::swatch_color(Some(color), ui.visuals().dark_mode)
+                        });
                     if !enabled {
                         let vis = ui.visuals_mut();
                         vis.override_text_color = Some(vis.text_color());
@@ -607,8 +619,7 @@ impl App {
                     */
 
                     if issues.duplicate(group, row_index)
-                        && ui
-                            .button(egui::RichText::new("⚠").color(ui.visuals().warn_fg_color))
+                        && icon_buttons::warning_button(ui, group_control_tint)
                             .on_hover_text("Remove this duplicate entry")
                             .clicked()
                     {
@@ -646,37 +657,41 @@ impl App {
 
                     if let Some(info) = &info {
                         let previous_spec = mc.spec.clone();
-                        egui::ComboBox::from_id_salt(row_index)
-                            .selected_text(
-                                self.state
-                                    .store
-                                    .get_version_name(&mc.spec)
-                                    .unwrap_or_default(),
-                            )
-                            .show_ui(ui, |ui| {
-                                ui.selectable_value(
-                                    &mut mc.spec.url,
-                                    info.spec.url.to_string(),
+                        ui.scope(|ui| {
+                            mod_list_style::tint_group_member_controls(ui, group_control_tint);
+                            egui::ComboBox::from_id_salt(row_index)
+                                .selected_text(
                                     self.state
                                         .store
-                                        .get_version_name(&info.spec)
+                                        .get_version_name(&mc.spec)
                                         .unwrap_or_default(),
-                                );
-                                for version in info.versions.iter().rev() {
+                                )
+                                .show_ui(ui, |ui| {
                                     ui.selectable_value(
                                         &mut mc.spec.url,
-                                        version.url.to_string(),
+                                        info.spec.url.to_string(),
                                         self.state
                                             .store
-                                            .get_version_name(version)
+                                            .get_version_name(&info.spec)
                                             .unwrap_or_default(),
                                     );
-                                }
-                            });
+                                    for version in info.versions.iter().rev() {
+                                        ui.selectable_value(
+                                            &mut mc.spec.url,
+                                            version.url.to_string(),
+                                            self.state
+                                                .store
+                                                .get_version_name(version)
+                                                .unwrap_or_default(),
+                                        );
+                                    }
+                                });
+                        });
 
                         ctx.needs_save |= mc.spec != previous_spec;
 
                         ui.scope(|ui| {
+                            mod_list_style::tint_group_member_controls(ui, group_control_tint);
                         ui.style_mut().spacing.interact_size.x = 30.;
                         let dark = ui.visuals().dark_mode;
                         match mc.priority.cmp(&0) {
@@ -723,8 +738,7 @@ impl App {
                         }
                     });
 
-                        if ui
-                            .button("📋")
+                        if icon_buttons::copy_url_button(ui, group_control_tint)
                             .on_hover_text_at_pointer("copy URL")
                             .clicked()
                         {
@@ -746,11 +760,7 @@ impl App {
                                     msg.push('\n');
                                     msg.push_str(&dep.url);
                                 }
-                                if ui
-                                    .button(
-                                        egui::RichText::new("\u{26A0}")
-                                            .color(ui.visuals().warn_fg_color),
-                                    )
+                                if icon_buttons::warning_button(ui, group_control_tint)
                                     .on_hover_text(msg)
                                     .clicked()
                                 {
@@ -791,7 +801,7 @@ impl App {
                                 ui.label("🌐");
                             }
                             "file" => {
-                                ui.label("📁");
+                                icon_buttons::folder_badge(ui, group_control_tint);
                             }
                             _ => unimplemented!("unimplemented provider kind"),
                         }
@@ -820,8 +830,7 @@ impl App {
                             ui_mod_tags(ctx, ui, info);
                         });
                     } else {
-                        if ui
-                            .button("📋")
+                        if icon_buttons::copy_url_button(ui, group_control_tint)
                             .on_hover_text_at_pointer("Copy URL")
                             .clicked()
                         {
@@ -850,20 +859,25 @@ impl App {
                     }
                 };
 
-            let group_tint_snapshot: std::collections::BTreeMap<String, Option<String>> = groups
-                .iter()
-                .map(|(name, group)| (name.clone(), group.tint_color.clone()))
-                .collect();
-
             let mut ui_item = |ctx: &mut Ctx,
                                ui: &mut Ui,
                                mc: &mut ModOrGroup,
                                row_index: usize| {
                 ui.scope(|ui| {
+                    // Color group rows just like the group header, but keep standalone mods neutral.
+                    let delete_accent = match &*mc {
+                        ModOrGroup::Group { group_name, .. } => group_tint_snapshot
+                            .get(group_name.as_str())
+                            .and_then(|color| color.as_deref())
+                            .map(|color| {
+                                mod_list_style::swatch_color(Some(color), ui.visuals().dark_mode)
+                            }),
+                        _ => None,
+                    };
+
                     ui.visuals_mut().widgets.hovered.weak_bg_fill = colors::DARK_RED;
                     ui.visuals_mut().widgets.active.weak_bg_fill = colors::DARKER_RED;
-                    if ui
-                        .add(Button::new(" 🗑 "))
+                    if icon_buttons::delete_button(ui, delete_accent)
                         .on_hover_text_at_pointer("Delete mod")
                         .clicked()
                     {
@@ -1027,10 +1041,13 @@ ui.push_id(("group", group_name.as_str(), index), |ui| {
                                                 Drag::handle(ui, profile_name, Some(group_name), index, &group.mods[index].id, false);
                                             }
                                             ui.scope(|ui| {
+                                                // Match the shared group's selected color.
+                                                let delete_accent = selected_group_tint.as_deref()
+                                                    .map(|color| mod_list_style::swatch_color(Some(color), ui.visuals().dark_mode));
+
                                                 ui.visuals_mut().widgets.hovered.weak_bg_fill = colors::DARK_RED;
                                                 ui.visuals_mut().widgets.active.weak_bg_fill = colors::DARKER_RED;
-                                                if ui
-                                                    .add(Button::new(" 🗑 "))
+                                                if icon_buttons::delete_button(ui, delete_accent)
                                                     .on_hover_text_at_pointer("Remove mod from shared group (confirmation required)")
                                                     .clicked()
                                                 {
@@ -1306,9 +1323,43 @@ ui.push_id(("group", group_name.as_str(), index), |ui| {
                         group_controls::row_target(ui, &row.response, &mut ctx.drag, None, index);
                     }
                 }
-                if egui::DragAndDrop::payload::<Drag>(ui.ctx()).is_some() {
-                    let end = ui.label("Drop here to move to the end of the profile");
-                    group_controls::row_target(ui, &end, &mut ctx.drag, None, profile.mods.len());
+                // Treat all visible empty space below the last row as a top-level
+                // insertion target. A single label only provided one row of hit area,
+                // making it difficult to drag a mod out of the last expanded group.
+                if sorting_config.is_none()
+                    && ctx.drag.is_none()
+                    && let Some(source) = egui::DragAndDrop::payload::<Drag>(ui.ctx())
+                {
+                    let viewport = ui.clip_rect();
+                    let top = ui.cursor().top().max(viewport.top());
+                    if top < viewport.bottom() {
+                        let end_area = egui::Rect::from_min_max(
+                            egui::pos2(viewport.left(), top),
+                            viewport.right_bottom(),
+                        );
+                        if ui.rect_contains_pointer(end_area) {
+                            // Keep the insertion indicator at the end of the list,
+                            // regardless of how far into the blank area we hover.
+                            let marker = egui::Rect::from_center_size(
+                                egui::pos2(end_area.center().x, top),
+                                egui::vec2((end_area.width() - 16.0).max(0.0), 3.0),
+                            );
+                            ui.painter().rect_filled(
+                                marker,
+                                egui::CornerRadius::same(2),
+                                ui.visuals().selection.stroke.color,
+                            );
+                            if ui.input(|input| input.pointer.any_released()) {
+                                ctx.drag = Some((
+                                    (*source).clone(),
+                                    Target {
+                                        group: None,
+                                        slot: profile.mods.len(),
+                                    },
+                                ));
+                            }
+                        }
+                    }
                 }
             }
         };
@@ -2910,32 +2961,6 @@ impl eframe::App for App {
                 if self.resolve_mod_rid.is_some() {
                     ui.spinner();
                 }
-                let history_enabled = self.resolve_mod_rid.is_none()
-                    && self.integrate_rid.is_none()
-                    && self.update_rid.is_none()
-                    && self.lint_rid.is_none();
-                let redo_image = egui::Image::new(egui::include_image!("../../assets/icons/redo.svg"))
-                    .fit_to_exact_size(egui::vec2(17.0, 17.0))
-                    .tint(ui.visuals().text_color());
-                if ui.add_enabled(
-                    history_enabled && self.edit_history.can_redo(),
-                    egui::Button::image(redo_image),
-                )
-                .on_hover_text("Redo mod-list change (Ctrl+Y / Ctrl+Shift+Z)")
-                .clicked() {
-                    self.apply_mod_history(true);
-                }
-                let undo_image = egui::Image::new(egui::include_image!("../../assets/icons/undo.svg"))
-                    .fit_to_exact_size(egui::vec2(17.0, 17.0))
-                    .tint(ui.visuals().text_color());
-                if ui.add_enabled(
-                    history_enabled && self.edit_history.can_undo(),
-                    egui::Button::image(undo_image),
-                )
-                .on_hover_text("Undo mod-list change (Ctrl+Z)")
-                .clicked() {
-                    self.apply_mod_history(false);
-                }
                 if ui
                     .add_enabled(
                         self.state.config.local_mod_folder.is_some() && self.resolve_mod_rid.is_none(),
@@ -2986,31 +3011,76 @@ impl eframe::App for App {
             let profile = self.state.mod_data.active_profile.clone();
 
             ui.horizontal(|ui| {
-                ui.label("Sort by: ");
-
                 let (mut sort_category, mut is_ascending) = self
                     .get_sorting_config()
                     .map(|c| (Some(c.sort_category), c.is_ascending))
                     .unwrap_or_default();
 
-                let mut clicked = ui.radio_value(&mut sort_category, None, "Manual").clicked();
-                for category in SortBy::iter() {
-                    let mut radio_label = category.as_str().to_owned();
-                    if sort_category == Some(category) {
-                        radio_label.push_str(if is_ascending { " ⏶" } else { " ⏷" });
-                    }
-                    let resp = ui.radio_value(&mut sort_category, Some(category), radio_label);
-                    if resp.clicked() {
-                        clicked = true;
-                        if resp.changed() {
-                            is_ascending = true;
-                        } else {
-                            is_ascending = !is_ascending;
+                let selected_text = match sort_category {
+                    None => "Manual".to_owned(),
+                    Some(category) => format!(
+                        "{} {}",
+                        category.as_str(),
+                        if is_ascending { "⏶" } else { "⏷" },
+                    ),
+                };
+
+                let mut clicked = false;
+                egui::ComboBox::from_id_salt("mod_sort_by")
+                    .selected_text(format!("Sort by: {selected_text}"))
+                    .width(180.0)
+                    .show_ui(ui, |ui| {
+                        if ui.radio_value(&mut sort_category, None, "Manual").clicked() {
+                            clicked = true;
                         }
-                    };
-                }
+                        for category in SortBy::iter() {
+                            let mut radio_label = category.as_str().to_owned();
+                            if sort_category == Some(category) {
+                                radio_label.push_str(if is_ascending { " ⏶" } else { " ⏷" });
+                            }
+                            let resp = ui.radio_value(&mut sort_category, Some(category), radio_label);
+                            if resp.clicked() {
+                                clicked = true;
+                                if resp.changed() {
+                                    is_ascending = true;
+                                } else {
+                                    // Clicking the active category reverses its direction.
+                                    is_ascending = !is_ascending;
+                                }
+                            }
+                        }
+                    });
+
                 if clicked {
                     self.update_sorting_config(sort_category, is_ascending);
+                }
+
+                // Keep history controls beside sorting while preserving their shortcuts.
+                let history_enabled = self.resolve_mod_rid.is_none()
+                    && self.integrate_rid.is_none()
+                    && self.update_rid.is_none()
+                    && self.lint_rid.is_none();
+                let undo_image = egui::Image::new(egui::include_image!("../../assets/icons/undo.svg"))
+                    .fit_to_exact_size(egui::vec2(17.0, 17.0))
+                    .tint(ui.visuals().text_color());
+                if ui.add_enabled(
+                    history_enabled && self.edit_history.can_undo(),
+                    egui::Button::image(undo_image),
+                )
+                .on_hover_text("Undo mod-list change (Ctrl+Z)")
+                .clicked() {
+                    self.apply_mod_history(false);
+                }
+                let redo_image = egui::Image::new(egui::include_image!("../../assets/icons/redo.svg"))
+                    .fit_to_exact_size(egui::vec2(17.0, 17.0))
+                    .tint(ui.visuals().text_color());
+                if ui.add_enabled(
+                    history_enabled && self.edit_history.can_redo(),
+                    egui::Button::image(redo_image),
+                )
+                .on_hover_text("Redo mod-list change (Ctrl+Y / Ctrl+Shift+Z)")
+                .clicked() {
+                    self.apply_mod_history(true);
                 }
 
                 ui.add_space(16.);

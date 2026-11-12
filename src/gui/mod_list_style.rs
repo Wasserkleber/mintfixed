@@ -154,3 +154,36 @@ pub(super) fn row_frame(
     }
     frame
 }
+
+/// Softly tint only the version selector and load-priority control of a
+/// mod inside a manually colored group. Call from a `ui.scope` so other
+/// widgets (toggles, icons, popup controls, standalone mods) are unaffected.
+pub(super) fn tint_group_member_controls(ui: &mut Ui, selected: Option<Color32>) {
+    let Some(accent) = selected else {
+        return;
+    };
+    let dark = ui.visuals().dark_mode;
+    let (strength, edit_strength) = if dark { (18, 12) } else { (17, 11) };
+    let visuals = ui.visuals_mut();
+
+    // Inactive/open handles the visible ComboBox field. Hovered and active
+    // provide matching transitions; DragValue uses those widget visuals too.
+    for widget in [
+        &mut visuals.widgets.inactive,
+        &mut visuals.widgets.hovered,
+        &mut visuals.widgets.active,
+        &mut visuals.widgets.open,
+    ] {
+        widget.weak_bg_fill = mix(widget.weak_bg_fill, accent, strength);
+        widget.bg_fill = mix(widget.bg_fill, accent, strength);
+        // Covers the ComboBox chevron and DragValue foreground.
+        widget.fg_stroke.color = mix(widget.fg_stroke.color, accent, if dark { 26 } else { 22 });
+    }
+    // DragValue becomes an editable text field when clicked. Match its
+    // background without tinting its priority-specific red/green text.
+    // The version label and zero-priority dash use a matching soft tint.
+    // Existing red/green priority overrides are set later and stay intact.
+    let text = visuals.text_color();
+    visuals.override_text_color = Some(mix(text, accent, if dark { 26 } else { 22 }));
+    visuals.extreme_bg_color = mix(visuals.extreme_bg_color, accent, edit_strength);
+}
