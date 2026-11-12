@@ -142,6 +142,19 @@ impl SortBy {
     }
 }
 
+/// Collect unavailable group member names even when the group or member is disabled.
+/// Returning owned names avoids retaining group borrows while the UI edits them.
+fn unavailable_group_mod_names(
+    mods: &[ModConfig],
+    mut is_unavailable: impl FnMut(&ModSpecification) -> bool,
+    mut display_name: impl FnMut(&ModSpecification) -> String,
+) -> Vec<String> {
+    mods.iter()
+        .filter(|member| is_unavailable(&member.spec))
+        .map(|member| display_name(&member.spec))
+        .collect()
+}
+
 const MODIO_LOGO_PNG: &[u8] = include_bytes!("../../assets/icons/modio-cog-blue.png");
 
 // A bordered, hover-only help control for the optional preset description.
@@ -653,7 +666,7 @@ impl App {
 
                     let info = self.state.store.get_mod_info(&mc.spec);
                     if self.state.store.is_modio_unavailable(&mc.spec) {
-                        ui.label(RichText::new("⚠").color(ui.visuals().warn_fg_color))
+                        icon_buttons::warning_button(ui, group_control_tint)
                             .on_hover_text("Unavailable on mod.io. Cached metadata and downloaded mod files were preserved; other mod updates can continue.");
                     }
                     if let Some(ref info) = info
@@ -945,6 +958,36 @@ impl App {
                             .filter(|text| !text.trim().is_empty());
                         let group_member_count =
                             groups.get(group_name).map_or(0, |group| group.mods.len());
+                        // A shared group may be collapsed or disabled: check every member.
+                        let unavailable_member_names = groups
+                            .get(group_name)
+                            .map(|group| {
+                                unavailable_group_mod_names(
+                                    &group.mods,
+                                    |spec| self.state.store.is_modio_unavailable(spec),
+                                    |spec| {
+                                        self.state
+                                            .store
+                                            .get_mod_info(spec)
+                                            .map(|info| info.name)
+                                            .unwrap_or_else(|| spec.url.clone())
+                                    },
+                                )
+                            })
+                            .unwrap_or_default();
+                        let unavailable_group_tooltip = (!unavailable_member_names.is_empty())
+                            .then(|| {
+                                format!(
+                                    "{} unavailable mod{} in this group:\n{}",
+                                    unavailable_member_names.len(),
+                                    if unavailable_member_names.len() == 1 {
+                                        ""
+                                    } else {
+                                        "s"
+                                    },
+                                    unavailable_member_names.join("\n"),
+                                )
+                            });
                         // Match children even when the collapsing group does not render their rows.
                         let search_needle = self.search_string.to_lowercase();
                         let matching_mod_in_group = !search_needle.trim().is_empty()
@@ -1034,6 +1077,12 @@ impl App {
                                     .small()
                                     .weak(),
                                 );
+                                // Reuse the orange SVG warning used by individual mods.
+                                // Place it on the header so collapsed groups expose the issue.
+                                if let Some(tooltip) = unavailable_group_tooltip.as_deref() {
+                                    icon_buttons::warning_button(ui, None)
+                                        .on_hover_text_at_pointer(tooltip);
+                                }
                                 let selected_color = groups
                                     .get(group_name)
                                     .and_then(|group| group.tint_color.clone());

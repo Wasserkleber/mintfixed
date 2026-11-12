@@ -14,6 +14,28 @@ fn mod_config(name: &str) -> ModConfig {
     }
 }
 
+#[test]
+fn unavailable_group_warning_includes_disabled_members() {
+    let available = mod_config("available");
+    let mut disabled_deleted = mod_config("deleted-a");
+    disabled_deleted.enabled = false;
+    let deleted_b = mod_config("deleted-b");
+    let members = [available, disabled_deleted, deleted_b];
+    let names = unavailable_group_mod_names(
+        &members,
+        |spec| spec.url.starts_with("deleted-"),
+        |spec| spec.url.clone(),
+    );
+    assert_eq!(names, vec!["deleted-a".to_owned(), "deleted-b".to_owned()]);
+}
+
+#[test]
+fn unavailable_group_warning_is_absent_for_healthy_members() {
+    let members = [mod_config("available"), mod_config("local-file")];
+    let names = unavailable_group_mod_names(&members, |_| false, |spec| spec.url.clone());
+    assert!(names.is_empty());
+}
+
 fn sorting(sort_category: SortBy, is_ascending: bool) -> SortingConfig {
     SortingConfig {
         sort_category,
