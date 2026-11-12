@@ -189,6 +189,17 @@ pub enum IntegrationError {
         modfile_path: String,
     },
     #[snafu(display(
+        "mod {:?}: invalid PAK asset path '{}' (mount point '{}'). The asset cannot be mapped to an Unreal game path. DRG game assets normally belong under 'FSD/Content/...' (e.g. 'FSD/Content/Enemies/...'). The mod may have been packed with an incorrect mount point; repackage it or contact the author. This is not a missing DRG installation path.",
+        mod_info.name,
+        asset_path,
+        mount_point,
+    ))]
+    ModfileInvalidAssetPath {
+        mod_info: Box<ModInfo>,
+        asset_path: String,
+        mount_point: String,
+    },
+    #[snafu(display(
         "mod {:?}: failed to integrate: {source}",
         mod_info.name,
     ))]
@@ -216,10 +227,41 @@ impl IntegrationError {
             IntegrationError::CtxtIoError { mod_info, .. }
             | IntegrationError::CtxtRepakError { mod_info, .. }
             | IntegrationError::CtxtGenericError { mod_info, .. }
-            | IntegrationError::ModfileInvalidPrefix { mod_info, .. } => mod_info.modio_id,
+            | IntegrationError::ModfileInvalidPrefix { mod_info, .. }
+            | IntegrationError::ModfileInvalidAssetPath { mod_info, .. } => mod_info.modio_id,
             IntegrationError::ProviderError { source } => source.opt_mod_id(),
             _ => None,
         }
+    }
+}
+
+fn supported_registry_asset_path(path: &str) -> bool {
+    uasset_utils::paths::pak_path_to_game_path(PakPath::new(path)).is_some()
+}
+
+#[cfg(test)]
+mod pak_asset_path_tests {
+    use super::supported_registry_asset_path;
+
+    #[test]
+    fn malformed_enemy_cull_path_is_rejected() {
+        assert!(!supported_registry_asset_path(
+            "FSD/Jellyfish/ENE_Jelly_Spawn_Child"
+        ));
+    }
+
+    #[test]
+    fn valid_drg_asset_path_is_accepted() {
+        assert!(supported_registry_asset_path(
+            "FSD/Content/Enemies/Jellyfish/ENE_Jelly_Spawn_Child"
+        ));
+    }
+
+    #[test]
+    fn engine_content_paths_remain_supported() {
+        assert!(supported_registry_asset_path(
+            "Engine/Content/EngineMaterials/DefaultMaterial"
+        ));
     }
 }
 
@@ -580,8 +622,17 @@ pub fn integrate<P: AsRef<Path>>(
                         }
                     };
 
+                    let asset_path = normalized.with_extension("");
+                    if !supported_registry_asset_path(asset_path.as_str()) {
+                        return Err(IntegrationError::ModfileInvalidAssetPath {
+                            mod_info: mod_info.clone().into(),
+                            asset_path: normalized.to_string(),
+                            mount_point: pak.mount_point().to_string(),
+                        });
+                    }
+
                     asset_registry
-                        .populate(normalized.with_extension("").as_str(), &asset)
+                        .populate(asset_path.as_str(), &asset)
                         .map_err(|e| IntegrationError::CtxtGenericError {
                             source: e.into(),
                             mod_info: mod_info.clone().into(),
