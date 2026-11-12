@@ -1,7 +1,7 @@
 mod bitfix;
 mod crash_reporter;
 pub mod gui;
-mod install_validation;
+mod installation;
 pub mod integrate;
 mod mod_identity;
 pub mod mod_lints;
@@ -118,10 +118,10 @@ async fn resolve_selection_and_integrate<P: AsRef<Path>>(
 ) -> Result<(), IntegrationError> {
     let mod_specs: Vec<_> = entries.iter().map(|entry| entry.spec.clone()).collect();
     let mods = state.store.resolve_mods(&mod_specs, update).await?;
-    let to_integrate = install_validation::installation_inputs(entries, &mods)?;
+    let to_integrate = installation::validation::installation_inputs(entries, &mods)?;
 
     let missing_deps =
-        install_validation::missing_dependencies(mod_specs.iter().map(|spec| &mods[spec]));
+        installation::validation::missing_dependencies(mod_specs.iter().map(|spec| &mods[spec]));
     if !missing_deps.is_empty() {
         warn!("the following dependencies are missing:");
         for d in missing_deps {
@@ -151,7 +151,7 @@ async fn resolve_into_urls(
     let mods = state.store.resolve_mods(mod_specs, false).await?;
 
     let missing_deps =
-        install_validation::missing_dependencies(mod_specs.iter().map(|spec| &mods[spec]));
+        installation::validation::missing_dependencies(mod_specs.iter().map(|spec| &mods[spec]));
     if !missing_deps.is_empty() {
         warn!("the following dependencies are missing:");
         for d in missing_deps {

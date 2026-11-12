@@ -271,7 +271,7 @@ pub fn integrate<P: AsRef<Path>>(
     config: MetaConfig,
     mods: Vec<(ModInfo, PathBuf)>,
 ) -> Result<(), IntegrationError> {
-    let mods = crate::install_validation::prepare_packer_inputs(mods)?;
+    let mods = crate::installation::validation::prepare_packer_inputs(mods)?;
     // Read now: `config` is moved into the pak's meta further down.
     #[cfg(feature = "hook")]
     let bundled_crash_reporter = config.bundled_crash_reporter;
@@ -352,23 +352,16 @@ pub fn integrate<P: AsRef<Path>>(
         }?;
     }
 
-    // Before mods_P.pak is truncated, so a refused bitfix install changes nothing.
+    // Resolve bitfix installation before building the replacement mod archive.
     let bitfix_patches: Vec<_> = bitfix_patches
         .iter()
         .map(|(info, path)| (info.name.as_str(), path.as_path()))
         .collect();
     crate::bitfix::sync(&installation, &bitfix_patches)?;
 
-    let mut bundle = ModBundleWriter::new(
-        BufWriter::new(
-            fs::OpenOptions::new()
-                .write(true)
-                .create(true)
-                .truncate(true)
-                .open(&path_mod_pak)?,
-        ),
-        &fsd_pak.files(),
-    )?;
+    let mut output = crate::installation::output::InstallOutput::new(&path_mod_pak)?;
+    let mut writer = BufWriter::new(output.file());
+    let mut bundle = ModBundleWriter::new(&mut writer, &fsd_pak.files())?;
 
     #[cfg(feature = "hook")]
     {
@@ -797,6 +790,11 @@ pub fn integrate<P: AsRef<Path>>(
     bundle.write_file(&buf, ar_path)?;
 
     bundle.finish()?;
+    // BufWriter's destructor ignores flush failures, so flush explicitly before
+    // publishing the completed archive. Any earlier error drops the temp file.
+    writer.flush()?;
+    drop(writer);
+    output.commit()?;
     if !rejected_blueprints.is_empty() {
         warn!(
             "Blueprint dependency guard: excluded {} conflicting vanilla package(s) from mods_P.pak",

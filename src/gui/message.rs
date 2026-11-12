@@ -682,7 +682,7 @@ async fn integrate_async(
 
     let mods = store.resolve_mods(&mod_specs, update).await?;
 
-    let to_integrate = crate::install_validation::installation_inputs(&entries, &mods)?;
+    let to_integrate = crate::installation::validation::installation_inputs(&entries, &mods)?;
     // Report phases from the actual async operation, not from guessed download progress.
     message_tx
         .send(Message::InstallPhase {

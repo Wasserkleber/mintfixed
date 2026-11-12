@@ -168,4 +168,5 @@ pub(crate) fn prepare_packer_inputs(
 }
 
 #[cfg(test)]
+#[path = "tests/validation.rs"]
 mod tests;
