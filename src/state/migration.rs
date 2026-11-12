@@ -102,35 +102,40 @@ fn decode(bytes: &[u8]) -> Result<(VersionAnnotatedModData, bool), StateError> {
     Ok((VersionAnnotatedModData::V0_3_0(data), !current))
 }
 
-/// A fixed, exclusive backup prevents retries from replacing the original.
-/// Reuse only a byte-identical backup (e.g. after an interrupted migration).
+/// Preserve the original migration backup and every distinct legacy revision.
+/// Reuse byte-identical backups on retries; never overwrite an existing backup.
 fn backup(source: &Path, bytes: &[u8]) -> Result<(), StateError> {
     let name = source
         .file_name()
         .ok_or_else(|| invalid("missing source filename"))?;
-    let mut backup_name = name.to_os_string();
-    backup_name.push(".pre-0.3.0.bak");
-    let path = source.with_file_name(backup_name);
-    match fs::OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .open(&path)
-    {
-        Ok(mut file) => {
-            file.write_all(bytes)?;
-            file.sync_all()?;
+    for revision in 0..=9999 {
+        let mut backup_name = name.to_os_string();
+        if revision == 0 {
+            backup_name.push(".pre-0.3.0.bak");
+        } else {
+            backup_name.push(format!(".pre-0.3.0.{revision}.bak"));
         }
-        Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
-            if fs::read(&path)? != bytes {
-                return Err(invalid(format!(
-                    "migration backup already exists with different contents: {}",
-                    path.display()
-                )));
+        let path = source.with_file_name(backup_name);
+        match fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&path)
+        {
+            Ok(mut file) => {
+                file.write_all(bytes)?;
+                file.sync_all()?;
+                return Ok(());
             }
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
+                if fs::read(&path)? == bytes {
+                    return Ok(());
+                }
+                // Preserve an earlier revision; try another exclusive name.
+            }
+            Err(error) => return Err(error.into()),
         }
-        Err(error) => return Err(error.into()),
     }
-    Ok(())
+    Err(invalid("too many distinct migration backups"))
 }
 
 pub(super) fn load(path: &Path, legacy_path: &Path) -> Result<VersionAnnotatedModData, StateError> {
@@ -289,19 +294,82 @@ mod tests {
     }
 
     #[test]
-    fn interrupted_migration_reuses_only_identical_backups() {
+    fn interrupted_migration_reuses_matching_backup_and_preserves_conflicts() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("mod_data.json");
+        let legacy_path = dir.path().join("profiles.json");
         let bytes = old("0.1.0");
         fs::write(&path, &bytes).unwrap();
         let backup_path = dir.path().join("mod_data.json.pre-0.3.0.bak");
+        let second_backup = dir.path().join("mod_data.json.pre-0.3.0.1.bak");
         fs::write(&backup_path, b"an earlier original").unwrap();
-        assert!(load(&path, &dir.path().join("profiles.json")).is_err());
-        assert_eq!(fs::read(&path).unwrap(), bytes);
+
+        load(&path, &legacy_path).unwrap();
         assert_eq!(fs::read(&backup_path).unwrap(), b"an earlier original");
-        fs::write(&backup_path, &bytes).unwrap();
-        load(&path, &dir.path().join("profiles.json")).unwrap();
-        assert_eq!(fs::read(&backup_path).unwrap(), bytes);
+        assert_eq!(fs::read(&second_backup).unwrap(), bytes);
+
+        // An interrupted retry must reuse the matching backup.
+        fs::write(&path, &bytes).unwrap();
+        load(&path, &legacy_path).unwrap();
+        assert_eq!(fs::read(&backup_path).unwrap(), b"an earlier original");
+        assert_eq!(fs::read(&second_backup).unwrap(), bytes);
+        assert!(!dir.path().join("mod_data.json.pre-0.3.0.2.bak").exists());
+    }
+
+    #[test]
+    fn version_switch_1_3_beta_1_3_beta_keeps_distinct_backups() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("mod_data.json");
+        let legacy_path = dir.path().join("profiles.json");
+        let first_legacy = old("0.1.0");
+        fs::write(&path, &first_legacy).unwrap();
+
+        // First beta launch migrates the original 1.3 configuration.
+        load(&path, &legacy_path).unwrap();
+        let initial_backup = dir.path().join("mod_data.json.pre-0.3.0.bak");
+        assert_eq!(fs::read(&initial_backup).unwrap(), first_legacy);
+
+        // Simulate 1.3 rewriting the legacy file with a modified mod switch.
+        let mut revised: Value = serde_json::from_slice(&first_legacy).unwrap();
+        revised["profiles"]["A"]["mods"][2]["enabled"] = json!(false);
+        let second_legacy = serde_json::to_vec(&revised).unwrap();
+        assert_ne!(first_legacy, second_legacy);
+        fs::write(&path, &second_legacy).unwrap();
+
+        // Beta must migrate again without replacing the first backup.
+        let migrated = load(&path, &legacy_path).unwrap();
+        let second_backup = dir.path().join("mod_data.json.pre-0.3.0.1.bak");
+        assert_eq!(fs::read(&initial_backup).unwrap(), first_legacy);
+        assert_eq!(fs::read(&second_backup).unwrap(), second_legacy);
+        assert_eq!(
+            serde_json::from_slice::<Value>(&fs::read(&path).unwrap()).unwrap()["version"],
+            VERSION
+        );
+        let mut enabled = Vec::new();
+        migrated.for_each_enabled_mod("A", |m| enabled.push(m.spec.url.clone()));
+        assert!(enabled.is_empty());
+
+        // A normal beta restart must not create another migration backup.
+        let reloaded = load(&path, &legacy_path).unwrap();
+        assert_eq!(
+            serde_json::to_value(&reloaded).unwrap(),
+            serde_json::to_value(&migrated).unwrap()
+        );
+        assert!(!dir.path().join("mod_data.json.pre-0.3.0.2.bak").exists());
+
+        // Yet another distinct 1.3 revision gets its own numbered backup.
+        let mut revised_again: Value = serde_json::from_slice(&second_legacy).unwrap();
+        revised_again["profiles"]["A"]["mods"][2]["enabled"] = json!(true);
+        revised_again["profiles"]["A"]["mods"][2]["priority"] = json!(5);
+        let third_legacy = serde_json::to_vec(&revised_again).unwrap();
+        fs::write(&path, &third_legacy).unwrap();
+        load(&path, &legacy_path).unwrap();
+        assert_eq!(fs::read(&initial_backup).unwrap(), first_legacy);
+        assert_eq!(fs::read(&second_backup).unwrap(), second_legacy);
+        assert_eq!(
+            fs::read(dir.path().join("mod_data.json.pre-0.3.0.2.bak")).unwrap(),
+            third_legacy
+        );
     }
 
     #[test]
