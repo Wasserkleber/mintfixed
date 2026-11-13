@@ -453,3 +453,109 @@ fn dependency_warnings_match_requested_and_resolved_urls_and_deduplicate() {
     assert!(missing_dependencies([&dependency]).is_empty());
     assert!(missing_dependencies(std::iter::empty()).is_empty());
 }
+
+#[test]
+fn summary_retains_skipped_occurrences_and_saved_locations() {
+    let a = spec("first");
+    let b = spec("alias");
+    let entries = vec![
+        InstallEntry {
+            spec: a.clone(),
+            location: "profile P, standalone row 1".into(),
+        },
+        InstallEntry {
+            spec: b.clone(),
+            location: "profile P, group Tools, mod #2".into(),
+        },
+        InstallEntry {
+            spec: b.clone(),
+            location: "profile P, group Other, mod #1".into(),
+        },
+    ];
+    let resolved = HashMap::from([
+        (
+            a,
+            info(
+                "modio",
+                "Speedometer",
+                "https://mod.io/g/drg/m/speedometer#123/10",
+            ),
+        ),
+        (
+            b,
+            info(
+                "modio",
+                "Speedometer",
+                "https://mod.io/g/drg/m/alias#123/10",
+            ),
+        ),
+    ]);
+    let selected = select_installation_inputs(&entries, &resolved).unwrap();
+    assert_eq!(selected.mods.len(), 1);
+    assert_eq!(selected.locations, vec![entries[0].location.clone()]);
+    assert_eq!(selected.skipped.len(), 2);
+    assert_eq!(selected.skipped[0].name, "Speedometer");
+    assert_eq!(selected.skipped[0].location, entries[1].location);
+    assert_eq!(selected.skipped[1].location, entries[2].location);
+    let report = crate::installation::report::InstallReport {
+        installed: 1,
+        skipped: selected.skipped,
+    };
+    assert_eq!(report.summary(), "Installed 1 mod. Skipped 2 duplicates.");
+    assert!(report.details().contains("Speedometer"));
+    assert!(report.details().contains("group Tools"));
+}
+
+#[test]
+fn content_duplicates_extend_report_without_double_counting_resolved_duplicates() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("mod.pak");
+    std::fs::write(&path, b"same bytes").unwrap();
+    let entries = vec![
+        InstallEntry {
+            spec: spec("one"),
+            location: "standalone row 1".into(),
+        },
+        InstallEntry {
+            spec: spec("one"),
+            location: "group A, mod #1".into(),
+        },
+        InstallEntry {
+            spec: spec("two"),
+            location: "group B, mod #1".into(),
+        },
+    ];
+    let resolved = HashMap::from([
+        (spec("one"), info("file", "Original", "one")),
+        (spec("two"), info("http", "Mirror", "two")),
+    ]);
+    let selection = select_installation_inputs(&entries, &resolved).unwrap();
+    let mut skipped = selection.skipped;
+    let inputs = selection
+        .mods
+        .into_iter()
+        .map(|info| (info, path.clone()))
+        .collect();
+    let unique =
+        prepare_packer_inputs_with_report(inputs, &selection.locations, &mut skipped).unwrap();
+    assert_eq!(unique.len(), 1);
+    assert_eq!(skipped.len(), 2);
+    assert_eq!(skipped[1].name, "Mirror");
+    assert_eq!(skipped[1].location, "group B, mod #1");
+    assert_eq!(skipped[1].reason, "identical local/HTTP file contents");
+}
+
+#[test]
+fn summary_counts_only_enabled_occurrences_and_zero_duplicates() {
+    let mut data = profile();
+    if let ModOrGroup::Group { enabled, .. } =
+        &mut data.profiles.get_mut("My profile").unwrap().mods[1]
+    {
+        *enabled = false;
+    }
+    let selected =
+        select_installation_inputs(&data.ordered_install_entries("My profile"), &resolved())
+            .unwrap();
+    assert_eq!(selected.mods.len(), 1);
+    assert!(selected.skipped.is_empty());
+}

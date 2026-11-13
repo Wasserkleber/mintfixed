@@ -434,7 +434,7 @@ impl ResolveMods {
 #[derive(Debug)]
 pub struct Integrate {
     rid: RequestID,
-    result: Result<(), IntegrationError>,
+    result: Result<crate::installation::report::InstallReport, IntegrationError>,
 }
 
 impl Integrate {
@@ -473,9 +473,10 @@ impl Integrate {
     fn receive(self, app: &mut App) {
         if Some(self.rid) == app.integrate_rid.as_ref().map(|r| r.rid) {
             match self.result {
-                Ok(()) => {
-                    info!("integration complete");
-                    app.last_action = Some(LastAction::success("integration complete".to_string()));
+                Ok(report) => {
+                    let mut action = LastAction::success(report.summary());
+                    action.details = Some(report.details());
+                    app.last_action = Some(action);
                 }
                 Err(ref e)
                     if let IntegrationError::ProviderError { source } = e
@@ -696,13 +697,14 @@ async fn integrate_async(
     config: MetaConfig,
     rid: RequestID,
     message_tx: Sender<Message>,
-) -> Result<(), IntegrationError> {
+) -> Result<crate::installation::report::InstallReport, IntegrationError> {
     let update = false;
     let mod_specs: Vec<_> = entries.iter().map(|entry| entry.spec.clone()).collect();
 
     let mods = store.resolve_mods(&mod_specs, update).await?;
 
-    let to_integrate = crate::installation::validation::installation_inputs(&entries, &mods)?;
+    let selection = crate::installation::validation::select_installation_inputs(&entries, &mods)?;
+    let to_integrate = selection.mods;
     // Report phases from the actual async operation, not from guessed download progress.
     message_tx
         .send(Message::InstallPhase {
@@ -780,15 +782,15 @@ async fn integrate_async(
     stage_ctx.request_repaint();
 
     tokio::task::spawn_blocking(|| {
-        crate::integrate::integrate(
+        crate::integrate::integrate_with_report(
             fsd_pak,
             config,
             to_integrate.into_iter().zip(paths).collect(),
+            selection.locations,
+            selection.skipped,
         )
     })
-    .await??;
-
-    Ok(())
+    .await?
 }
 
 #[derive(Debug)]

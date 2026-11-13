@@ -217,6 +217,7 @@ pub struct App {
     integrate_rid: Option<MessageHandle<HashMap<ModSpecification, SpecFetchProgress>>>,
     // Tracks only installations started by Update Cache, not manual installations.
     cache_install_rid: Option<RequestID>,
+    cache_install_notice: Option<String>,
     install_phase: message::InstallPhase,
     cache_recovery_progress: Option<(usize, usize)>,
     cache_recovery_last_advance: Option<std::time::Instant>,
@@ -267,18 +268,21 @@ struct LintOptions {
 }
 
 struct LastAction {
+    details: Option<String>,
     timestamp: Instant,
     status: LastActionStatus,
 }
 impl LastAction {
     fn success(msg: String) -> Self {
         Self {
+            details: None,
             timestamp: Instant::now(),
             status: LastActionStatus::Success(msg),
         }
     }
     fn failure(msg: String) -> Self {
         Self {
+            details: None,
             timestamp: Instant::now(),
             status: LastActionStatus::Failure(msg),
         }
@@ -347,6 +351,7 @@ impl App {
             resolve_mod_rid: None,
             integrate_rid: None,
             cache_install_rid: None,
+            cache_install_notice: None,
             install_phase: message::InstallPhase::Resolving,
             cache_recovery_progress: None,
             cache_recovery_last_advance: None,
@@ -2677,15 +2682,23 @@ impl eframe::App for App {
             }
             if finishing_cache_install && self.integrate_rid.is_none() {
                 self.cache_install_rid = None;
-                if let Some(action) = self.last_action.take() {
-                    self.last_action = Some(match action.status {
-                        LastActionStatus::Success(_) => {
-                            LastAction::success("Cache updated; installation complete".to_string())
+                let notice = self.cache_install_notice.take()
+                    .unwrap_or_else(|| "Cache updated".to_string());
+                if let Some(action) = self.last_action.as_mut() {
+                    match &mut action.status {
+                        LastActionStatus::Success(message) => {
+                            *message = format!("{notice}; {message}");
+                            if let Some(details) = action.details.as_mut() {
+                                *details = format!("{notice}.\n{details}");
+                            }
                         }
-                        LastActionStatus::Failure(reason) => LastAction::failure(format!(
-                            "Cache updated; installation failed: {reason}"
-                        )),
-                    });
+                        LastActionStatus::Failure(reason) => {
+                            *reason = format!("{notice}; installation failed: {reason}");
+                            if let Some(details) = action.details.as_mut() {
+                                *details = format!("{notice}.\n{details}");
+                            }
+                        }
+                    }
                 }
             }
             if is_cache_result
@@ -2713,6 +2726,15 @@ impl eframe::App for App {
                         self.tx.clone(),
                         ctx.clone(),
                     ));
+                    // Retain the cache result before the installation clears the status.
+                    // It may contain warnings about unavailable mod.io mods.
+                    self.cache_install_notice = self.last_action.as_ref().and_then(|action| {
+                        if let LastActionStatus::Success(message) = &action.status {
+                            Some(message.clone())
+                        } else {
+                            None
+                        }
+                    });
                     self.cache_install_rid = self.integrate_rid.as_ref().map(|r| r.rid);
                     self.install_phase = message::InstallPhase::Resolving;
                     self.problematic_mod_id = None;
@@ -2842,6 +2864,7 @@ impl eframe::App for App {
 
                                 self.last_action = None;
                                 self.cache_install_rid = None;
+                                self.cache_install_notice = None;
                                 self.install_phase = message::InstallPhase::Resolving;
                                 self.integrate_rid = Some(message::Integrate::send(
                                     &mut self.request_counter,
@@ -2927,9 +2950,11 @@ impl eframe::App for App {
                         self.integrate_rid.take().unwrap().handle.abort();
                         self.install_phase = message::InstallPhase::Resolving;
                         if self.cache_install_rid.take().is_some() {
-                            self.last_action = Some(LastAction::failure(
-                                "Cache updated; installation cancelled".to_string(),
-                            ));
+                            let notice = self.cache_install_notice.take()
+                                .unwrap_or_else(|| "Cache updated".to_string());
+                            self.last_action = Some(LastAction::failure(format!(
+                                "{notice}; installation cancelled"
+                            )));
                         }
                     }
                     ui.spinner();
@@ -3029,7 +3054,7 @@ impl eframe::App for App {
                                     ui.ctx().request_repaint_after(Duration::from_secs(1));
                                     let summary = format!("({}): {}", last_action.timeago(), message);
                                     if status_message(ui, &summary) {
-                                        self.status_details = Some(format!("{outcome} {summary}"));
+                                        self.status_details = Some(last_action.details.clone().unwrap_or_else(|| format!("{outcome} {summary}")));
                                     }
                                 }
                             }

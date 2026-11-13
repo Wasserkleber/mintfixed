@@ -3,9 +3,16 @@
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::PathBuf;
 
+use super::report::SkippedMod;
 use crate::integrate::IntegrationError;
 use crate::providers::{ModInfo, ModSpecification, modio};
 use crate::state::InstallEntry;
+
+pub(crate) struct InstallSelection {
+    pub mods: Vec<ModInfo>,
+    pub locations: Vec<String>,
+    pub skipped: Vec<SkippedMod>,
+}
 
 /// Report missing suggested dependencies without logging or blocking installation.
 /// Match both the requested and resolved URLs, as the callers did before.
@@ -92,10 +99,18 @@ fn validate_versions<'a>(
 
 /// GUI and CLI call this after resolution, before downloading. Inputs are already
 /// in stable priority order; identical resolved artifacts keep their first entry.
+#[cfg(test)]
 pub(crate) fn installation_inputs(
     entries: &[InstallEntry],
     resolved: &HashMap<ModSpecification, ModInfo>,
 ) -> Result<Vec<ModInfo>, IntegrationError> {
+    Ok(select_installation_inputs(entries, resolved)?.mods)
+}
+
+pub(crate) fn select_installation_inputs(
+    entries: &[InstallEntry],
+    resolved: &HashMap<ModSpecification, ModInfo>,
+) -> Result<InstallSelection, IntegrationError> {
     let resolved_entries = entries
         .iter()
         .map(|entry| {
@@ -117,24 +132,44 @@ pub(crate) fn installation_inputs(
     )?;
     let mut files = HashSet::new();
     let mut other = HashSet::new();
-    let mut result = Vec::new();
-    for (info, _) in resolved_entries {
-        if let Some(identity) = resolved_modio_file(info)? {
-            if !files.insert(identity) {
-                continue;
-            }
-        } else if !other.insert((info.provider, &info.resolution.url)) {
-            continue;
+    let mut result = InstallSelection {
+        mods: Vec::new(),
+        locations: Vec::new(),
+        skipped: Vec::new(),
+    };
+    for (info, location) in resolved_entries {
+        let duplicate = if let Some(identity) = resolved_modio_file(info)? {
+            !files.insert(identity)
+        } else {
+            !other.insert((info.provider, &info.resolution.url))
+        };
+        if duplicate {
+            result.skipped.push(SkippedMod {
+                name: info.name.clone(),
+                location,
+                reason: "same resolved mod file",
+            });
+        } else {
+            result.mods.push(info.clone());
+            result.locations.push(location);
         }
-        result.push(info.clone());
     }
     Ok(result)
 }
 
 /// Defensive packer boundary, before opening the output or processing assets.
 /// Check every version first, even when a preceding local input is unreadable.
+#[cfg(test)]
 pub(crate) fn prepare_packer_inputs(
     mods: Vec<(ModInfo, PathBuf)>,
+) -> Result<Vec<(ModInfo, PathBuf)>, IntegrationError> {
+    prepare_packer_inputs_with_report(mods, &[], &mut Vec::new())
+}
+
+pub(crate) fn prepare_packer_inputs_with_report(
+    mods: Vec<(ModInfo, PathBuf)>,
+    locations: &[String],
+    skipped: &mut Vec<SkippedMod>,
 ) -> Result<Vec<(ModInfo, PathBuf)>, IntegrationError> {
     validate_versions(mods.iter().enumerate().map(|(index, (info, path))| {
         (
@@ -145,9 +180,18 @@ pub(crate) fn prepare_packer_inputs(
     let mut modio_files = HashSet::new();
     let mut content = HashSet::new();
     let mut unique = Vec::with_capacity(mods.len());
-    for (info, path) in mods {
+    for (index, (info, path)) in mods.into_iter().enumerate() {
+        let location = locations
+            .get(index)
+            .cloned()
+            .unwrap_or_else(|| format!("install input #{} ({})", index + 1, path.display()));
         if let Some(identity) = resolved_modio_file(&info)? {
             if !modio_files.insert(identity) {
+                skipped.push(SkippedMod {
+                    name: info.name.clone(),
+                    location,
+                    reason: "same resolved mod file",
+                });
                 continue;
             }
         } else if matches!(info.provider, "file" | "http") {
@@ -159,6 +203,11 @@ pub(crate) fn prepare_packer_inputs(
                 }
             })?;
             if !content.insert(digest) {
+                skipped.push(SkippedMod {
+                    name: info.name.clone(),
+                    location,
+                    reason: "identical local/HTTP file contents",
+                });
                 continue;
             }
         }

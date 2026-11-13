@@ -118,7 +118,8 @@ async fn resolve_selection_and_integrate<P: AsRef<Path>>(
 ) -> Result<(), IntegrationError> {
     let mod_specs: Vec<_> = entries.iter().map(|entry| entry.spec.clone()).collect();
     let mods = state.store.resolve_mods(&mod_specs, update).await?;
-    let to_integrate = installation::validation::installation_inputs(entries, &mods)?;
+    let selection = installation::validation::select_installation_inputs(entries, &mods)?;
+    let to_integrate = selection.mods;
 
     let missing_deps =
         installation::validation::missing_dependencies(mod_specs.iter().map(|spec| &mods[spec]));
@@ -137,11 +138,14 @@ async fn resolve_selection_and_integrate<P: AsRef<Path>>(
     info!("fetching mods...");
     let paths = state.store.fetch_mods_ordered(&urls, update, None).await?;
 
-    integrate::integrate(
+    integrate::integrate_with_report(
         game_path,
         state.config.deref().into(),
         to_integrate.into_iter().zip(paths).collect(),
+        selection.locations,
+        selection.skipped,
     )
+    .map(|_| ())
 }
 
 async fn resolve_into_urls(

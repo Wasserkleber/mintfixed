@@ -271,7 +271,27 @@ pub fn integrate<P: AsRef<Path>>(
     config: MetaConfig,
     mods: Vec<(ModInfo, PathBuf)>,
 ) -> Result<(), IntegrationError> {
-    let mods = crate::installation::validation::prepare_packer_inputs(mods)?;
+    integrate_with_report(path_pak, config, mods, Vec::new(), Vec::new()).map(|_| ())
+}
+
+#[tracing::instrument(skip_all)]
+pub(crate) fn integrate_with_report<P: AsRef<Path>>(
+    path_pak: P,
+    config: MetaConfig,
+    mods: Vec<(ModInfo, PathBuf)>,
+    locations: Vec<String>,
+    skipped: Vec<crate::installation::report::SkippedMod>,
+) -> Result<crate::installation::report::InstallReport, IntegrationError> {
+    let mut report = crate::installation::report::InstallReport {
+        installed: 0,
+        skipped,
+    };
+    let mods = crate::installation::validation::prepare_packer_inputs_with_report(
+        mods,
+        &locations,
+        &mut report.skipped,
+    )?;
+    report.installed = mods.len();
     // Read now: `config` is moved into the pak's meta further down.
     #[cfg(feature = "hook")]
     let bundled_crash_reporter = config.bundled_crash_reporter;
@@ -758,13 +778,9 @@ pub fn integrate<P: AsRef<Path>>(
         );
     }
 
-    info!(
-        "{} mods installed to {}",
-        mods.len(),
-        path_mod_pak.display()
-    );
-
-    Ok(())
+    info!("Installation output: {}", path_mod_pak.display());
+    info!("{}", report.details());
+    Ok(report)
 }
 
 fn collect_dir_files(dir: &'static include_dir::Dir, collect: &mut HashMap<String, &[u8]>) {
