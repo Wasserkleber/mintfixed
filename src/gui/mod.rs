@@ -1,6 +1,8 @@
 mod bitfix_menu;
 mod crash_history;
 mod crash_notice;
+#[cfg(all(feature = "hook", target_os = "windows"))]
+mod crash_reporter_update;
 mod edit_history;
 mod find_string;
 mod folder_import;
@@ -304,6 +306,8 @@ pub struct App {
     problematic_mod_id: Option<u32>,
     pending_group_mod_removal: Option<PendingGroupModRemoval>,
     recent_crash: Option<crash_notice::RecentCrash>,
+    #[cfg(all(feature = "hook", target_os = "windows"))]
+    startup_crash_reporter_update: crash_reporter_update::StartupUpdate,
     crash_monitor: Option<crash_notice::CrashMonitor>,
 }
 
@@ -376,6 +380,9 @@ impl App {
         let (tx, rx) = mpsc::channel(10);
         let state = State::init(dirs)?;
         let recent_crash = crash_notice::find_recent_unseen(&state);
+        #[cfg(all(feature = "hook", target_os = "windows"))]
+        let startup_crash_reporter_update =
+            crash_reporter_update::StartupUpdate::start(&state, &cc.egui_ctx);
         let specs = crate::mod_identity::all_specs(&state.mod_data);
         if !specs.is_empty() {
             let store = state.store.clone();
@@ -437,6 +444,8 @@ impl App {
             problematic_mod_id: None,
             pending_group_mod_removal: None,
             recent_crash,
+            #[cfg(all(feature = "hook", target_os = "windows"))]
+            startup_crash_reporter_update,
             crash_monitor: None,
         })
     }
@@ -2816,6 +2825,8 @@ impl eframe::App for App {
         // begin draw
 
         self.show_update_window(ctx);
+        #[cfg(all(feature = "hook", target_os = "windows"))]
+        self.startup_crash_reporter_update.show(ctx);
         self.show_provider_parameters(ctx);
         self.show_profile_windows(ctx);
         self.show_settings(ctx);

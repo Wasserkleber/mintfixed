@@ -41,7 +41,71 @@ const MAX_EXE_BYTES: u64 = 16 * 1024 * 1024;
 
 // Called from synchronous integration, which may itself execute inside Tokio.
 // reqwest::blocking must run outside that runtime to avoid a nested-runtime panic.
+// A startup update check and Install Mods must never replace the same executable
+// at the same time. Both paths use the same lock for the entire operation.
+static CRASH_REPORTER_INSTALL_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+pub(crate) fn version() -> &'static str {
+    VERSION
+}
+
 pub(crate) fn install(
+    bin_dir: &Path,
+    installation_type: &DRGInstallationType,
+    enabled: bool,
+) -> Result<()> {
+    let _guard = CRASH_REPORTER_INSTALL_LOCK
+        .lock()
+        .map_err(|_| anyhow::anyhow!("BP-Crash-Reporter installation lock was poisoned"))?;
+    install_unlocked(bin_dir, installation_type, enabled)
+}
+
+/// Start a verified upgrade only when the configured version is not installed.
+/// Inform the GUI before downloading; return false without any notification if
+/// the installed exe and three-line marker already match the pinned release.
+/// Preserve the existing installer (including its rollback and safety checks).
+pub(crate) fn install_with_notice<F>(
+    bin_dir: &Path,
+    installation_type: &DRGInstallationType,
+    enabled: bool,
+    on_update: F,
+) -> Result<bool>
+where
+    F: FnOnce(),
+{
+    let _guard = CRASH_REPORTER_INSTALL_LOCK
+        .lock()
+        .map_err(|_| anyhow::anyhow!("BP-Crash-Reporter installation lock was poisoned"))?;
+    if !enabled {
+        install_unlocked(bin_dir, installation_type, false)?;
+        return Ok(false);
+    }
+    let dir = bin_dir.join("mintfixed-bpcrash");
+    let marker = dir.join(format!("bpcrash-{VERSION}.installed"));
+    let exe = dir.join("bpcrash.exe");
+    let requires_update = !installed_release_matches(&marker, &exe)?;
+    if requires_update {
+        // Do not disrupt a running DRG session or show an update window for
+        // an update that cannot start yet. Retry on the next Mintfixed launch.
+        #[cfg(target_os = "windows")]
+        {
+            let process = match installation_type {
+                DRGInstallationType::Steam => "FSD-Win64-Shipping.exe",
+                DRGInstallationType::Xbox => "FSD-WinGDK-Shipping.exe",
+            };
+            if target_game_is_running(process)? {
+                bail!(
+                    "DRG is running; postponed BP-Crash-Reporter update until the game is closed"
+                );
+            }
+        }
+        on_update();
+    }
+    install_unlocked(bin_dir, installation_type, true)?;
+    Ok(requires_update)
+}
+
+fn install_unlocked(
     bin_dir: &Path,
     installation_type: &DRGInstallationType,
     enabled: bool,
