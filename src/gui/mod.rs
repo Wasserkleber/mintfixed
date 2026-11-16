@@ -1,27 +1,44 @@
+#[path = "bitfix/bitfix_menu.rs"]
 mod bitfix_menu;
+#[path = "crashes/crash_history.rs"]
 mod crash_history;
+#[path = "crashes/crash_notice.rs"]
 mod crash_notice;
 #[cfg(all(feature = "hook", target_os = "windows"))]
+#[path = "crashes/crash_reporter_update.rs"]
 mod crash_reporter_update;
+#[path = "mod_list/edit_history.rs"]
 mod edit_history;
+#[path = "mod_list/find_string.rs"]
 mod find_string;
+#[path = "imports/folder_import.rs"]
 mod folder_import;
 mod group_controls;
+#[path = "widgets/icon_buttons.rs"]
 mod icon_buttons;
 mod lint;
 use self::lint::LintOptions;
+#[path = "mod_list/mod_list_style.rs"]
 mod mod_list_style;
 use group_controls::{Drag, Target};
+#[path = "runtime/message.rs"]
 mod message;
+#[path = "widgets/named_combobox.rs"]
 mod named_combobox;
+#[path = "profiles/profile_import.rs"]
 mod profile_import;
+#[path = "profiles/profile_management.rs"]
 mod profile_management;
+#[path = "runtime/request_counter.rs"]
 mod request_counter;
+#[path = "widgets/toggle_switch.rs"]
 mod toggle_switch;
 
 #[cfg(test)]
+#[path = "tests/priority_input_tests.rs"]
 mod priority_input_tests;
 #[cfg(test)]
+#[path = "tests/tests.rs"]
 mod tests;
 
 //#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")] // hide console window on Windows in release
