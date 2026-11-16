@@ -1,4 +1,7 @@
 mod blueprint_guard;
+mod bundle_writer;
+
+use self::bundle_writer::ModBundleWriter;
 
 use std::collections::{HashMap, HashSet};
 use std::io::{BufReader, BufWriter, Cursor, ErrorKind, Read, Seek, Write};
@@ -6,12 +9,11 @@ use std::path::{Path, PathBuf};
 
 use fs_err as fs;
 
-use repak::PakWriter;
 use serde::Deserialize;
 use snafu::{Whatever, prelude::*};
 use tracing::{info, warn};
 use uasset_utils::asset_registry::{AssetRegistry, Readable as _, Writable as _};
-use uasset_utils::paths::{PakPath, PakPathBuf, PakPathComponentTrait};
+use uasset_utils::paths::{PakPath, PakPathComponentTrait};
 use uasset_utils::splice::{
     AssetVersion, TrackedStatement, extract_tracked_statements, inject_tracked_statements, walk,
 };
@@ -21,7 +23,7 @@ use unreal_asset::engine_version::EngineVersion;
 use crate::mod_lints::LintError;
 use crate::providers::{ModInfo, ProviderError, ReadSeek};
 use mint_lib::DRGInstallation;
-use mint_lib::mod_info::{ApprovalStatus, Meta, MetaConfig, MetaMod};
+use mint_lib::mod_info::MetaConfig;
 
 use unreal_asset::{
     Asset,
@@ -811,113 +813,6 @@ fn format_soft_class<P: AsRef<PakPath>>(path: P) -> String {
             .unwrap(),
         name
     )
-}
-
-struct ModBundleWriter<W: Write + Seek> {
-    pak_writer: PakWriter<W>,
-    directories: HashMap<String, Dir>,
-}
-
-impl<W: Write + Seek> ModBundleWriter<W> {
-    fn new(writer: W, fsd_paths: &[String]) -> Result<Self, IntegrationError> {
-        let mut directories: HashMap<String, Dir> = HashMap::new();
-        for f in fsd_paths {
-            let mut dir = &mut directories;
-            for c in PakPath::new(f).components() {
-                dir = &mut dir
-                    .entry(c.as_str().to_ascii_lowercase())
-                    .or_insert(Dir {
-                        name: c.to_string(),
-                        children: Default::default(),
-                    })
-                    .children;
-            }
-        }
-
-        Ok(Self {
-            pak_writer: repak::PakBuilder::new()
-                .compression([repak::Compression::Zlib])
-                .writer(writer, repak::Version::V11, "../../../".to_string(), None),
-            directories,
-        })
-    }
-    /// Used to normalize match path case to existing files in the DRG pak.
-    fn normalize_path(&self, path_str: &str) -> PakPathBuf {
-        let mut dir = Some(&self.directories);
-        let path = PakPath::new(path_str);
-        let mut normalized_path = PakPathBuf::new();
-        for c in path.components() {
-            if let Some(entry) = dir.and_then(|d| d.get(&c.as_str().to_ascii_lowercase())) {
-                normalized_path.push(&entry.name);
-                dir = Some(&entry.children);
-            } else {
-                normalized_path.push(c);
-            }
-        }
-        normalized_path
-    }
-
-    fn write_file(&mut self, data: &[u8], path: &str) -> Result<(), IntegrationError> {
-        self.pak_writer
-            .write_file(self.normalize_path(path).as_str(), false, data)?;
-        Ok(())
-    }
-
-    fn write_asset<C: Read + Seek>(
-        &mut self,
-        asset: Asset<C>,
-        path: &str,
-    ) -> Result<(), IntegrationError> {
-        let mut data_out = (Cursor::new(vec![]), Cursor::new(vec![]));
-
-        asset.write_data(&mut data_out.0, Some(&mut data_out.1))?;
-        data_out.0.rewind()?;
-        data_out.1.rewind()?;
-
-        self.write_file(&data_out.0.into_inner(), &format!("{path}.uasset"))?;
-        self.write_file(&data_out.1.into_inner(), &format!("{path}.uexp"))?;
-
-        Ok(())
-    }
-
-    fn write_meta(
-        &mut self,
-        config: MetaConfig,
-        mods: &[(ModInfo, PathBuf)],
-    ) -> Result<(), IntegrationError> {
-        let meta = Meta {
-            version: mint_lib::built_info::version().into(),
-            config,
-            mods: mods
-                .iter()
-                .map(|(info, _)| MetaMod {
-                    name: info.name.clone(),
-                    version: "TODO".into(), // TODO
-                    author: "TODO".into(),  // TODO
-                    required: info.suggested_require,
-                    url: info.resolution.get_resolvable_url_or_name().to_string(),
-                    approval: info
-                        .modio_tags
-                        .as_ref()
-                        .map(|t| t.approval_status)
-                        .unwrap_or(ApprovalStatus::Sandbox),
-                })
-                .collect(),
-        };
-        self.write_file(&postcard::to_allocvec(&meta).unwrap(), "meta")?;
-        Ok(())
-    }
-
-    fn finish(self) -> Result<(), IntegrationError> {
-        self.pak_writer.write_index()?;
-        Ok(())
-    }
-}
-
-#[derive(Debug, Default)]
-struct Dir {
-    name: String,
-    children: HashMap<String, Dir>,
 }
 
 pub(crate) fn get_pak_from_data(
