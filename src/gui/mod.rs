@@ -2682,7 +2682,9 @@ impl eframe::App for App {
             }
             if finishing_cache_install && self.integrate_rid.is_none() {
                 self.cache_install_rid = None;
-                let notice = self.cache_install_notice.take()
+                let notice = self
+                    .cache_install_notice
+                    .take()
                     .unwrap_or_else(|| "Cache updated".to_string());
                 if let Some(action) = self.last_action.as_mut() {
                     match &mut action.status {
@@ -2804,13 +2806,7 @@ impl eframe::App for App {
         self.show_bitfix_conflict(ctx);
         egui::TopBottomPanel::bottom("bottom_panel").show(ctx, |ui| {
             ui.horizontal(|ui| {
-                if crash_history::toolbar_button(ui) {
-                    self.crash_history.open(&self.state);
-                }
-                if bitfix_menu::toolbar_button(ui) {
-                    self.bitfix_menu.open = true;
-                }
-            ui.with_layout(egui::Layout::right_to_left(Align::TOP), |ui| {
+                // Keep launching DRG next to the Crash Logger on the left.
                 ui.add_enabled_ui(
                     self.integrate_rid.is_none()
                         && self.update_rid.is_none()
@@ -2818,7 +2814,6 @@ impl eframe::App for App {
                         && self.self_update_rid.is_none()
                         && self.state.config.drg_pak_path.is_some(),
                     |ui| {
-                        // Right-to-left toolbar: this button appears to the RIGHT of Install mods.
                         if ui
                             .button("Start DRG")
                             .on_hover_text(if self.args.is_some() {
@@ -2847,6 +2842,22 @@ impl eframe::App for App {
                                 )));
                             }
                         }
+                    },
+                );
+                if crash_history::toolbar_button(ui) {
+                    self.crash_history.open(&self.state);
+                }
+                if bitfix_menu::toolbar_button(ui) {
+                    self.bitfix_menu.open = true;
+                }
+            ui.with_layout(egui::Layout::right_to_left(Align::TOP), |ui| {
+                ui.add_enabled_ui(
+                    self.integrate_rid.is_none()
+                        && self.update_rid.is_none()
+                        && self.lint_rid.is_none()
+                        && self.self_update_rid.is_none()
+                        && self.state.config.drg_pak_path.is_some(),
+                    |ui| {
                         ui.add_enabled_ui(self.state.config.drg_pak_path.is_some(), |ui| {
                             let mut button = ui.button("Install mods");
                             if self.state.config.drg_pak_path.is_none() {
