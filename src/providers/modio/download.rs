@@ -2,7 +2,7 @@ use super::MAX_DOWNLOAD_RESTARTS;
 use super::{
     BlobCache, DrgModio, FetchProgress, InvalidUrlSnafu, MODIO_PROVIDER_ID, ModCtxtIoSnafu,
     ModIoModUrl, ModResolution, ModioCache, ModioProvider, PathBuf, ProviderCache, ProviderError,
-    Sender, error, info, modio, parse_url, warn,
+    Sender, info, modio, parse_url, warn,
 };
 use snafu::ResultExt;
 

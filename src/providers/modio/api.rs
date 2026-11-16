@@ -1,10 +1,10 @@
 #[cfg(test)]
 use super::automock;
 use super::{
-    Arc, CheckFailedSnafu, DrgModioError, Extensions, FetchDependenciesFailedSnafu,
-    FetchModFailedSnafu, FetchModFileFailedSnafu, FetchModFilesFailedSnafu, GenericModioSnafu,
-    HashMap, HashSet, MODIO_DRG_ID, Middleware, MissingOauthTokenSnafu, ModioMod, ModioModResponse,
-    Next, Request, Response, error, info, modio, warn,
+    CheckFailedSnafu, DrgModioError, Extensions, FetchDependenciesFailedSnafu, FetchModFailedSnafu,
+    FetchModFileFailedSnafu, FetchModFilesFailedSnafu, GenericModioSnafu, HashMap, HashSet,
+    MODIO_DRG_ID, Middleware, MissingOauthTokenSnafu, ModioMod, ModioModResponse, Next, Request,
+    Response, info, modio, warn,
 };
 use super::{RetryPolicy, global_rate_gate};
 use snafu::{OptionExt, ResultExt};

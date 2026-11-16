@@ -29,7 +29,7 @@ use serde::Deserialize;
 use snafu::{Whatever, prelude::*};
 use tracing::{info, warn};
 use uasset_utils::asset_registry::{AssetRegistry, Readable as _, Writable as _};
-use uasset_utils::paths::{PakPath, PakPathComponentTrait};
+use uasset_utils::paths::PakPath;
 use uasset_utils::splice::{
     AssetVersion, TrackedStatement, extract_tracked_statements, inject_tracked_statements, walk,
 };

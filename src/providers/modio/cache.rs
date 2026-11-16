@@ -1,8 +1,8 @@
 use super::{
     BlobRef, Deserialize, DrgModio, HashMap, HashSet, MODIO_PROVIDER_ID, ModInfo, ModProviderCache,
     ModResolution, ModResponse, ModSpecification, ModioMod, ModioProvider, ProviderCache,
-    ProviderError, Serialize, SystemTime, UNIX_EPOCH, error, format_spec, info,
-    is_unavailable_error, modio, parse_url, process_modio_tags, warn,
+    ProviderError, Serialize, SystemTime, UNIX_EPOCH, format_spec, is_unavailable_error, parse_url,
+    process_modio_tags, warn,
 };
 use crate::providers::ModProvider;
 

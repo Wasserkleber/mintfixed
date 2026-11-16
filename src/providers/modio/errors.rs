@@ -1,4 +1,4 @@
-use super::{ProviderError, Snafu, error, modio};
+use super::{ProviderError, Snafu, modio};
 
 // 404 and 410 imply that a specific mod resource is unavailable.
 // 403 can also indicate insufficient API permissions, so do NOT suppress it
