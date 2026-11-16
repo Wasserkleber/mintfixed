@@ -253,3 +253,120 @@ async fn test_fetch_mod_simple() {
             .collect()
     );
 }
+
+// Behavior-focused regression tests for the mechanical mod.io module split.
+// These use only in-memory cache entries and do not require mod.io access.
+fn refactor_sample_cached_mod() -> ModioMod {
+    ModioMod {
+        name_id: "refactor-offline-mod".to_owned(),
+        name: "Refactor offline mod".to_owned(),
+        latest_modfile: Some(42),
+        modfiles: vec![
+            ModioFile {
+                id: 41,
+                date_added: 1,
+                version: Some("v1".to_owned()),
+                changelog: None,
+            },
+            ModioFile {
+                id: 42,
+                date_added: 2,
+                version: Some("v2".to_owned()),
+                changelog: None,
+            },
+        ],
+        tags: HashSet::new(),
+    }
+}
+
+#[tokio::test]
+async fn refactor_offline_pinned_mod_resolves_without_network() {
+    let cache = Arc::new(RwLock::new(crate::state::config::ConfigWrapper::<
+        VersionAnnotatedCache,
+    >::memory(VersionAnnotatedCache::default())));
+    {
+        let mut lock = cache.write().unwrap();
+        let state = lock.get_mut::<ModioCache>(MODIO_PROVIDER_ID);
+        state.mods.insert(7, refactor_sample_cached_mod());
+        state
+            .mod_id_map
+            .insert("refactor-offline-mod".to_owned(), 7);
+        state.dependencies.insert(7, Vec::new());
+    }
+
+    // No mock expectations: any accidental remote API call fails this test.
+    let provider = ModioProvider::new(MockDrgModio::new());
+    let pinned =
+        ModSpecification::new("https://mod.io/g/drg/m/refactor-offline-mod#7/41".to_owned());
+    assert!(provider.is_pinned(&pinned, cache.clone()));
+    assert!(matches!(
+        provider
+            .resolve_mod(&pinned, false, cache.clone())
+            .await
+            .unwrap(),
+        ModResponse::Resolve(_)
+    ));
+    assert!(provider.get_mod_info(&pinned, cache.clone()).is_some());
+    assert_eq!(
+        provider.get_version_name(&pinned, cache.clone()).as_deref(),
+        Some("41 - v1")
+    );
+
+    let latest = ModSpecification::new("https://mod.io/g/drg/m/refactor-offline-mod#7".to_owned());
+    match provider.resolve_mod(&latest, false, cache).await.unwrap() {
+        ModResponse::Redirect(target) => {
+            assert_eq!(
+                target.url,
+                "https://mod.io/g/drg/m/refactor-offline-mod#7/42"
+            );
+        }
+        _ => panic!("unpinned version should redirect to cached latest"),
+    }
+}
+
+#[test]
+fn refactor_unavailable_flags_preserve_cached_mod_metadata() {
+    let cache = Arc::new(RwLock::new(crate::state::config::ConfigWrapper::<
+        VersionAnnotatedCache,
+    >::memory(VersionAnnotatedCache::default())));
+    {
+        let mut lock = cache.write().unwrap();
+        let state = lock.get_mut::<ModioCache>(MODIO_PROVIDER_ID);
+        state.mods.insert(7, refactor_sample_cached_mod());
+        state
+            .mod_id_map
+            .insert("refactor-offline-mod".to_owned(), 7);
+    }
+    let url = "https://mod.io/g/drg/m/refactor-offline-mod#7/41";
+    mark_unavailable(&cache, url);
+    assert!(is_unavailable(&cache, url));
+    assert_eq!(cache_counts(&cache), (1, 1));
+    clear_unavailable(&cache, url);
+    assert!(!is_unavailable(&cache, url));
+    assert_eq!(cache_counts(&cache), (1, 0));
+    let lock = cache.read().unwrap();
+    let state = lock.get::<ModioCache>(MODIO_PROVIDER_ID).unwrap();
+    assert_eq!(state.mods.get(&7).unwrap().latest_modfile, Some(42));
+}
+
+#[test]
+fn refactor_cache_json_round_trip_preserves_numeric_ids_and_unavailable_state() {
+    let mut original = ModioCache::default();
+    original
+        .mod_id_map
+        .insert("refactor-offline-mod".to_owned(), 7);
+    original.mods.insert(7, refactor_sample_cached_mod());
+    original.dependencies.insert(7, vec![9]);
+    original
+        .unavailable_names
+        .insert("refactor-offline-mod".to_owned(), true);
+    let json = serde_json::to_string(&original).unwrap();
+    let loaded: ModioCache = serde_json::from_str(&json).unwrap();
+    assert_eq!(loaded.mod_id_map.get("refactor-offline-mod"), Some(&7));
+    assert_eq!(loaded.mods.get(&7), original.mods.get(&7));
+    assert_eq!(loaded.dependencies.get(&7), Some(&vec![9]));
+    assert_eq!(
+        loaded.unavailable_names.get("refactor-offline-mod"),
+        Some(&true)
+    );
+}
