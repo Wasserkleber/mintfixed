@@ -1,4 +1,10 @@
-use super::*;
+use super::{
+    BlobRef, Deserialize, DrgModio, HashMap, HashSet, MODIO_PROVIDER_ID, ModInfo, ModProviderCache,
+    ModResolution, ModResponse, ModSpecification, ModioMod, ModioProvider, ProviderCache,
+    ProviderError, Serialize, SystemTime, UNIX_EPOCH, error, format_spec, info,
+    is_unavailable_error, modio, parse_url, process_modio_tags, warn,
+};
+use crate::providers::ModProvider;
 
 /// Look up the display name directly from cached mod.io metadata.
 /// Unlike `get_mod_info`, this does not require dependency metadata.

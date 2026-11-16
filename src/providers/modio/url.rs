@@ -1,4 +1,8 @@
-use super::*;
+use super::{
+    InvalidUrlSnafu, MODIO_PROVIDER_ID, ModSpecification, ModioCache, OnceLock, ProviderCache,
+    ProviderError,
+};
+use snafu::OptionExt;
 
 static RE_MOD: OnceLock<regex::Regex> = OnceLock::new();
 fn re_mod() -> &'static regex::Regex {

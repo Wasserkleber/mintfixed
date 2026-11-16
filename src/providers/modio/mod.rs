@@ -23,7 +23,7 @@ mod errors;
 mod metadata;
 mod resolution;
 #[cfg(test)]
-#[path = "tests.rs"]
+#[path = "tests/mod.rs"]
 mod test;
 mod url;
 
