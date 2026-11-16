@@ -18,8 +18,18 @@ mod group_controls;
 mod icon_buttons;
 mod lint;
 use self::lint::LintOptions;
+#[path = "app/begin_frame.rs"]
+mod app_begin_frame;
 #[path = "app/frame.rs"]
 mod app_frame;
+#[path = "app/main_panel.rs"]
+mod app_main_panel;
+#[path = "app/overlays.rs"]
+mod app_overlays;
+#[path = "app/status_details.rs"]
+mod app_status_details;
+#[path = "app/toolbar.rs"]
+mod app_toolbar;
 #[path = "mod_list/group_drop_target.rs"]
 mod group_drop_target;
 #[path = "mod_list/group_header.rs"]
