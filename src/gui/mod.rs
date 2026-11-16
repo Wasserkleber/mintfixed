@@ -22,6 +22,8 @@ use self::lint::LintOptions;
 mod app_frame;
 #[path = "mod_list/mod_list_style.rs"]
 mod mod_list_style;
+#[path = "mod_list/mod_tags.rs"]
+mod mod_tags;
 #[path = "mod_list/profile_ui.rs"]
 mod profile_ui;
 use group_controls::{Drag, Target};
