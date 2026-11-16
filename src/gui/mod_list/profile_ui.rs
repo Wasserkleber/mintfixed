@@ -492,31 +492,13 @@ impl App {
                                 ui,
                                 selected_group_tint.as_deref(),
                             );
-                            // Highlight the group while its matching members are hidden.
-                            let group_title = if fully_closed && matching_mod_in_group {
-                                RichText::new(group_name.as_str())
-                                    .strong()
-                                    .background_color(Color32::YELLOW)
-                                    .color(Color32::BLACK)
-                            } else {
-                                let mut title = RichText::new(group_name.as_str()).strong();
-                                if let Some(color) = group_header_color {
-                                    title = title.color(color);
-                                }
-                                title
-                            };
-                            // mintfixed: soft neutral text for uncolored group headers
-                            let group_title = if selected_group_tint.is_none()
-                                && !(fully_closed && matching_mod_in_group)
-                            {
-                                group_title.color(if ui.visuals().dark_mode {
-                                    Color32::from_gray(164)
-                                } else {
-                                    Color32::from_gray(92)
-                                })
-                            } else {
-                                group_title
-                            };
+                            let group_title = group_header::title(
+                                ui,
+                                group_name.as_str(),
+                                group_header_color,
+                                selected_group_tint.is_none(),
+                                fully_closed && matching_mod_in_group,
+                            );
                             let mut title_clicked = false;
                             // egui draws its built-in collapse arrow before the header
                             // callback, so tint its foreground only while painting this
@@ -535,68 +517,18 @@ impl App {
                                 previous
                             });
                             let mut header = collapse.show_header(ui, |ui| {
-                                title_clicked = ui
-                                    .add(egui::Label::new(group_title).sense(egui::Sense::click()))
-                                    .on_hover_cursor(egui::CursorIcon::PointingHand)
-                                    .clicked();
-                                ui.label(
-                                    RichText::new(format!(
-                                        "{} mod{}",
-                                        group_member_count,
-                                        if group_member_count == 1 { "" } else { "s" }
-                                    ))
-                                    .small()
-                                    .weak(),
-                                );
-                                // Reuse the orange SVG warning used by individual mods.
-                                // Place it on the header so collapsed groups expose the issue.
-                                if let Some(tooltip) = unavailable_group_tooltip.as_deref() {
-                                    icon_buttons::warning_button(ui, None)
-                                        .on_hover_text_at_pointer(tooltip);
-                                }
                                 let selected_color = groups
                                     .get(group_name)
                                     .and_then(|group| group.tint_color.clone());
-                                let mut requested_color: Option<Option<String>> = None;
-                                // group color control — right aligned in the remaining header width
-                                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                                    ui.scope(|ui| {
-                                        ui.spacing_mut().button_padding = egui::vec2(2.0, 0.0);
-                                        // Invisible at rest; highlight only when hovered or selected.
-                                        ui.visuals_mut().widgets.inactive.weak_bg_fill = egui::Color32::TRANSPARENT;
-                                        ui.visuals_mut().widgets.inactive.bg_stroke = egui::Stroke::NONE;
-                                        ui.menu_image_button(
-                                            egui::Image::new(egui::include_image!("../../../assets/icons/group_palette.svg"))
-                                                .fit_to_exact_size(egui::vec2(15.0, 15.0))
-                                                .tint(mod_list_style::swatch_color(
-                                                    selected_color.as_deref(),
-                                                    ui.visuals().dark_mode,
-                                                )),
-                                            |ui| {
-                                                if mod_list_style::color_menu_option(ui, None, "None", selected_color.is_none()) {
-                                                    requested_color = Some(None);
-                                                    ui.close_menu();
-                                                }
-                                                for &(key, label) in mod_list_style::COLOR_OPTIONS {
-                                                    if mod_list_style::color_menu_option(
-                                                        ui,
-                                                        Some(key),
-                                                        label,
-                                                        selected_color.as_deref() == Some(key),
-                                                    ) {
-                                                        requested_color = Some(Some(key.to_owned()));
-                                                        ui.close_menu();
-                                                    }
-                                                }
-                                            },
-                                        )
-                                        .response
-                                        .on_hover_text("Group color");
-                                    });
-                                    if let Some(description) = group_description.as_deref() {
-                                        description_help_button(ui, description);
-                                    }
-                                });
+                                let (clicked, requested_color) = group_header::render_contents(
+                                    ui,
+                                    group_title,
+                                    group_member_count,
+                                    unavailable_group_tooltip.as_deref(),
+                                    selected_color.as_deref(),
+                                    group_description.as_deref(),
+                                );
+                                title_clicked = clicked;
                                 if let Some(color) = requested_color {
                                     if let Some(group) = groups.get_mut(group_name) {
                                         group.tint_color = color;

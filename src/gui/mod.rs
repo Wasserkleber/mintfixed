@@ -20,6 +20,8 @@ mod lint;
 use self::lint::LintOptions;
 #[path = "app/frame.rs"]
 mod app_frame;
+#[path = "mod_list/group_header.rs"]
+mod group_header;
 #[path = "mod_list/mod_list_style.rs"]
 mod mod_list_style;
 #[path = "mod_list/mod_tags.rs"]
