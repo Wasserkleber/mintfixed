@@ -32,10 +32,10 @@ use windows::{
     core::PWSTR,
 };
 
-const VERSION: &str = "1.2.1";
-const ZIP_URL: &str = "https://github.com/Elytras/BP-Crash-Reporter/releases/download/1.2.1/bpcrash-1.2.1-windows.zip";
-// Pinned to the checksum published with upstream release 1.2.1.
-const ZIP_SHA256: &str = "df8ba682ce28d91e2693b6b3b512f9457fb00a3e5fdb49e6ce18e819c046e76b";
+const VERSION: &str = "1.2.2";
+const ZIP_URL: &str = "https://github.com/Elytras/BP-Crash-Reporter/releases/download/1.2.2/bpcrash-1.2.2-windows.zip";
+// Pinned to the checksum published with upstream release 1.2.2.
+const ZIP_SHA256: &str = "cd4135958f4f052f0c85490c753da205d42ac10175157d666a5fddff8a2cc41b";
 const MAX_ZIP_BYTES: u64 = 8 * 1024 * 1024;
 const MAX_EXE_BYTES: u64 = 16 * 1024 * 1024;
 
