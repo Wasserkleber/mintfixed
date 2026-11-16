@@ -85,3 +85,113 @@ pub(super) fn write_atomic(path: &Path, value: &impl Serialize) -> Result<(), St
     file.persist(path)?;
     Ok(())
 }
+
+#[obake::versioned]
+#[obake(version("0.0.0"))]
+#[derive(Debug, Serialize, Deserialize)]
+pub struct Config {
+    pub provider_parameters: HashMap<String, HashMap<String, String>>,
+    pub drg_pak_path: Option<PathBuf>,
+    /// When configured, newly discovered local mods are added to the active profile.
+    #[serde(default)]
+    pub local_mod_folder: Option<PathBuf>,
+    pub gui_theme: Option<GuiTheme>,
+    pub sorting_config: Option<SortingConfig>,
+    // notag's config "0.1.0" adds these two; kept (unused here) so a notag install gets its settings back.
+    #[serde(default = "default_true")]
+    pub confirm_deletion: bool,
+    #[serde(default = "default_true")]
+    pub show_changelog: bool,
+    /// Install and autolaunch the pinned BP-Crash-Reporter on integrate.
+    #[serde(default = "default_true")]
+    pub bundled_crash_reporter: bool,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct SortingConfig {
+    pub sort_category: SortBy,
+    pub is_ascending: bool,
+}
+
+impl Default for SortingConfig {
+    fn default() -> Self {
+        Self {
+            sort_category: SortBy::Enabled,
+            is_ascending: true,
+        }
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(tag = "version")]
+pub enum VersionAnnotatedConfig {
+    // notag's "0.1.0" is this layout plus the two flags above; read it too. We still write our own "0.0.0".
+    #[serde(rename = "0.0.0", alias = "0.1.0")]
+    V0_0_0(Config!["0.0.0"]),
+    #[serde(other)]
+    Unsupported,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum MaybeVersionedConfig {
+    Versioned(VersionAnnotatedConfig),
+    Legacy(Config!["0.0.0"]),
+}
+
+impl Default for MaybeVersionedConfig {
+    fn default() -> Self {
+        MaybeVersionedConfig::Versioned(Default::default())
+    }
+}
+
+impl Default for VersionAnnotatedConfig {
+    fn default() -> Self {
+        VersionAnnotatedConfig::V0_0_0(Default::default())
+    }
+}
+
+impl Deref for VersionAnnotatedConfig {
+    type Target = Config!["0.0.0"];
+
+    fn deref(&self) -> &Self::Target {
+        match self {
+            VersionAnnotatedConfig::V0_0_0(cfg) => cfg,
+            VersionAnnotatedConfig::Unsupported => unreachable!(),
+        }
+    }
+}
+
+impl DerefMut for VersionAnnotatedConfig {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        match self {
+            VersionAnnotatedConfig::V0_0_0(cfg) => cfg,
+            VersionAnnotatedConfig::Unsupported => unreachable!(),
+        }
+    }
+}
+
+impl Default for Config!["0.0.0"] {
+    fn default() -> Self {
+        Self {
+            provider_parameters: Default::default(),
+            drg_pak_path: DRGInstallation::find()
+                .as_ref()
+                .map(DRGInstallation::main_pak),
+            local_mod_folder: None,
+            gui_theme: Some(GuiTheme::Dark),
+            sorting_config: None,
+            confirm_deletion: true,
+            show_changelog: true,
+            bundled_crash_reporter: true,
+        }
+    }
+}
+
+impl From<&VersionAnnotatedConfig> for MetaConfig {
+    fn from(value: &VersionAnnotatedConfig) -> Self {
+        MetaConfig {
+            bundled_crash_reporter: value.bundled_crash_reporter,
+        }
+    }
+}
