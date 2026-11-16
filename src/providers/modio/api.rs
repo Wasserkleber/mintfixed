@@ -6,11 +6,13 @@ use super::{
     HashMap, HashSet, MODIO_DRG_ID, Middleware, MissingOauthTokenSnafu, ModioMod, ModioModResponse,
     Next, Request, Response, error, info, modio, warn,
 };
+use super::{RetryPolicy, global_rate_gate};
 use snafu::{OptionExt, ResultExt};
 
 #[derive(Default)]
 struct LoggingMiddleware {
     requests: std::sync::Arc<std::sync::atomic::AtomicUsize>,
+    policy: RetryPolicy,
 }
 
 #[async_trait::async_trait]
@@ -23,6 +25,7 @@ impl Middleware for LoggingMiddleware {
     ) -> reqwest_middleware::Result<Response> {
         let mut retries = 0_u32;
         loop {
+            global_rate_gate().wait().await;
             info!(
                 "request started {} {:?}",
                 self.requests
@@ -57,17 +60,33 @@ impl Middleware for LoggingMiddleware {
                 }
                 _ => return res,
             };
-            retries = retries.saturating_add(1);
-            // Do not hammer mod.io if its Retry-After is zero or malformed.
-            let fallback = (1_u64 << retries.min(6)).min(60);
-            let delay = retry_after
-                .filter(|seconds| *seconds > 0)
-                .unwrap_or(fallback);
+            let next_retry = retries.saturating_add(1);
+            // 429 responses gate *all* mod.io client instances, including when
+            // this request has exhausted its own retry budget.
+            let rate_limited = res
+                .as_ref()
+                .is_ok_and(|response| response.status() == reqwest::StatusCode::TOO_MANY_REQUESTS);
+            let delay = self.policy.delay(next_retry, retry_after);
+            if rate_limited {
+                global_rate_gate().defer(delay);
+            }
+            if retries >= self.policy.max_retries {
+                warn!(
+                    "mod.io request {}: exhausted {} retries",
+                    req.url().path(),
+                    retries
+                );
+                return res;
+            }
+            retries = next_retry;
             warn!(
-                "mod.io request {}: retry {retries} in {delay}s",
-                req.url().path()
+                "mod.io request {}: retry {retries} in {}s",
+                req.url().path(),
+                delay.as_secs_f64()
             );
-            tokio::time::sleep(tokio::time::Duration::from_secs(delay)).await;
+            if !rate_limited {
+                tokio::time::sleep(delay).await;
+            }
         }
     }
 }
@@ -318,5 +337,125 @@ impl DrgModio for modio::Modio {
         modio::download::DownloadAction: From<A>,
     {
         self.download(action)
+    }
+}
+
+#[cfg(test)]
+mod http_tests {
+    use super::*;
+    use std::sync::Arc;
+    use std::time::Duration;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use tokio::net::TcpListener;
+
+    // A local HTTP stub: no live mod.io network and no external mock crates.
+    async fn server(
+        statuses: Vec<u16>,
+    ) -> (
+        String,
+        tokio::task::JoinHandle<()>,
+        Arc<std::sync::atomic::AtomicUsize>,
+    ) {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = format!("http://{}/", listener.local_addr().unwrap());
+        let calls = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let recorded = calls.clone();
+        let handle = tokio::spawn(async move {
+            for status in statuses {
+                let (mut socket, _) =
+                    tokio::time::timeout(Duration::from_secs(5), listener.accept())
+                        .await
+                        .expect("request timeout")
+                        .unwrap();
+                let mut request = [0_u8; 2048];
+                let _ = socket.read(&mut request).await.unwrap();
+                recorded.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                let reason = match status {
+                    200 => "OK",
+                    404 => "Not Found",
+                    410 => "Gone",
+                    429 => "Too Many Requests",
+                    500 => "Internal Server Error",
+                    _ => "Status",
+                };
+                let response = format!(
+                    "HTTP/1.1 {status} {reason}\r\nContent-Length: 2\r\nConnection: close\r\nRetry-After: 0\r\n\r\nOK"
+                );
+                socket.write_all(response.as_bytes()).await.unwrap();
+            }
+        });
+        (address, handle, calls)
+    }
+
+    fn test_client(max_retries: u32) -> reqwest_middleware::ClientWithMiddleware {
+        let middleware = LoggingMiddleware {
+            policy: RetryPolicy {
+                max_retries,
+                base_delay: Duration::ZERO,
+            },
+            ..Default::default()
+        };
+        reqwest_middleware::ClientBuilder::new(reqwest::Client::new())
+            .with(middleware)
+            .build()
+    }
+
+    #[tokio::test]
+    async fn response_429_retries_then_succeeds() {
+        let (url, server, calls) = server(vec![429, 200]).await;
+        let response = test_client(1).get(&url).send().await.unwrap();
+        assert_eq!(response.status(), reqwest::StatusCode::OK);
+        server.await.unwrap();
+        assert_eq!(calls.load(std::sync::atomic::Ordering::Relaxed), 2);
+    }
+
+    #[tokio::test]
+    async fn response_429_has_bounded_retries() {
+        let (url, server, calls) = server(vec![429, 429, 429]).await;
+        let response = test_client(2).get(&url).send().await.unwrap();
+        assert_eq!(response.status(), reqwest::StatusCode::TOO_MANY_REQUESTS);
+        server.await.unwrap();
+        assert_eq!(calls.load(std::sync::atomic::Ordering::Relaxed), 3);
+    }
+
+    #[tokio::test]
+    async fn missing_mod_404_is_never_retried() {
+        let (url, server, calls) = server(vec![404]).await;
+        let response = test_client(5).get(&url).send().await.unwrap();
+        assert_eq!(response.status(), reqwest::StatusCode::NOT_FOUND);
+        server.await.unwrap();
+        assert_eq!(calls.load(std::sync::atomic::Ordering::Relaxed), 1);
+    }
+
+    #[tokio::test]
+    async fn response_500_retries_and_recovers() {
+        let (url, server, calls) = server(vec![500, 200]).await;
+        let response = test_client(1).get(&url).send().await.unwrap();
+        assert_eq!(response.status(), reqwest::StatusCode::OK);
+        server.await.unwrap();
+        assert_eq!(calls.load(std::sync::atomic::Ordering::Relaxed), 2);
+    }
+
+    #[tokio::test]
+    async fn truncated_http_body_is_reported_as_error() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = format!("http://{}/", listener.local_addr().unwrap());
+        let server = tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            let mut request = [0u8; 2048];
+            let _ = socket.read(&mut request).await.unwrap();
+            socket
+                .write_all(
+                    b"HTTP/1.1 200 OK\r\nContent-Length: 32\r\nConnection: close\r\n\r\nshort",
+                )
+                .await
+                .unwrap();
+        });
+        let response = reqwest::Client::new().get(url).send().await.unwrap();
+        assert!(
+            response.bytes().await.is_err(),
+            "short body must not be accepted"
+        );
+        server.await.unwrap();
     }
 }

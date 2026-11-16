@@ -21,6 +21,7 @@ mod cache;
 mod download;
 mod errors;
 mod metadata;
+mod rate_limit;
 mod resolution;
 #[cfg(test)]
 #[path = "tests/mod.rs"]
@@ -38,6 +39,7 @@ pub(crate) use errors::is_unavailable_error;
 use errors::*; // Snafu context selectors and classification helper.
 use metadata::process_modio_tags;
 pub use metadata::{ModioFile, ModioMod, ModioModResponse};
+use rate_limit::{MAX_DOWNLOAD_RESTARTS, RetryPolicy, global_rate_gate};
 pub(super) use url::cached_file;
 use url::{ModIoModUrl, format_spec, parse_url};
 pub(crate) use url::{is_valid_modio_url, pinned_file};

@@ -1,3 +1,4 @@
+use super::MAX_DOWNLOAD_RESTARTS;
 use super::{
     BlobCache, DrgModio, FetchProgress, InvalidUrlSnafu, MODIO_PROVIDER_ID, ModCtxtIoSnafu,
     ModIoModUrl, ModResolution, ModioCache, ModioProvider, PathBuf, ProviderCache, ProviderError,
@@ -125,6 +126,18 @@ impl<M: DrgModio + Send + Sync> ModioProvider<M> {
                         }
                         drop(stream);
                         retries = retries.saturating_add(1);
+                        if retries > MAX_DOWNLOAD_RESTARTS {
+                            return Err(ProviderError::ModCtxtIoError {
+                                mod_id,
+                                source: std::io::Error::new(
+                                    std::io::ErrorKind::UnexpectedEof,
+                                    format!(
+                                        "mod.io download {} remained interrupted after {MAX_DOWNLOAD_RESTARTS} restarts",
+                                        res.url.0
+                                    ),
+                                ),
+                            });
+                        }
                         let delay = (1_u64 << retries.min(6)).min(60);
                         warn!(
                             "restarting mod.io download {} in {delay}s (attempt {retries})",
