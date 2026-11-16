@@ -44,7 +44,12 @@ impl<C: ConfigTrait> ConfigWrapper<C> {
     /// See <https://stackoverflow.com/questions/70362352/atomic-file-create-write>.
     pub fn save(&self) -> Result<(), StateError> {
         if let Some(final_path) = &self.path {
-            write_atomic(final_path, &self.config)?;
+            write_atomic(final_path, &self.config).map_err(|source| {
+                StateError::CfgWriteAtPathFailed {
+                    path: final_path.clone(),
+                    source: Box::new(source),
+                }
+            })?;
         }
         self.save_revision
             .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
@@ -72,13 +77,24 @@ impl<C: ConfigTrait> std::ops::DerefMut for ConfigWrapper<C> {
 
 impl<C: ConfigTrait> Drop for ConfigWrapper<C> {
     fn drop(&mut self) {
-        self.save().unwrap();
+        if let Err(error) = self.save() {
+            // Drop must not panic, especially while unwinding another error.
+            let _ = writeln!(
+                std::io::stderr(),
+                "mintfixed: configuration auto-save failed: {error}"
+            );
+            tracing::error!(%error, "configuration auto-save failed");
+        }
     }
 }
 
 /// Sync the complete temporary file before atomically replacing the destination.
 pub(super) fn write_atomic(path: &Path, value: &impl Serialize) -> Result<(), StateError> {
-    let mut file = tempfile::NamedTempFile::new_in(path.parent().unwrap())?;
+    let parent = path
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+        .unwrap_or_else(|| Path::new("."));
+    let mut file = tempfile::NamedTempFile::new_in(parent)?;
     file.write_all(&serde_json::to_vec_pretty(value).context(CfgSerializationFailedSnafu)?)
         .context(CfgSaveFailedSnafu)?;
     file.as_file().sync_all()?;
@@ -193,5 +209,32 @@ impl From<&VersionAnnotatedConfig> for MetaConfig {
         MetaConfig {
             bundled_crash_reporter: value.bundled_crash_reporter,
         }
+    }
+}
+
+#[cfg(test)]
+mod state_config_save_failure_tests {
+    use super::*;
+
+    #[test]
+    fn failed_save_reports_exact_file_and_drop_does_not_panic() {
+        let dir = tempfile::tempdir().unwrap();
+        let target = dir.path().join("missing-parent").join("config.json");
+        let wrapper = ConfigWrapper::new(&target, serde_json::Value::Null);
+        let error = wrapper.save().unwrap_err();
+        assert!(error.to_string().contains(&target.display().to_string()));
+        assert_eq!(wrapper.revision(), 0);
+        // This used to panic in Drop when its temporary file could not be created.
+        drop(wrapper);
+    }
+
+    #[test]
+    fn successful_explicit_save_advances_revision_and_persists_json() {
+        let dir = tempfile::tempdir().unwrap();
+        let target = dir.path().join("config.json");
+        let wrapper = ConfigWrapper::new(&target, serde_json::Value::Null);
+        wrapper.save().unwrap();
+        assert_eq!(wrapper.revision(), 1);
+        assert_eq!(std::fs::read_to_string(&target).unwrap().trim(), "null");
     }
 }

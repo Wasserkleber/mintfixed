@@ -18,7 +18,7 @@ impl State {
 
         let config = read_config_or_default(&config_path)?;
         let config = ConfigWrapper::<VersionAnnotatedConfig>::new(&config_path, config);
-        config.save().unwrap();
+        config.save()?;
 
         let legacy_mod_profiles_path = dirs.config_dir.join("profiles.json");
         let mod_data_path = dirs.config_dir.join("mod_data.json");
@@ -35,7 +35,12 @@ impl State {
             }
         }
         if fresh {
-            config::write_atomic(&mod_data_path, &mod_data)?;
+            config::write_atomic(&mod_data_path, &mod_data).map_err(|source| {
+                StateError::CfgWriteAtPathFailed {
+                    path: mod_data_path.clone(),
+                    source: Box::new(source),
+                }
+            })?;
         }
         let mod_data = ConfigWrapper::<VersionAnnotatedModData>::new(mod_data_path, mod_data);
         // The loader commits migrations before creating an auto-saving wrapper.

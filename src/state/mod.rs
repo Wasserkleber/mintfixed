@@ -12,7 +12,7 @@ mod validation;
 
 pub use self::config::*;
 pub use self::models::*;
-pub use self::operations::InstallEntry;
+pub use self::operations::{InstallEntry, SelectionError};
 pub use self::persistence::State;
 
 /// Persisted identity; independent of names, list positions and mod URLs.
@@ -57,6 +57,11 @@ pub enum StateError {
     CfgReadFailed { source: std::io::Error },
     #[snafu(display("failed to save config"))]
     CfgSaveFailed { source: std::io::Error },
+    #[snafu(display("failed to write configuration at {}: {source}", path.display()))]
+    CfgWriteAtPathFailed {
+        path: PathBuf,
+        source: Box<StateError>,
+    },
     #[snafu(display("failed to serialize user config"))]
     CfgSerializationFailed { source: serde_json::Error },
     #[snafu(transparent)]

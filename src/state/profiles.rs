@@ -9,9 +9,22 @@ impl ModData_v0_1_0 {
         self.profiles.get_mut(&self.active_profile).unwrap()
     }
 
+    /// Non-panicking alternative when the active profile may be stale.
+    pub fn try_get_active_profile(&self) -> Option<&ModProfile_v0_1_0> {
+        self.profiles.get(&self.active_profile)
+    }
+    pub fn try_get_active_profile_mut(&mut self) -> Option<&mut ModProfile_v0_1_0> {
+        self.profiles.get_mut(&self.active_profile)
+    }
     pub fn remove_active_profile(&mut self) {
+        // At least one profile is required by existing callers.
+        if self.profiles.len() <= 1 {
+            return;
+        }
         self.profiles.remove(&self.active_profile);
-        self.active_profile = self.profiles.keys().next().unwrap().to_string();
+        if let Some(name) = self.profiles.keys().next() {
+            self.active_profile = name.clone();
+        }
     }
 }
 

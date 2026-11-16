@@ -1,5 +1,30 @@
 use super::*;
 
+/// A profile cannot be safely used for installation when its references are missing.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum SelectionError {
+    MissingProfile { profile: String },
+    MissingGroup { profile: String, group_name: String },
+}
+
+impl std::fmt::Display for SelectionError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::MissingProfile { profile } => write!(f, "profile {profile:?} does not exist"),
+            Self::MissingGroup {
+                profile,
+                group_name,
+            } => {
+                write!(
+                    f,
+                    "profile {profile:?} refers to missing group {group_name:?}"
+                )
+            }
+        }
+    }
+}
+impl std::error::Error for SelectionError {}
+
 /// An enabled occurrence captured when installation starts, including its source.
 #[derive(Clone, Debug)]
 pub struct InstallEntry {
@@ -41,7 +66,12 @@ impl ModData_v0_1_0 {
         profile: &str,
         mut f: impl FnMut(&ModConfig, EffectiveSource<'_>),
     ) {
-        for (row, item) in self.profiles[profile].mods.iter().enumerate() {
+        // Non-installation consumers deliberately tolerate missing references.
+        // Installation uses validate_profile_references first and never builds a partial bundle.
+        let Some(profile_data) = self.profiles.get(profile) else {
+            return;
+        };
+        for (row, item) in profile_data.mods.iter().enumerate() {
             match item {
                 ModOrGroup::Individual(mc) if mc.enabled => {
                     f(mc, EffectiveSource::Standalone { row });
@@ -52,16 +82,18 @@ impl ModData_v0_1_0 {
                     member_overrides,
                     ..
                 } => {
-                    for (index, mc) in self.groups[group_name].mods.iter().enumerate() {
-                        if member_overrides.enabled(mc) {
-                            f(
-                                mc,
-                                EffectiveSource::Group {
-                                    row,
-                                    index,
-                                    group_name,
-                                },
-                            );
+                    if let Some(group) = self.groups.get(group_name) {
+                        for (index, mc) in group.mods.iter().enumerate() {
+                            if member_overrides.enabled(mc) {
+                                f(
+                                    mc,
+                                    EffectiveSource::Group {
+                                        row,
+                                        index,
+                                        group_name,
+                                    },
+                                );
+                            }
                         }
                     }
                 }
@@ -83,7 +115,10 @@ impl ModData_v0_1_0 {
         mut g: G,
         mut p: P,
     ) {
-        for ref mod_or_group in &self.profiles.get(profile).unwrap().mods {
+        let Some(profile_data) = self.profiles.get(profile) else {
+            return;
+        };
+        for mod_or_group in &profile_data.mods {
             match mod_or_group {
                 ModOrGroup::Group {
                     group_name,
@@ -91,9 +126,11 @@ impl ModData_v0_1_0 {
                     ..
                 } => {
                     if g(*enabled) {
-                        for mc in &self.groups.get(group_name).unwrap().mods {
-                            if p(mc) {
-                                f(mc);
+                        if let Some(group) = self.groups.get(group_name) {
+                            for mc in &group.mods {
+                                if p(mc) {
+                                    f(mc);
+                                }
                             }
                         }
                     }
@@ -118,7 +155,10 @@ impl ModData_v0_1_0 {
         mut g: G,
         mut p: P,
     ) {
-        for ref mut mod_or_group in &mut self.profiles.get_mut(profile).unwrap().mods {
+        let Some(profile_data) = self.profiles.get_mut(profile) else {
+            return;
+        };
+        for mod_or_group in &mut profile_data.mods {
             match mod_or_group {
                 ModOrGroup::Group {
                     group_name,
@@ -126,9 +166,11 @@ impl ModData_v0_1_0 {
                     ..
                 } => {
                     if g(*enabled) {
-                        for mc in &mut self.groups.get_mut(group_name).unwrap().mods {
-                            if p(mc) {
-                                f(mc);
+                        if let Some(group) = self.groups.get_mut(group_name) {
+                            for mc in &mut group.mods {
+                                if p(mc) {
+                                    f(mc);
+                                }
                             }
                         }
                     }
@@ -150,7 +192,34 @@ impl ModData_v0_1_0 {
         self.visit_effective_mods(profile, |mc, _| f(mc));
     }
 
-    pub fn ordered_install_entries(&self, profile: &str) -> Vec<InstallEntry> {
+    /// Validate the whole requested profile before building a bundle.
+    /// A missing group, including a disabled one, is treated as broken data.
+    pub fn validate_profile_references(&self, profile: &str) -> Result<(), SelectionError> {
+        let selected =
+            self.profiles
+                .get(profile)
+                .ok_or_else(|| SelectionError::MissingProfile {
+                    profile: profile.to_owned(),
+                })?;
+        for item in &selected.mods {
+            if let ModOrGroup::Group { group_name, .. } = item {
+                if !self.groups.contains_key(group_name) {
+                    return Err(SelectionError::MissingGroup {
+                        profile: profile.to_owned(),
+                        group_name: group_name.clone(),
+                    });
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// Fallible entry point for CLI and other installation callers.
+    pub fn try_ordered_install_entries(
+        &self,
+        profile: &str,
+    ) -> Result<Vec<InstallEntry>, SelectionError> {
+        self.validate_profile_references(profile)?;
         let mut entries = Vec::new();
         // Global Bitfix scripts are installed regardless of the active profile.
         for (index, mc) in self.bitfix_scripts.iter().enumerate() {
@@ -165,6 +234,7 @@ impl ModData_v0_1_0 {
             }
         }
         self.visit_effective_mods(profile, |mc, source| {
+            // Lua in a regular profile/group is not a Bitfix script.
             if is_bitfix_url(&mc.spec.url) {
                 return;
             }
@@ -192,9 +262,22 @@ impl ModData_v0_1_0 {
                 },
             ));
         });
-        // Stable sorting keeps saved order when priorities are equal.
+        // Stable sort keeps saved occurrence order for equal priorities.
         entries.sort_by_key(|(priority, _)| std::cmp::Reverse(*priority));
-        entries.into_iter().map(|(_, entry)| entry).collect()
+        Ok(entries.into_iter().map(|(_, entry)| entry).collect())
+    }
+
+    /// Compatibility API: never panic or return a partially resolved selection.
+    /// Install entry points should prefer `try_ordered_install_entries` to surface errors.
+    pub fn ordered_install_entries(&self, profile: &str) -> Vec<InstallEntry> {
+        match self.try_ordered_install_entries(profile) {
+            Ok(entries) => entries,
+            Err(error) => {
+                tracing::error!(%error, "cannot resolve installation selection");
+                eprintln!("mintfixed: cannot resolve installation selection: {error}");
+                Vec::new()
+            }
+        }
     }
     pub fn ordered_install_specs(&self, profile: &str) -> Vec<ModSpecification> {
         self.ordered_install_entries(profile)
@@ -212,22 +295,19 @@ impl ModData_v0_1_0 {
         profile: &str,
         mut f: F,
     ) -> bool {
-        self.profiles.get(profile).unwrap().mods.iter().any(|m| {
-            let f = &mut f;
-            match m {
-                ModOrGroup::Individual(mc) => f(mc, None),
-                ModOrGroup::Group {
-                    group_name,
-                    enabled,
-                    ..
-                } => self
-                    .groups
-                    .get(group_name)
-                    .unwrap()
-                    .mods
-                    .iter()
-                    .any(|mc| f(mc, Some(*enabled))),
-            }
+        let Some(profile_data) = self.profiles.get(profile) else {
+            return false;
+        };
+        profile_data.mods.iter().any(|m| match m {
+            ModOrGroup::Individual(mc) => f(mc, None),
+            ModOrGroup::Group {
+                group_name,
+                enabled,
+                ..
+            } => self
+                .groups
+                .get(group_name)
+                .is_some_and(|group| group.mods.iter().any(|mc| f(mc, Some(*enabled)))),
         })
     }
 
@@ -238,32 +318,27 @@ impl ModData_v0_1_0 {
         profile: &str,
         mut f: F,
     ) -> bool {
-        self.profiles
-            .get_mut(profile)
-            .unwrap()
-            .mods
-            .iter_mut()
-            .any(|m| {
-                let f = &mut f;
-                match m {
-                    ModOrGroup::Individual(mc) => f(mc, None),
-                    ModOrGroup::Group {
-                        group_name,
-                        enabled,
-                        ..
-                    } => self
-                        .groups
-                        .get_mut(group_name)
-                        .unwrap()
-                        .mods
-                        .iter_mut()
-                        .any(|mc| f(mc, Some(enabled))),
-                }
-            })
+        let Some(profile_data) = self.profiles.get_mut(profile) else {
+            return false;
+        };
+        profile_data.mods.iter_mut().any(|m| match m {
+            ModOrGroup::Individual(mc) => f(mc, None),
+            ModOrGroup::Group {
+                group_name,
+                enabled,
+                ..
+            } => self
+                .groups
+                .get_mut(group_name)
+                .is_some_and(|group| group.mods.iter_mut().any(|mc| f(mc, Some(enabled)))),
+        })
     }
 
     pub fn enable_dependency(&mut self, profile: &str, spec: &ModSpecification) -> bool {
-        for item in &mut self.profiles.get_mut(profile).unwrap().mods {
+        let Some(profile_data) = self.profiles.get_mut(profile) else {
+            return false;
+        };
+        for item in &mut profile_data.mods {
             match item {
                 ModOrGroup::Individual(mc) if mc.spec.satisfies_dependency(spec) => {
                     mc.enabled = true;
@@ -275,7 +350,9 @@ impl ModData_v0_1_0 {
                     member_overrides,
                     ..
                 } => {
-                    let group = self.groups.get_mut(group_name).unwrap();
+                    let Some(group) = self.groups.get_mut(group_name) else {
+                        continue;
+                    };
                     if let Some(mc) = group
                         .mods
                         .iter_mut()
