@@ -16,6 +16,8 @@ mod request_counter;
 mod toggle_switch;
 
 #[cfg(test)]
+mod priority_input_tests;
+#[cfg(test)]
 mod tests;
 
 //#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")] // hide console window on Windows in release
@@ -159,6 +161,58 @@ const MODIO_LOGO_PNG: &[u8] = include_bytes!("../../assets/icons/modio-cog-blue.
 
 // A bordered, hover-only help control for the optional preset description.
 // Using a real widget makes the tooltip discoverable without triggering actions.
+// Keep the displayed priority stable while editing so sort-by-priority cannot
+// move a row or interrupt multi-digit keyboard input after the first digit.
+// egui 0.31 keeps the text of a focused DragValue in temp data under its widget ID.
+// The stored priority must stay unchanged while typing (to avoid resorting rows),
+// but the red/green/neutral text tint should follow the pending edit immediately.
+fn priority_preview_value(ui: &Ui, committed: i32) -> i32 {
+    let id = ui.next_auto_id(); // the ID of the immediately following DragValue
+    if !ui.memory(|memory| memory.has_focus(id)) {
+        return committed;
+    }
+    ui.data(|data| data.get_temp::<String>(id))
+        .and_then(|text| {
+            let text = text.trim();
+            if text.is_empty() || text == "-" {
+                Some(0)
+            } else {
+                text.parse::<i32>().ok()
+            }
+        })
+        .unwrap_or(committed)
+}
+
+fn priority_drag_value(ui: &mut Ui, priority: &mut i32) -> egui::Response {
+    let response = ui.add(
+        egui::DragValue::new(priority)
+            .custom_formatter(|n, _| {
+                if n == 0. {
+                    "-".to_string()
+                } else {
+                    format!("{n}")
+                }
+            })
+            .custom_parser(|text| {
+                let text = text.trim();
+                if text.is_empty() || text == "-" {
+                    Some(0.0)
+                } else {
+                    text.parse::<f64>().ok()
+                }
+            })
+            .update_while_editing(false)
+            .speed(0.05)
+            .range(RangeInclusive::new(-999, 999)),
+    );
+    // One extra frame picks up the most recently typed text from egui's
+    // DragValue buffer, without committing it or causing the list to resort.
+    if response.has_focus() && response.changed() {
+        ui.ctx().request_repaint();
+    }
+    response
+}
+
 fn description_help_button(ui: &mut Ui, description: &str) {
     let border = ui.visuals().widgets.inactive.fg_stroke.color;
     ui.add(
@@ -740,7 +794,7 @@ impl App {
                             mod_list_style::tint_group_member_controls(ui, group_control_tint);
                         ui.style_mut().spacing.interact_size.x = 30.;
                         let dark = ui.visuals().dark_mode;
-                        match mc.priority.cmp(&0) {
+                        match priority_preview_value(ui, mc.priority).cmp(&0) {
                             std::cmp::Ordering::Less => {
                                 ui.visuals_mut().override_text_color = Some(if dark {
                                     Color32::LIGHT_RED
@@ -757,29 +811,10 @@ impl App {
                             }
                             _ => {}
                         }
-                        if ui.add(
-                            egui::DragValue::new(&mut mc.priority)
-                                .custom_formatter(|n, _| {
-                                    if n == 0. {
-                                        "-".to_string()
-                                    } else {
-                                        format!("{n}")
-                                    }
-                                })
-                                .custom_parser(|text| {
-                                    let text = text.trim();
-                                    if text.is_empty() || text == "-" {
-                                        Some(0.0)
-                                    } else {
-                                        text.parse::<f64>().ok()
-                                    }
-                                })
-                                .speed(0.05)
-                                .range(RangeInclusive::new(-999, 999)),
-                        )
-                        .on_hover_text_at_pointer(
-                            "Load Priority\nIn case of asset conflict, mods with higher priority take precedent.\nCan have duplicate values.",
-                        ).changed() {
+                        let previous_priority = mc.priority;
+                        priority_drag_value(ui, &mut mc.priority)
+                            .on_hover_text_at_pointer("Load Priority\nIn case of asset conflict, mods with higher priority take precedent.\nCan have duplicate values.",);
+                        if mc.priority != previous_priority {
                             ctx.needs_save = true;
                         }
                     });
