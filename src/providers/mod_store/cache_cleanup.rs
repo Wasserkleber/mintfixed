@@ -1,19 +1,9 @@
-// ModStore methods moved here without changing their implementations.
+// ModStore orchestration methods mechanically extracted; bodies unchanged.
 use super::*;
 use std::io::Write;
+use tracing::{error, info};
 
 impl ModStore {
-    /// Write status flags and updated metadata immediately (not just on app exit).
-    pub fn save_cache_metadata(&self) -> Result<(), ProviderError> {
-        let mut cache = self.cache.write().unwrap();
-        cache.revision = cache.revision.wrapping_add(1);
-        cache
-            .save()
-            .map_err(|error| ProviderError::CacheCleanupFailed {
-                reason: format!("Could not save cache metadata: {error}"),
-            })
-    }
-
     /// Run before Update Cache; all profile and group references, including disabled mods,
     /// must be passed in. Does not touch blob files or the actual mod downloads.
     pub fn archive_unreferenced(

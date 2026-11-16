@@ -255,4 +255,13 @@ mod cache_initialization_tests {
         assert!(!cache.needs_initialization::<ModioCache>("shared"));
         assert!(cache.get::<HttpProviderCache>("shared").is_none());
     }
+    #[test]
+    fn every_mutable_access_increments_the_cache_revision() {
+        let mut cache = VersionAnnotatedCache::default();
+        assert_eq!(cache.revision, 0);
+        cache.get_mut::<HttpProviderCache>("http");
+        assert_eq!(cache.revision, 1);
+        cache.get_mut::<HttpProviderCache>("http");
+        assert_eq!(cache.revision, 2);
+    }
 }

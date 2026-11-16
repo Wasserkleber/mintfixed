@@ -1,4 +1,4 @@
-// ModStore methods moved here without changing their implementations.
+// ModStore orchestration methods mechanically extracted; bodies unchanged.
 use super::*;
 use std::collections::HashSet;
 
@@ -79,13 +79,5 @@ impl ModStore {
         self.get_provider(&spec.url)
             .unwrap()
             .get_version_name(spec, self.cache.clone())
-    }
-
-    pub(crate) fn cached_modio_file(&self, spec: &ModSpecification) -> Option<(u32, u32)> {
-        crate::providers::modio::cached_file(&spec.url, &self.cache)
-    }
-
-    pub(crate) fn cached_modio_name(&self, id: u32) -> Option<String> {
-        crate::providers::modio::cached_name(id, &self.cache)
     }
 }
