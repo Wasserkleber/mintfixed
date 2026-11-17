@@ -75,6 +75,8 @@ impl App {
                                 self.last_action = None;
                                 self.cache_install_rid = None;
                                 self.cache_install_notice = None;
+                                self.cache_install_details = None;
+                                self.cache_install_locations.clear();
                                 self.install_phase = message::InstallPhase::Resolving;
                                 self.integrate_rid = Some(message::Integrate::send(
                                     &mut self.request_counter,
@@ -162,9 +164,13 @@ impl App {
                         if self.cache_install_rid.take().is_some() {
                             let notice = self.cache_install_notice.take()
                                 .unwrap_or_else(|| "Cache updated".to_string());
-                            self.last_action = Some(LastAction::failure(format!(
+                            let mut action = LastAction::failure(format!(
                                 "{notice}; installation cancelled"
-                            )));
+                            ));
+                            action.details = self.cache_install_details.take()
+                                .map(|details| format!("{details}\n\nInstallation cancelled"));
+                            action.unavailable_locations = std::mem::take(&mut self.cache_install_locations);
+                            self.last_action = Some(action);
                         }
                     }
                     ui.spinner();
@@ -243,6 +249,7 @@ impl App {
                                 };
                                 if status_message(ui, &progress) {
                                     self.status_details = Some(progress);
+                                    self.status_locations.clear();
                                 }
                             } else if self.integrate_rid.is_some() {
                                 let progress = match self.install_phase {
@@ -252,6 +259,7 @@ impl App {
                                 };
                                 if status_message(ui, progress) {
                                     self.status_details = Some(progress.to_owned());
+                                    self.status_locations.clear();
                                 }
                             } else if let Some(last_action) = &self.last_action {
                                 // Hide the badge as well if no room remains for it.
@@ -268,6 +276,7 @@ impl App {
                                     ui.ctx().request_repaint_after(Duration::from_secs(1));
                                     let summary = format!("({}): {}", last_action.timeago(), message);
                                     if status_message(ui, &summary) {
+                                        self.status_locations = last_action.unavailable_locations.clone();
                                         self.status_details = Some(last_action.details.clone().unwrap_or_else(|| format!("{outcome} {summary}")));
                                     }
                                 }

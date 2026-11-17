@@ -26,11 +26,16 @@
 
                 match mc {
                     ModOrGroup::Individual(mc) => {
-                        ui.push_id(("mod", row_index), |ui| {
+                        let row = ui.push_id(("mod", row_index), |ui| {
                             ui_mod(ctx, ui, None, row_index, mc, None);
                         });
+                        if ctx.show_target.as_ref().is_some_and(|t| t.group_entry_id.is_none() && t.mod_id == mc.id) {
+                            row.response.scroll_to_me(Some(egui::Align::Center));
+                            ctx.show_target = None;
+                        }
                     }
                     ModOrGroup::Group {
+                        id: group_entry_id,
                         group_name,
                         enabled,
                         member_overrides,
@@ -112,6 +117,7 @@
                             if open {
                                 collapse.set_open(true);
                             }
+                            let fully_open = collapse.openness(ui.ctx()) >= 1.0;
                             let fully_closed = collapse.openness(ui.ctx()) <= 0.0;
                             // Tinted names are slightly desaturated for legibility on
                             // the existing colored header background in both themes.
@@ -219,6 +225,12 @@ ui.push_id(("group", group_name.as_str(), index), |ui| {
                                             })
                                             .inner
                                     });
+                                    // Wait for the expansion animation so scrolling uses the full row position.
+                                    if fully_open && ctx.show_target.as_ref().is_some_and(|t|
+                                        t.group_entry_id.as_ref() == Some(&*group_entry_id) && t.mod_id == group.mods[index].id) {
+                                        member.response.scroll_to_me(Some(egui::Align::Center));
+                                        ctx.show_target = None;
+                                    }
                                     if sorting_config.is_none() {
                                         group_controls::row_target(ui, &member.response, &mut ctx.drag, Some(group_name), index);
                                     }

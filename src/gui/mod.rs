@@ -43,6 +43,8 @@ mod profile_ui;
 use group_controls::{Drag, Target};
 #[path = "runtime/message.rs"]
 mod message;
+#[path = "runtime/unavailable_mods.rs"]
+mod unavailable_mods;
 #[path = "widgets/named_combobox.rs"]
 mod named_combobox;
 #[path = "profiles/profile_import.rs"]
@@ -60,6 +62,9 @@ mod priority_input_tests;
 #[cfg(test)]
 #[path = "tests/tests.rs"]
 mod tests;
+#[cfg(test)]
+#[path = "tests/unavailable_mods.rs"]
+mod unavailable_mod_tests;
 
 //#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")] // hide console window on Windows in release
 
@@ -313,6 +318,8 @@ pub struct App {
     // Tracks only installations started by Update Cache, not manual installations.
     cache_install_rid: Option<RequestID>,
     cache_install_notice: Option<String>,
+    cache_install_details: Option<String>,
+    cache_install_locations: Vec<unavailable_mods::Location>,
     install_phase: message::InstallPhase,
     cache_recovery_progress: Option<(usize, usize)>,
     cache_recovery_last_advance: Option<std::time::Instant>,
@@ -330,6 +337,8 @@ pub struct App {
     modio_texture_handle: Option<egui::TextureHandle>,
     last_action: Option<LastAction>,
     status_details: Option<String>,
+    status_locations: Vec<unavailable_mods::Location>,
+    show_mod_target: Option<unavailable_mods::ResolvedTarget>,
     available_update: Option<GitHubRelease>,
     show_update_time: Option<SystemTime>,
     open_profiles: HashSet<String>,
@@ -359,6 +368,7 @@ pub struct App {
 
 struct LastAction {
     details: Option<String>,
+    unavailable_locations: Vec<unavailable_mods::Location>,
     timestamp: Instant,
     status: LastActionStatus,
 }
@@ -366,6 +376,7 @@ impl LastAction {
     fn success(msg: String) -> Self {
         Self {
             details: None,
+            unavailable_locations: Vec::new(),
             timestamp: Instant::now(),
             status: LastActionStatus::Success(msg),
         }
@@ -373,6 +384,7 @@ impl LastAction {
     fn failure(msg: String) -> Self {
         Self {
             details: None,
+            unavailable_locations: Vec::new(),
             timestamp: Instant::now(),
             status: LastActionStatus::Failure(msg),
         }
@@ -445,6 +457,8 @@ impl App {
             integrate_rid: None,
             cache_install_rid: None,
             cache_install_notice: None,
+            cache_install_details: None,
+            cache_install_locations: Vec::new(),
             install_phase: message::InstallPhase::Resolving,
             cache_recovery_progress: None,
             cache_recovery_last_advance: None,
@@ -461,6 +475,8 @@ impl App {
             modio_texture_handle: None,
             last_action: None,
             status_details: None,
+            status_locations: Vec::new(),
+            show_mod_target: None,
             available_update: None,
             show_update_time: None,
             open_profiles: Default::default(),
