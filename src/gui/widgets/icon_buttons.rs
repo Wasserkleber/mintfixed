@@ -57,7 +57,7 @@ pub(super) fn delete_button(ui: &mut Ui, _group_color: Option<Color32>) -> egui:
             icon_color
         };
 
-        let image = egui::Image::new(egui::include_image!("../../assets/icons/delete.svg"))
+        let image = egui::Image::new(egui::include_image!("../../../assets/icons/delete.svg"))
             .fit_to_exact_size(egui::vec2(14.0, 14.0))
             .tint(icon_tint);
         ui.add(egui::Button::image(image).min_size(egui::vec2(20.0, 18.0)))
@@ -76,7 +76,7 @@ pub(super) fn copy_url_button(ui: &mut Ui, group_color: Option<Color32>) -> egui
     let base_icon = ui.visuals().text_color();
     let bg = group_color.map_or(base_bg, |accent| blend(base_bg, accent, 14));
     let glyph = group_color.map_or(base_icon, |accent| blend(base_icon, accent, 30));
-    let image = egui::Image::new(egui::include_image!("../../assets/icons/copy_url.svg"))
+    let image = egui::Image::new(egui::include_image!("../../../assets/icons/copy_url.svg"))
         .fit_to_exact_size(egui::vec2(14.0, 14.0))
         .tint(glyph);
     ui.add(
@@ -114,7 +114,7 @@ pub(super) fn warning_button(ui: &mut Ui, _group_color: Option<Color32>) -> egui
         widgets.hovered.bg_stroke = egui::Stroke::NONE;
         widgets.active.bg_stroke = egui::Stroke::NONE;
 
-        let image = egui::Image::new(egui::include_image!("../../assets/icons/warning.svg"))
+        let image = egui::Image::new(egui::include_image!("../../../assets/icons/warning.svg"))
             .fit_to_exact_size(egui::vec2(14.0, 14.0))
             .tint(Color32::from_rgb(255, 159, 39));
         ui.add(egui::Button::image(image).min_size(egui::vec2(20.0, 18.0)))
@@ -133,7 +133,7 @@ pub(super) fn folder_badge(ui: &mut Ui, group_color: Option<Color32>) {
 
     ui.put(
         rect.shrink(2.0),
-        egui::Image::new(egui::include_image!("../../assets/icons/folder.svg"))
+        egui::Image::new(egui::include_image!("../../../assets/icons/folder.svg"))
             .fit_to_exact_size(egui::vec2(14.0, 14.0))
             .tint(glyph),
     );

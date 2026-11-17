@@ -1,75 +1,11 @@
 //! Version dispatch happens before deserialization: unknown versions must never
 //! fall through an untagged legacy parser and then be overwritten on startup.
+use super::validation::{invalid, validate_ids, validate_links};
 use super::*;
 use serde_json::Value;
-use std::{collections::HashSet, io::Write, path::Path};
+use std::{io::Write, path::Path};
 
 const VERSION: &str = "0.3.0";
-
-fn invalid(reason: impl Into<String>) -> StateError {
-    StateError::InvalidModData {
-        reason: reason.into(),
-    }
-}
-
-fn check_id(value: &Value, seen: &mut HashSet<String>) -> Result<(), StateError> {
-    let id = value
-        .get("id")
-        .and_then(Value::as_str)
-        .ok_or_else(|| invalid("missing stable ID"))?;
-    if id.len() != 32 || !id.bytes().all(|b| b.is_ascii_hexdigit()) {
-        return Err(invalid("malformed stable ID"));
-    }
-    if !seen.insert(id.to_ascii_lowercase()) {
-        return Err(invalid("duplicate stable ID"));
-    }
-    Ok(())
-}
-
-fn validate_ids(value: &Value) -> Result<(), StateError> {
-    let mut seen = HashSet::new();
-    for collection in ["profiles", "groups"] {
-        let entries = value
-            .get(collection)
-            .and_then(Value::as_object)
-            .ok_or_else(|| invalid(format!("missing {collection}")))?;
-        for entry in entries.values() {
-            check_id(entry, &mut seen)?;
-            for row in entry
-                .get("mods")
-                .and_then(Value::as_array)
-                .ok_or_else(|| invalid("missing ordered mod list"))?
-            {
-                check_id(row, &mut seen)?;
-            }
-        }
-    }
-    if let Some(scripts) = value.get("bitfix_scripts") {
-        let scripts = scripts
-            .as_array()
-            .ok_or_else(|| invalid("invalid global Bitfix scripts"))?;
-        for script in scripts {
-            check_id(script, &mut seen)?;
-        }
-    }
-    Ok(())
-}
-
-fn validate_links(data: &ModData_v0_1_0) -> Result<(), StateError> {
-    if !data.profiles.contains_key(&data.active_profile) {
-        return Err(invalid("active profile does not exist"));
-    }
-    for profile in data.profiles.values() {
-        for row in &profile.mods {
-            if let ModOrGroup::Group { group_name, .. } = row
-                && !data.groups.contains_key(group_name)
-            {
-                return Err(invalid(format!("missing shared group: {group_name}")));
-            }
-        }
-    }
-    Ok(())
-}
 
 fn decode(bytes: &[u8]) -> Result<(VersionAnnotatedModData, bool), StateError> {
     let value: Value = serde_json::from_slice(bytes).context(ModDataDeserializationFailedSnafu)?;
@@ -157,6 +93,37 @@ pub(super) fn load(path: &Path, legacy_path: &Path) -> Result<VersionAnnotatedMo
         // Keep profiles.json intact. Once mod_data.json exists it takes precedence.
     }
     Ok(data)
+}
+
+impl From<ModProfile_v0_0_0> for ModProfile_v0_1_0 {
+    fn from(_legacy: ModProfile_v0_0_0) -> Self {
+        // The migration requires `ModData` to handle instead.
+        unimplemented!("migration requires handling from `ModData`")
+    }
+}
+
+impl From<ModData_v0_0_0> for ModData_v0_1_0 {
+    fn from(legacy: ModData_v0_0_0) -> Self {
+        let mut new_profiles = Vec::new();
+        for (name, profile) in legacy.profiles {
+            let new_profile = ModProfile_v0_1_0 {
+                id: crate::state::new_id(),
+                mods: profile
+                    .mods
+                    .into_iter()
+                    .map(ModOrGroup::Individual)
+                    .collect(),
+            };
+            new_profiles.push((name, new_profile));
+        }
+
+        Self {
+            active_profile: legacy.active_profile,
+            profiles: new_profiles.into_iter().collect(),
+            groups: BTreeMap::default(),
+            bitfix_scripts: Vec::new(),
+        }
+    }
 }
 
 #[cfg(test)]

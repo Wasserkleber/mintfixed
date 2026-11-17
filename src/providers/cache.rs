@@ -30,7 +30,7 @@ pub struct Cache {
 }
 
 impl Cache {
-    pub(super) fn has<T: ModProviderCache + 'static>(&self, id: &str) -> bool {
+    pub(super) fn needs_initialization<T: ModProviderCache + 'static>(&self, id: &str) -> bool {
         self.cache
             .get(id)
             .and_then(|c| c.as_any().downcast_ref::<T>())
@@ -45,7 +45,7 @@ impl Cache {
 
     pub(super) fn get_mut<T: ModProviderCache + 'static>(&mut self, id: &str) -> &mut T {
         self.revision = self.revision.wrapping_add(1);
-        if self.has::<T>(id) {
+        if self.needs_initialization::<T>(id) {
             self.cache.insert(id.to_owned(), Box::new(T::new()));
         }
         self.cache
@@ -229,5 +229,39 @@ impl BlobCache {
     pub(super) fn get_path(&self, blob: &BlobRef) -> Option<PathBuf> {
         let path = self.path.join(&blob.0);
         path.exists().then_some(path)
+    }
+}
+
+#[cfg(test)]
+mod cache_initialization_tests {
+    use super::*;
+    use crate::providers::{http::HttpProviderCache, modio::ModioCache};
+
+    #[test]
+    fn missing_and_existing_typed_entries() {
+        let mut cache = VersionAnnotatedCache::default();
+        assert!(cache.needs_initialization::<HttpProviderCache>("http"));
+        cache.get_mut::<HttpProviderCache>("http");
+        assert!(!cache.needs_initialization::<HttpProviderCache>("http"));
+        assert!(cache.get::<HttpProviderCache>("http").is_some());
+    }
+
+    #[test]
+    fn wrong_type_is_reinitialized_when_requested() {
+        let mut cache = VersionAnnotatedCache::default();
+        cache.get_mut::<HttpProviderCache>("shared");
+        assert!(cache.needs_initialization::<ModioCache>("shared"));
+        cache.get_mut::<ModioCache>("shared");
+        assert!(!cache.needs_initialization::<ModioCache>("shared"));
+        assert!(cache.get::<HttpProviderCache>("shared").is_none());
+    }
+    #[test]
+    fn every_mutable_access_increments_the_cache_revision() {
+        let mut cache = VersionAnnotatedCache::default();
+        assert_eq!(cache.revision, 0);
+        cache.get_mut::<HttpProviderCache>("http");
+        assert_eq!(cache.revision, 1);
+        cache.get_mut::<HttpProviderCache>("http");
+        assert_eq!(cache.revision, 2);
     }
 }

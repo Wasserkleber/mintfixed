@@ -69,9 +69,61 @@ impl ModSpecification {
         Self { url }
     }
     pub fn satisfies_dependency(&self, other: &ModSpecification) -> bool {
-        // TODO this hack works surprisingly well but is still a complete hack and should be replaced
-        self.url.starts_with(&other.url) || other.url.starts_with(&self.url)
+        if self.url == other.url {
+            return true;
+        }
+        // Pins and latest URLs of the same mod.io mod satisfy its identity.
+        // Never confuse URL prefixes (e.g. /foo vs /foobar or .pak vs .pak2).
+        match (
+            modio_dependency_identity(&self.url),
+            modio_dependency_identity(&other.url),
+        ) {
+            (Some((name_a, id_a)), Some((name_b, id_b))) => match (id_a, id_b) {
+                (Some(a), Some(b)) => a == b,
+                _ => name_a == name_b,
+            },
+            _ => false,
+        }
     }
+}
+
+// This intentionally avoids a mod.io provider dependency in mint_lib.
+// Accept only the DRG mod.io URL grammar used by the provider. A numeric mod ID
+// wins over a renamed slug when both sides include it.
+fn modio_dependency_identity(url: &str) -> Option<(&str, Option<u32>)> {
+    let remainder = url.strip_prefix("https://mod.io/g/drg/m/")?;
+    let (path, fragment) = match remainder.split_once('#') {
+        Some((path, fragment)) => (path, Some(fragment)),
+        None => (remainder, None),
+    };
+    let slug = path.strip_suffix('/').unwrap_or(path);
+    if slug.is_empty() || slug.contains('/') || slug.contains('?') {
+        return None;
+    }
+    let id = match fragment {
+        None => None,
+        Some(fragment)
+            if !fragment.is_empty() && fragment.bytes().all(|b| b.is_ascii_lowercase()) =>
+        {
+            None
+        }
+        Some(fragment) => {
+            let (id, file) = match fragment.split_once('/') {
+                Some((id, file)) => (id, Some(file)),
+                None => (fragment, None),
+            };
+            if id.is_empty()
+                || !id.bytes().all(|b| b.is_ascii_digit())
+                || file.is_some_and(|file| {
+                    file.is_empty() || !file.bytes().all(|b| b.is_ascii_digit())
+                })
+            {
+                return None;
+            }
+            Some(id.parse::<u32>().ok()?)
+        }
+    };
+    Some((slug, id))
 }
 
 /// Points to a specific version of a specific mod
@@ -170,5 +222,55 @@ impl Meta {
                     }),
             )
             .join(";")
+    }
+}
+
+#[cfg(test)]
+mod dependency_identity_tests {
+    use super::ModSpecification;
+
+    fn matches(a: &str, b: &str) -> bool {
+        ModSpecification::new(a.to_owned())
+            .satisfies_dependency(&ModSpecification::new(b.to_owned()))
+    }
+
+    #[test]
+    fn pinned_and_unpinned_modio_specs_match() {
+        assert!(matches(
+            "https://mod.io/g/drg/m/example#123/456",
+            "https://mod.io/g/drg/m/example#123"
+        ));
+        assert!(matches(
+            "https://mod.io/g/drg/m/example",
+            "https://mod.io/g/drg/m/example#123/456"
+        ));
+        assert!(matches(
+            "https://mod.io/g/drg/m/renamed#123/456",
+            "https://mod.io/g/drg/m/old#123"
+        ));
+    }
+
+    #[test]
+    fn prefixes_and_different_mod_ids_never_match() {
+        assert!(!matches(
+            "https://mod.io/g/drg/m/example",
+            "https://mod.io/g/drg/m/example-plus"
+        ));
+        assert!(!matches(
+            "https://mod.io/g/drg/m/example#123",
+            "https://mod.io/g/drg/m/example#124"
+        ));
+        assert!(!matches(
+            "https://example.test/mod.pak",
+            "https://example.test/mod.pak2"
+        ));
+    }
+
+    #[test]
+    fn invalid_modio_fragments_do_not_match_other_versions() {
+        assert!(!matches(
+            "https://mod.io/g/drg/m/example#123/not-a-file",
+            "https://mod.io/g/drg/m/example#123"
+        ));
     }
 }

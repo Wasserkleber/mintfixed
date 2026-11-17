@@ -30,7 +30,7 @@ struct CrashReport {
 
 // Same size, padding and tinting as the Settings cogwheel in the footer.
 pub(super) fn toolbar_button(ui: &mut egui::Ui) -> bool {
-    let icon = egui::Image::new(egui::include_image!("../../assets/icons/crash.svg"))
+    let icon = egui::Image::new(egui::include_image!("../../../assets/icons/crash.svg"))
         .fit_to_exact_size(egui::vec2(14.0, 14.0))
         .tint(ui.visuals().text_color());
     ui.add(egui::Button::image(icon))

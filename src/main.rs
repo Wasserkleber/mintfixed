@@ -225,10 +225,12 @@ async fn action_integrate_profile(dirs: Dirs, action: ActionIntegrateProfile) ->
     let game_pak_path = get_pak_path(&state, &action.fsd_pak)?;
     debug!(?game_pak_path);
 
+    let mods = state
+        .mod_data
+        .try_ordered_install_entries(&action.profile)?;
     for warning in state.profile_version_warnings(&action.profile) {
         tracing::warn!("{warning}");
     }
-    let mods = state.mod_data.ordered_install_entries(&action.profile);
 
     resolve_selection_and_integrate_with_provider_init(
         game_pak_path,
@@ -246,6 +248,9 @@ async fn action_lint(dirs: Dirs, action: ActionLint) -> Result<()> {
     let game_pak_path = get_pak_path(&state, &action.fsd_pak)?;
     debug!(?game_pak_path);
 
+    state
+        .mod_data
+        .validate_profile_references(&action.profile)?;
     let mut mods = Vec::new();
     state.mod_data.for_each_mod(&action.profile, |mc| {
         mods.push(mc.spec.clone());

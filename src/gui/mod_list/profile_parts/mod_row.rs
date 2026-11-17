@@ -1,0 +1,270 @@
+|ctx: &mut Ctx,
+                 ui: &mut Ui,
+                 group: Option<&str>,
+                 row_index: usize,
+                 mc: &mut ModConfig,
+                 overrides: Option<&mut MemberOverrides>| {
+                    let mut enabled = overrides.as_ref().map_or(mc.enabled, |o| o.enabled(mc));
+                    let group_control_tint = group
+                        .and_then(|name| group_tint_snapshot.get(name))
+                        .and_then(|color| color.as_deref())
+                        .map(|color| {
+                            mod_list_style::swatch_color(Some(color), ui.visuals().dark_mode)
+                        });
+                    if !enabled {
+                        let vis = ui.visuals_mut();
+                        vis.override_text_color = Some(vis.text_color());
+                        vis.hyperlink_color = vis.text_color();
+                    }
+
+                    if ui
+                        .add(toggle_switch(&mut enabled))
+                        .on_hover_text_at_pointer("Enabled?")
+                        .changed()
+                    {
+                        if let Some(overrides) = overrides {
+                            overrides.set(mc, enabled);
+                        } else {
+                            mc.enabled = enabled;
+                        }
+                        ctx.needs_save = true;
+                    }
+
+                    /*
+                    if ui
+                        .add(egui::Checkbox::without_text(&mut mc.required))
+                        .changed()
+                    {
+                        needs_save = true;
+                    }
+                    */
+
+                    if issues.duplicate(group, row_index)
+                        && icon_buttons::warning_button(ui, group_control_tint)
+                            .on_hover_text("Remove this duplicate entry")
+                            .clicked()
+                    {
+                        ctx.btn_remove = Some((group.map(str::to_owned), row_index));
+                    }
+
+                    let info = self.state.store.get_mod_info(&mc.spec);
+                    if self.state.store.is_modio_unavailable(&mc.spec) {
+                        icon_buttons::warning_button(ui, group_control_tint)
+                            .on_hover_text("Unavailable on mod.io. Cached metadata and downloaded mod files were preserved; other mod updates can continue.");
+                    }
+                    if let Some(ref info) = info
+                        && let Some(modio_id) = info.modio_id
+                        && self.problematic_mod_id.is_some_and(|id| id == modio_id)
+                    {
+                        let icon = egui::Button::new(RichText::new("❌").color(Color32::WHITE))
+                            .fill(Color32::RED);
+                        ui.add_enabled(false, icon);
+                    }
+
+                    if enabled && let Some(req) = &self.integrate_rid {
+                        match req.state.get(&mc.spec) {
+                            Some(SpecFetchProgress::Progress { progress, size }) => {
+                                ui.add(
+                                    egui::ProgressBar::new(*progress as f32 / *size as f32)
+                                        .show_percentage()
+                                        .desired_width(100.0),
+                                );
+                            }
+                            Some(SpecFetchProgress::Complete) => {
+                                ui.add(egui::ProgressBar::new(1.0).desired_width(100.0));
+                            }
+                            None => {
+                                ui.spinner();
+                            }
+                        }
+                    }
+
+                    if let Some(info) = &info {
+                        let previous_spec = mc.spec.clone();
+                        ui.scope(|ui| {
+                            mod_list_style::tint_group_member_controls(ui, group_control_tint);
+                            egui::ComboBox::from_id_salt(row_index)
+                                .selected_text(
+                                    self.state
+                                        .store
+                                        .get_version_name(&mc.spec)
+                                        .unwrap_or_default(),
+                                )
+                                .show_ui(ui, |ui| {
+                                    ui.selectable_value(
+                                        &mut mc.spec.url,
+                                        info.spec.url.to_string(),
+                                        self.state
+                                            .store
+                                            .get_version_name(&info.spec)
+                                            .unwrap_or_default(),
+                                    );
+                                    for version in info.versions.iter().rev() {
+                                        ui.selectable_value(
+                                            &mut mc.spec.url,
+                                            version.url.to_string(),
+                                            self.state
+                                                .store
+                                                .get_version_name(version)
+                                                .unwrap_or_default(),
+                                        );
+                                    }
+                                });
+                        });
+
+                        ctx.needs_save |= mc.spec != previous_spec;
+
+                        ui.scope(|ui| {
+                            mod_list_style::tint_group_member_controls(ui, group_control_tint);
+                        ui.style_mut().spacing.interact_size.x = 30.;
+                        let dark = ui.visuals().dark_mode;
+                        match priority_preview_value(ui, mc.priority).cmp(&0) {
+                            std::cmp::Ordering::Less => {
+                                ui.visuals_mut().override_text_color = Some(if dark {
+                                    Color32::LIGHT_RED
+                                } else {
+                                    Color32::DARK_RED
+                                });
+                            }
+                            std::cmp::Ordering::Greater => {
+                                ui.visuals_mut().override_text_color = Some(if dark {
+                                    Color32::LIGHT_GREEN
+                                } else {
+                                    Color32::DARK_GREEN
+                                });
+                            }
+                            _ => {}
+                        }
+                        let previous_priority = mc.priority;
+                        priority_drag_value(ui, &mut mc.priority)
+                            .on_hover_text_at_pointer("Load Priority\nIn case of asset conflict, mods with higher priority take precedent.\nCan have duplicate values.",);
+                        if mc.priority != previous_priority {
+                            ctx.needs_save = true;
+                        }
+                    });
+
+                        if icon_buttons::copy_url_button(ui, group_control_tint)
+                            .on_hover_text_at_pointer("copy URL")
+                            .clicked()
+                        {
+                            ui.ctx().copy_text(mc.spec.url.to_string());
+                        }
+
+                        if enabled {
+                            let missing_deps = info
+                                .suggested_dependencies
+                                .iter()
+                                .filter(|d| {
+                                    !enabled_specs.iter().any(|(_, s)| s.satisfies_dependency(d))
+                                })
+                                .collect::<Vec<_>>();
+
+                            if !missing_deps.is_empty() {
+                                let mut msg = "Add missing dependencies:".to_string();
+                                for dep in &missing_deps {
+                                    msg.push('\n');
+                                    msg.push_str(&dep.url);
+                                }
+                                if icon_buttons::warning_button(ui, group_control_tint)
+                                    .on_hover_text(msg)
+                                    .clicked()
+                                {
+                                    ctx.add_deps =
+                                        Some(missing_deps.into_iter().cloned().collect());
+                                }
+                            }
+                        }
+
+                        match info.provider {
+                            "modio" => {
+                                let texture: &egui::TextureHandle =
+                                    self.modio_texture_handle.get_or_insert_with(|| {
+                                        let image =
+                                            image::load_from_memory(MODIO_LOGO_PNG).unwrap();
+                                        let size = [image.width() as _, image.height() as _];
+                                        let image_buffer = image.to_rgba8();
+                                        let pixels = image_buffer.as_flat_samples();
+                                        let image = egui::ColorImage::from_rgba_unmultiplied(
+                                            size,
+                                            pixels.as_slice(),
+                                        );
+
+                                        ui.ctx().load_texture(
+                                            "modio-logo",
+                                            image,
+                                            Default::default(),
+                                        )
+                                    });
+                                let mut img = egui::Image::new(texture)
+                                    .fit_to_exact_size([16.0, 16.0].into());
+                                if !enabled {
+                                    img = img.tint(Color32::LIGHT_RED);
+                                }
+                                ui.add(img);
+                            }
+                            "http" => {
+                                ui.label("🌐");
+                            }
+                            "file" => {
+                                icon_buttons::folder_badge(ui, group_control_tint);
+                            }
+                            _ => unimplemented!("unimplemented provider kind"),
+                        }
+
+                        let search = searchable_text(&info.name, &self.search_string, {
+                            TextFormat {
+                                color: ui.visuals().hyperlink_color,
+                                ..Default::default()
+                            }
+                        });
+
+                        let res = ui.hyperlink_to(search.job, &mc.spec.url);
+                        if search.is_match && ctx.scroll_to_match {
+                            res.scroll_to_me(None);
+                            ctx.scroll_to_match = false;
+                        }
+
+                        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                            if let Some(description) = mc
+                                .description
+                                .as_deref()
+                                .filter(|text| !text.trim().is_empty())
+                            {
+                                description_help_button(ui, description);
+                            }
+                            mod_tags::render_mod_tags(
+                                ui,
+                                info,
+                                &self.search_string,
+                                &mut ctx.scroll_to_match,
+                            );
+                        });
+                    } else {
+                        if icon_buttons::copy_url_button(ui, group_control_tint)
+                            .on_hover_text_at_pointer("Copy URL")
+                            .clicked()
+                        {
+                            ui.ctx().copy_text(mc.spec.url.to_string());
+                        }
+
+                        let search = searchable_text(&mc.spec.url, &self.search_string, {
+                            TextFormat {
+                                color: ui.visuals().hyperlink_color,
+                                ..Default::default()
+                            }
+                        });
+
+                        let res = ui.hyperlink_to(search.job, &mc.spec.url);
+                        if search.is_match && ctx.scroll_to_match {
+                            res.scroll_to_me(None);
+                            ctx.scroll_to_match = false;
+                        }
+                        if let Some(description) = mc
+                            .description
+                            .as_deref()
+                            .filter(|text| !text.trim().is_empty())
+                        {
+                            description_help_button(ui, description);
+                        }
+                    }
+                }

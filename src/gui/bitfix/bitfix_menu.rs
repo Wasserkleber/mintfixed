@@ -23,7 +23,7 @@ pub(super) fn is_lua_spec(spec: &ModSpecification) -> bool {
 }
 
 pub(super) fn toolbar_button(ui: &mut Ui) -> bool {
-    let icon = egui::Image::new(egui::include_image!("../../assets/icons/bitfix.svg"))
+    let icon = egui::Image::new(egui::include_image!("../../../assets/icons/bitfix.svg"))
         .fit_to_exact_size(egui::vec2(16.0, 16.0))
         .tint(ui.visuals().text_color());
     ui.add(egui::Button::image(icon))

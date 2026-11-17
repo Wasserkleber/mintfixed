@@ -1,0 +1,44 @@
+// mod-list actions and sorting configuration; methods moved intact from gui/mod.rs.
+use super::*;
+
+impl App {
+    pub(super) fn apply_mod_history(&mut self, redo: bool) {
+        match self.edit_history.restore(&mut self.state.mod_data, redo) {
+            Ok(true) => {
+                self.profile_issues.clear();
+                self.last_action = Some(LastAction::success(if redo {
+                    "Redid mod-list change".into()
+                } else {
+                    "Undid mod-list change".into()
+                }));
+            }
+            Ok(false) => {}
+            Err(error) => self.last_action = Some(LastAction::failure(error)),
+        }
+    }
+
+    pub(super) fn parse_mods(&self) -> Vec<ModSpecification> {
+        self.resolve_mod
+            .lines()
+            .map(|l| l.trim())
+            .filter(|l| !l.is_empty())
+            .map(|l| ModSpecification::new(l.to_string()))
+            .collect()
+    }
+
+    pub(super) fn get_sorting_config(&self) -> Option<SortingConfig> {
+        self.state.config.sorting_config.clone()
+    }
+
+    pub(super) fn update_sorting_config(
+        &mut self,
+        sort_category: Option<SortBy>,
+        is_ascending: bool,
+    ) {
+        self.state.config.sorting_config = sort_category.map(|sort_category| SortingConfig {
+            sort_category,
+            is_ascending,
+        });
+        self.state.config.save().unwrap();
+    }
+}
