@@ -236,13 +236,11 @@ impl<M: DrgModio + Send + Sync> ModioProvider<M> {
                     Err(error) => return Err(error),
                 }
             }
-            for mod_info in mods_map.values() {
-                for dependency in &mod_info.suggested_dependencies {
-                    if !precise_mod_specs.contains(dependency) && !attempted.contains(dependency) {
-                        to_resolve.insert(dependency.clone());
-                    }
-                }
-            }
+            to_resolve = crate::providers::dependencies::pending_dependencies(
+                mods_map.values(),
+                &precise_mod_specs,
+                &attempted,
+            );
         }
 
         let mut lock = cache.write().unwrap();

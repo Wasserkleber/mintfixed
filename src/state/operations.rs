@@ -125,12 +125,12 @@ impl ModData_v0_1_0 {
                     enabled,
                     ..
                 } => {
-                    if g(*enabled) {
-                        if let Some(group) = self.groups.get(group_name) {
-                            for mc in &group.mods {
-                                if p(mc) {
-                                    f(mc);
-                                }
+                    if g(*enabled)
+                        && let Some(group) = self.groups.get(group_name)
+                    {
+                        for mc in &group.mods {
+                            if p(mc) {
+                                f(mc);
                             }
                         }
                     }
@@ -165,12 +165,12 @@ impl ModData_v0_1_0 {
                     enabled,
                     ..
                 } => {
-                    if g(*enabled) {
-                        if let Some(group) = self.groups.get_mut(group_name) {
-                            for mc in &mut group.mods {
-                                if p(mc) {
-                                    f(mc);
-                                }
+                    if g(*enabled)
+                        && let Some(group) = self.groups.get_mut(group_name)
+                    {
+                        for mc in &mut group.mods {
+                            if p(mc) {
+                                f(mc);
                             }
                         }
                     }
@@ -202,13 +202,13 @@ impl ModData_v0_1_0 {
                     profile: profile.to_owned(),
                 })?;
         for item in &selected.mods {
-            if let ModOrGroup::Group { group_name, .. } = item {
-                if !self.groups.contains_key(group_name) {
-                    return Err(SelectionError::MissingGroup {
-                        profile: profile.to_owned(),
-                        group_name: group_name.clone(),
-                    });
-                }
+            if let ModOrGroup::Group { group_name, .. } = item
+                && !self.groups.contains_key(group_name)
+            {
+                return Err(SelectionError::MissingGroup {
+                    profile: profile.to_owned(),
+                    group_name: group_name.clone(),
+                });
             }
         }
         Ok(())

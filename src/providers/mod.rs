@@ -4,6 +4,7 @@ pub mod modio;
 #[macro_use]
 pub mod cache;
 mod cache_cleanup;
+mod dependencies;
 pub mod mod_store;
 
 use snafu::prelude::*;

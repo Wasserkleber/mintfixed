@@ -50,10 +50,13 @@ unsafe fn patch() -> Result<()> {
     let resolution = image.resolve(hook_resolvers::HookResolution::resolver())?;
     info!("PS scan: {:#x?}", resolution);
 
-    unsafe {
-        GLOBALS = Some(Globals { resolution, meta });
-        LOG_GUARD.with_borrow_mut(|g| *g = guard);
+    // Publish once before enabling any native detours that call globals().
+    GLOBALS
+        .set(Globals { resolution, meta })
+        .map_err(|_| anyhow::anyhow!("hook runtime context initialized twice"))?;
+    LOG_GUARD.with_borrow_mut(|g| *g = guard);
 
+    unsafe {
         hooks::initialize()?;
     }
 

@@ -351,8 +351,10 @@ mod effective_selection_tests {
     #[test]
     fn group_overrides_priority_and_disabled_groups_match_installation() {
         let mut data = ModData_v0_1_0::default();
-        let mut shared = ModGroup::default();
-        shared.mods = vec![item("skip.pak", 99, true), item("enable.pak", 4, false)];
+        let mut shared = ModGroup {
+            mods: vec![item("skip.pak", 99, true), item("enable.pak", 4, false)],
+            ..Default::default()
+        };
         let mut overrides = MemberOverrides::default();
         overrides.set(&mut shared.mods[0], false);
         overrides.set(&mut shared.mods[1], true);
@@ -413,8 +415,10 @@ mod effective_selection_tests {
     #[test]
     fn overrides_remain_profile_local_for_shared_group() {
         let mut data = ModData_v0_1_0::default();
-        let mut shared = ModGroup::default();
-        shared.mods = vec![item("shared.pak", 1, true)];
+        let mut shared = ModGroup {
+            mods: vec![item("shared.pak", 1, true)],
+            ..Default::default()
+        };
         let mut disabled_in_a = MemberOverrides::default();
         disabled_in_a.set(&mut shared.mods[0], false);
         data.groups.insert("shared".into(), shared);

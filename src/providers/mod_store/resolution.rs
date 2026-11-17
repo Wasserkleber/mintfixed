@@ -12,34 +12,30 @@ impl ModStore {
 
         let mut to_resolve = mods.iter().cloned().collect::<HashSet<ModSpecification>>();
         let mut mods_map = HashMap::new();
-
-        // used to deduplicate dependencies from mods already present in the mod list
         let mut precise_mod_specs = HashSet::new();
-
+        // Track requests (including aliases), not only successfully resolved canonical specs.
+        // This prevents cyclical dependencies or repeated requests from being re-enqueued.
+        let mut attempted = HashSet::new();
         while !to_resolve.is_empty() {
-            for (u, m) in stream::iter(
-                to_resolve
-                    .iter()
-                    .map(|u| self.resolve_mod(u.to_owned(), update)),
-            )
-            .boxed()
-            .buffer_unordered(5)
-            .try_collect::<Vec<_>>()
-            .await?
-            {
-                precise_mod_specs.insert(m.spec.clone());
-                mods_map.insert(u, m);
-                to_resolve.clear();
-                for m in mods_map.values() {
-                    for d in &m.suggested_dependencies {
-                        if !precise_mod_specs.contains(d) {
-                            to_resolve.insert(d.clone());
-                        }
-                    }
-                }
+            let batch = std::mem::take(&mut to_resolve);
+            attempted.extend(batch.iter().cloned());
+            let results =
+                stream::iter(batch.into_iter().map(|spec| self.resolve_mod(spec, update)))
+                    .boxed()
+                    .buffer_unordered(5)
+                    .try_collect::<Vec<_>>()
+                    .await?;
+            // Finish the batch before computing its next dependency frontier.
+            for (request, info) in results {
+                precise_mod_specs.insert(info.spec.clone());
+                mods_map.insert(request, info);
             }
+            to_resolve = crate::providers::dependencies::pending_dependencies(
+                mods_map.values(),
+                &precise_mod_specs,
+                &attempted,
+            );
         }
-
         Ok(mods_map)
     }
 

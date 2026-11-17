@@ -95,6 +95,37 @@ pub(super) fn load(path: &Path, legacy_path: &Path) -> Result<VersionAnnotatedMo
     Ok(data)
 }
 
+impl From<ModProfile_v0_0_0> for ModProfile_v0_1_0 {
+    fn from(_legacy: ModProfile_v0_0_0) -> Self {
+        // The migration requires `ModData` to handle instead.
+        unimplemented!("migration requires handling from `ModData`")
+    }
+}
+
+impl From<ModData_v0_0_0> for ModData_v0_1_0 {
+    fn from(legacy: ModData_v0_0_0) -> Self {
+        let mut new_profiles = Vec::new();
+        for (name, profile) in legacy.profiles {
+            let new_profile = ModProfile_v0_1_0 {
+                id: crate::state::new_id(),
+                mods: profile
+                    .mods
+                    .into_iter()
+                    .map(ModOrGroup::Individual)
+                    .collect(),
+            };
+            new_profiles.push((name, new_profile));
+        }
+
+        Self {
+            active_profile: legacy.active_profile,
+            profiles: new_profiles.into_iter().collect(),
+            groups: BTreeMap::default(),
+            bitfix_scripts: Vec::new(),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -361,36 +392,5 @@ mod tests {
                 .join("config/mod_data.json.pre-0.3.0.bak")
                 .exists()
         );
-    }
-}
-
-impl From<ModProfile_v0_0_0> for ModProfile_v0_1_0 {
-    fn from(_legacy: ModProfile_v0_0_0) -> Self {
-        // The migration requires `ModData` to handle instead.
-        unimplemented!("migration requires handling from `ModData`")
-    }
-}
-
-impl From<ModData_v0_0_0> for ModData_v0_1_0 {
-    fn from(legacy: ModData_v0_0_0) -> Self {
-        let mut new_profiles = Vec::new();
-        for (name, profile) in legacy.profiles {
-            let new_profile = ModProfile_v0_1_0 {
-                id: crate::state::new_id(),
-                mods: profile
-                    .mods
-                    .into_iter()
-                    .map(ModOrGroup::Individual)
-                    .collect(),
-            };
-            new_profiles.push((name, new_profile));
-        }
-
-        Self {
-            active_profile: legacy.active_profile,
-            profiles: new_profiles.into_iter().collect(),
-            groups: BTreeMap::default(),
-            bitfix_scripts: Vec::new(),
-        }
     }
 }

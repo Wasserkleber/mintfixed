@@ -3,7 +3,7 @@ use crate::hooks::{FnLoadGameFromMemory, FnSaveGameToMemory};
 use crate::ue;
 use mint_lib::mod_info::Meta;
 
-pub(crate) static mut GLOBALS: Option<Globals> = None;
+pub(crate) static GLOBALS: std::sync::OnceLock<Globals> = std::sync::OnceLock::new();
 
 pub struct Globals {
     pub(crate) resolution: hook_resolvers::HookResolution,
@@ -76,8 +76,5 @@ impl Globals {
 }
 
 pub fn globals() -> &'static Globals {
-    #[allow(static_mut_refs)]
-    unsafe {
-        GLOBALS.as_ref().unwrap()
-    }
+    GLOBALS.get().expect("hook runtime context not initialized")
 }

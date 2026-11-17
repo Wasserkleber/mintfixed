@@ -178,10 +178,10 @@ pub(super) fn prune(
             }
         }
         for (id, details) in mods {
-            if keep_ids.contains(id) {
-                if let Some(name) = details.get("name_id").and_then(Value::as_str) {
-                    keep_names.insert(name.to_owned());
-                }
+            if keep_ids.contains(id)
+                && let Some(name) = details.get("name_id").and_then(Value::as_str)
+            {
+                keep_names.insert(name.to_owned());
             }
         }
         let archive = archive_provider(

@@ -21,13 +21,13 @@ pub fn sync(
     let dir = bin.join(PATCH_DIR);
     let manifest = dir.join(MANIFEST);
     // Check for an incompatible proxy before deleting managed scripts.
-    if !patches.is_empty() {
-        if let Some(path) = conflicting_proxy(installation)? {
-            return Err(err(format!(
-                "{} exists and is not mint's bitfix build; open the Bitfix menu to resolve the conflict",
-                path.display()
-            )));
-        }
+    if !patches.is_empty()
+        && let Some(path) = conflicting_proxy(installation)?
+    {
+        return Err(err(format!(
+            "{} exists and is not mint's bitfix build; open the Bitfix menu to resolve the conflict",
+            path.display()
+        )));
     }
 
     // Now remove old managed patches after DLL validation.

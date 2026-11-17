@@ -48,8 +48,10 @@ mod group_tint_serialization_tests {
 
     #[test]
     fn chosen_tint_survives_serialization_and_legacy_groups_default_to_none() {
-        let mut group = ModGroup::default();
-        group.tint_color = Some("red".to_owned());
+        let group = ModGroup {
+            tint_color: Some("red".to_owned()),
+            ..Default::default()
+        };
         let value = serde_json::to_value(&group).unwrap();
         assert_eq!(
             value.get("tint_color").and_then(|v| v.as_str()),
