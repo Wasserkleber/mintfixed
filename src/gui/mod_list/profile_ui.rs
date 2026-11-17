@@ -53,7 +53,10 @@ impl App {
         }
         let mut ctx = Ctx {
             needs_save: false,
-            show_target: self.show_mod_target.clone().filter(|target| target.profile == profile_name),
+            show_target: self
+                .show_mod_target
+                .clone()
+                .filter(|target| target.profile == profile_name),
             scroll_to_match: self.scroll_to_match,
             btn_remove: None,
             add_deps: None,
@@ -329,7 +332,11 @@ impl App {
         }
 
         self.scroll_to_match = ctx.scroll_to_match;
-        if self.show_mod_target.as_ref().is_some_and(|target| target.profile == profile_name) {
+        if self
+            .show_mod_target
+            .as_ref()
+            .is_some_and(|target| target.profile == profile_name)
+        {
             self.show_mod_target = ctx.show_target;
         }
 

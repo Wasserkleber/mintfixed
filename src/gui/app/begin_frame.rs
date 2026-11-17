@@ -67,14 +67,19 @@ impl App {
                     .take()
                     .unwrap_or_else(|| notice.clone());
                 if let Some(action) = self.last_action.as_mut() {
-                    let install_details = action.details.take().unwrap_or_else(|| {
-                        match &action.status {
-                            LastActionStatus::Success(message) => message.clone(),
-                            LastActionStatus::Failure(reason) => format!("Installation failed: {reason}"),
-                        }
-                    });
+                    let install_details =
+                        action
+                            .details
+                            .take()
+                            .unwrap_or_else(|| match &action.status {
+                                LastActionStatus::Success(message) => message.clone(),
+                                LastActionStatus::Failure(reason) => {
+                                    format!("Installation failed: {reason}")
+                                }
+                            });
                     action.details = Some(format!("{cache_details}\n\n{install_details}"));
-                    action.unavailable_locations = std::mem::take(&mut self.cache_install_locations);
+                    action.unavailable_locations =
+                        std::mem::take(&mut self.cache_install_locations);
                     match &mut action.status {
                         LastActionStatus::Success(message) => {
                             *message = format!("{notice}; {message}");
@@ -123,8 +128,11 @@ impl App {
                         .last_action
                         .as_ref()
                         .and_then(|action| action.details.clone());
-                    self.cache_install_locations = self.last_action.as_ref()
-                        .map(|action| action.unavailable_locations.clone()).unwrap_or_default();
+                    self.cache_install_locations = self
+                        .last_action
+                        .as_ref()
+                        .map(|action| action.unavailable_locations.clone())
+                        .unwrap_or_default();
                     self.cache_install_rid = self.integrate_rid.as_ref().map(|r| r.rid);
                     self.install_phase = message::InstallPhase::Resolving;
                     self.problematic_mod_id = None;

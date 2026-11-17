@@ -43,8 +43,6 @@ mod profile_ui;
 use group_controls::{Drag, Target};
 #[path = "runtime/message.rs"]
 mod message;
-#[path = "runtime/unavailable_mods.rs"]
-mod unavailable_mods;
 #[path = "widgets/named_combobox.rs"]
 mod named_combobox;
 #[path = "profiles/profile_import.rs"]
@@ -55,6 +53,8 @@ mod profile_management;
 mod request_counter;
 #[path = "widgets/toggle_switch.rs"]
 mod toggle_switch;
+#[path = "runtime/unavailable_mods.rs"]
+mod unavailable_mods;
 
 #[cfg(test)]
 #[path = "tests/priority_input_tests.rs"]
@@ -351,6 +351,7 @@ pub struct App {
     lint_selected_mods: BTreeSet<ModSpecification>,
     lint_focus: Option<ModSpecification>,
     lint_filter: String,
+    lint_focus_filter: String,
     lint_run: Option<lint::LintRun>,
     lint_report_path: Option<PathBuf>,
     lint_report_error: Option<String>,
@@ -489,6 +490,7 @@ impl App {
             lint_selected_mods: BTreeSet::new(),
             lint_focus: None,
             lint_filter: String::new(),
+            lint_focus_filter: String::new(),
             lint_run: None,
             lint_report_path: None,
             lint_report_error: None,
