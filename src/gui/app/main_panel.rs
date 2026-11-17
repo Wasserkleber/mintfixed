@@ -4,6 +4,7 @@ use super::*;
 impl App {
     pub(super) fn frame_main_panel(&mut self, ctx: &egui::Context) {
         egui::CentralPanel::default().show(ctx, |ui| {
+            self.unavailable_overview_button(ui);
             if self.integrate_rid.is_some() || self.update_rid.is_some() || self.lint_rid.is_some()
             {
                 ui.disable();

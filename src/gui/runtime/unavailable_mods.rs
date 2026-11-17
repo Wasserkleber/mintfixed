@@ -151,3 +151,34 @@ pub(super) fn locations(
 ) -> String {
     describe(&entries(data, unavailable, name))
 }
+
+/// Cache the overview by saved-data and provider metadata revisions. No list
+/// scans or provider lookups are needed on unchanged idle frames.
+#[derive(Default)]
+pub(super) struct Overview {
+    revision: Option<(u64, (u64, u64))>,
+    pub entries: Vec<Location>,
+}
+
+impl Overview {
+    pub fn refresh(
+        &mut self,
+        revision: (u64, (u64, u64)),
+        build: impl FnOnce() -> Vec<Location>,
+    ) -> bool {
+        if self.revision == Some(revision) {
+            return false;
+        }
+        self.entries = build();
+        self.revision = Some(revision);
+        true
+    }
+
+    pub fn description(&self) -> String {
+        if self.entries.is_empty() {
+            "No unavailable mods are referenced by saved profiles or groups.".into()
+        } else {
+            describe(&self.entries)
+        }
+    }
+}

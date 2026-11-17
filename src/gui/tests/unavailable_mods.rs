@@ -177,3 +177,44 @@ fn unavailable_details_navigation_distinguishes_duplicate_urls_and_unused_groups
     data.profiles.clear();
     assert!(targets[0].resolve(&data).is_none());
 }
+
+#[test]
+fn unavailable_overview_refreshes_after_recovery_and_saved_edits() {
+    use crate::state::{ModData_v0_1_0, ModProfile_v0_1_0};
+    let mut data = ModData_v0_1_0::default();
+    data.profiles.clear();
+    data.groups.clear();
+    data.profiles.insert(
+        "A".into(),
+        ModProfile_v0_1_0 {
+            mods: vec![ModOrGroup::Individual(mod_config("deleted-url"))],
+            ..Default::default()
+        },
+    );
+    let mut overview = unavailable_mods::Overview::default();
+    assert!(overview.refresh((0, (0, 0)), || unavailable_mods::entries(
+        &data,
+        |_| true,
+        |_| "Deleted".into()
+    )));
+    assert_eq!(overview.entries.len(), 1);
+    assert!(!overview.refresh((0, (0, 0)), || panic!("idle frame rebuilt overview")));
+    // Provider recovery removes the warning even without another saved edit.
+    assert!(overview.refresh((0, (1, 0)), || unavailable_mods::entries(
+        &data,
+        |_| false,
+        |_| "Recovered".into()
+    )));
+    assert!(overview.entries.is_empty());
+    assert!(overview.description().starts_with("No unavailable mods"));
+    overview.refresh((0, (2, 0)), || {
+        unavailable_mods::entries(&data, |_| true, |_| "Deleted".into())
+    });
+    assert_eq!(overview.entries.len(), 1);
+    data.profiles.get_mut("A").unwrap().mods.clear();
+    // Removing the final reference also removes the persistent badge.
+    overview.refresh((1, (2, 0)), || {
+        unavailable_mods::entries(&data, |_| true, |_| "Deleted".into())
+    });
+    assert!(overview.entries.is_empty());
+}

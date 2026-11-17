@@ -4,6 +4,7 @@ use super::*;
 impl eframe::App for App {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         self.frame_begin(ctx);
+        self.refresh_unavailable_overview();
         self.frame_overlays(ctx);
         self.frame_toolbar(ctx);
         self.frame_status_details(ctx);

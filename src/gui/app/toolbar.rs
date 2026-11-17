@@ -250,6 +250,7 @@ impl App {
                                 if status_message(ui, &progress) {
                                     self.status_details = Some(progress);
                                     self.status_locations.clear();
+                                    self.live_unavailable_details = false;
                                 }
                             } else if self.integrate_rid.is_some() {
                                 let progress = match self.install_phase {
@@ -260,6 +261,7 @@ impl App {
                                 if status_message(ui, progress) {
                                     self.status_details = Some(progress.to_owned());
                                     self.status_locations.clear();
+                                    self.live_unavailable_details = false;
                                 }
                             } else if let Some(last_action) = &self.last_action {
                                 // Hide the badge as well if no room remains for it.
@@ -276,6 +278,7 @@ impl App {
                                     ui.ctx().request_repaint_after(Duration::from_secs(1));
                                     let summary = format!("({}): {}", last_action.timeago(), message);
                                     if status_message(ui, &summary) {
+                                        self.live_unavailable_details = false;
                                         self.status_locations = last_action.unavailable_locations.clone();
                                         self.status_details = Some(last_action.details.clone().unwrap_or_else(|| format!("{outcome} {summary}")));
                                     }
