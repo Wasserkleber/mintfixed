@@ -59,6 +59,16 @@ mod drag_polish_tests {
     }
 
     #[test]
+    fn edge_scroll_continues_past_top_and_bottom_but_not_left_or_right() {
+        let rect = egui::Rect::from_min_max(egui::pos2(10.0, 20.0), egui::pos2(210.0, 420.0));
+        let dt = 1.0 / 60.0;
+        assert_eq!(edge_scroll_delta(rect, egui::pos2(100.0, -20.0), dt), 2_400.0 * dt);
+        assert_eq!(edge_scroll_delta(rect, egui::pos2(100.0, 460.0), dt), -2_400.0 * dt);
+        assert_eq!(edge_scroll_delta(rect, egui::pos2(9.0, -20.0), dt), 0.0);
+        assert_eq!(edge_scroll_delta(rect, egui::pos2(211.0, 460.0), dt), 0.0);
+    }
+
+    #[test]
     fn edge_scroll_has_direction_speed_limit_and_no_motion_outside_view() {
         let rect = egui::Rect::from_min_max(egui::pos2(10.0, 20.0), egui::pos2(210.0, 420.0));
         assert!(edge_scroll_delta(rect, egui::pos2(50.0, 21.0), 0.016) > 0.0);
