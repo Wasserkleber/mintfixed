@@ -32,7 +32,7 @@ impl App {
                             ui.add(egui::Label::new(before.trim()).wrap());
                             if !self.status_locations.is_empty() {
                                 ui.separator();
-                                ui.strong("Unavailable mods in saved profiles and groups (including disabled entries)");
+                                ui.strong("Unavailable mod locations");
                             }
                             for location in &self.status_locations {
                                 let target = location.target.as_ref()

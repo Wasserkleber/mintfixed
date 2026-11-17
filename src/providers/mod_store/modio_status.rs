@@ -27,3 +27,10 @@ impl ModStore {
         crate::providers::modio::cached_name(id, &self.cache)
     }
 }
+
+impl ModStore {
+    /// On-demand disk metadata check; do not call this from idle UI rendering.
+    pub(crate) fn has_cached_modio_download(&self, spec: &ModSpecification) -> bool {
+        crate::providers::modio::has_cached_download(&spec.url, &self.cache, &self.blob_cache)
+    }
+}

@@ -101,6 +101,9 @@ impl App {
             {
                 // Use the same profile ordering and integration as the Install Mods button.
                 if let Some(fsd_pak) = self.state.config.drg_pak_path.clone() {
+                    if !self.preflight_unavailable_mods(true) {
+                        continue;
+                    }
                     if !self.preflight_bitfix_proxy() {
                         continue;
                     }

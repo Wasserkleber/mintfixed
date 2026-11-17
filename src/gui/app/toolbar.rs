@@ -66,6 +66,9 @@ impl App {
                             }
 
                             if button.clicked() {
+                                if !self.preflight_unavailable_mods(false) {
+                                    return;
+                                }
                                 if !self.preflight_bitfix_proxy() {
                                     return;
                                 }

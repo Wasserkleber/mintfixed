@@ -133,7 +133,7 @@ pub(super) fn describe(locations: &[Location]) -> String {
         "Unavailable entries remain in the cache, but none are referenced by saved profiles or groups.".into()
     } else {
         format!(
-            "Unavailable mods in saved profiles and groups (including disabled entries):\n\n{}",
+            "Unavailable mods in saved profiles and groups:\n\n{}",
             locations
                 .iter()
                 .map(|entry| entry.label.as_str())
@@ -181,4 +181,61 @@ impl Overview {
             describe(&self.entries)
         }
     }
+}
+
+/// Only enabled occurrences in the selected profile can block this install.
+/// Check each group occurrence's overrides without mutating shared members.
+pub(super) fn install_blockers(
+    data: &ModData_v0_1_0,
+    profile_name: &str,
+    mut blocked: impl FnMut(&ModSpecification) -> bool,
+    mut name: impl FnMut(&ModSpecification) -> String,
+) -> Vec<Location> {
+    let Some(profile) = data.profiles.get(profile_name) else {
+        return Vec::new();
+    };
+    let mut result = Vec::new();
+    let mut add = |member: &crate::state::ModConfig, group: Option<(&str, &str)>| {
+        if !blocked(&member.spec) {
+            return;
+        }
+        let group_label = group
+            .map(|(_, name)| format!(", group {name:?}"))
+            .unwrap_or_default();
+        result.push(Location {
+            label: format!(
+                "{} — profile {:?}{}\n  {}",
+                name(&member.spec),
+                profile_name,
+                group_label,
+                member.spec.url
+            ),
+            target: Some(Target {
+                profile_id: profile.id.clone(),
+                group_entry_id: group.map(|(id, _)| id.to_owned()),
+                mod_id: member.id.clone(),
+            }),
+        });
+    };
+    for entry in &profile.mods {
+        match entry {
+            ModOrGroup::Individual(member) if member.enabled => add(member, None),
+            ModOrGroup::Group {
+                id,
+                group_name,
+                enabled: true,
+                member_overrides,
+            } => {
+                if let Some(group) = data.groups.get(group_name) {
+                    for member in &group.mods {
+                        if member_overrides.enabled(member) {
+                            add(member, Some((id, group_name)));
+                        }
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    result
 }

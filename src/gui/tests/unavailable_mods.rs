@@ -218,3 +218,79 @@ fn unavailable_overview_refreshes_after_recovery_and_saved_edits() {
     });
     assert!(overview.entries.is_empty());
 }
+
+#[test]
+fn unavailable_preflight_respects_profile_selection_and_group_overrides() {
+    use crate::state::{MemberOverrides, ModData_v0_1_0, ModProfile_v0_1_0};
+    let mut data = ModData_v0_1_0::default();
+    data.profiles.clear();
+    data.groups.clear();
+    let mut disabled = mod_config("disabled");
+    disabled.enabled = false;
+    let mut enabled = mod_config("enabled");
+    let mut overrides = MemberOverrides::default();
+    overrides.set(&mut disabled, true);
+    overrides.set(&mut enabled, false);
+    data.groups.insert(
+        "Shared".into(),
+        ModGroup {
+            mods: vec![disabled.clone(), enabled.clone()],
+            ..Default::default()
+        },
+    );
+    data.groups.insert(
+        "Unused".into(),
+        ModGroup {
+            mods: vec![mod_config("unused")],
+            ..Default::default()
+        },
+    );
+    data.profiles.insert(
+        "Active".into(),
+        ModProfile_v0_1_0 {
+            mods: vec![
+                ModOrGroup::Individual(disabled.clone()),
+                ModOrGroup::Individual(mod_config("cached")),
+                ModOrGroup::Individual(mod_config("healthy")),
+                ModOrGroup::Individual(mod_config("missing")),
+                ModOrGroup::Group {
+                    id: crate::state::new_id(),
+                    group_name: "Shared".into(),
+                    enabled: true,
+                    member_overrides: overrides,
+                },
+            ],
+            ..Default::default()
+        },
+    );
+    data.profiles.insert(
+        "Other".into(),
+        ModProfile_v0_1_0 {
+            mods: vec![ModOrGroup::Individual(mod_config("other"))],
+            ..Default::default()
+        },
+    );
+    let blockers = unavailable_mods::install_blockers(
+        &data,
+        "Active",
+        |spec| spec.url != "cached" && spec.url != "healthy",
+        |spec| spec.url.clone(),
+    );
+    assert_eq!(blockers.len(), 2);
+    assert!(blockers[0].label.starts_with("missing"));
+    let target = blockers[1].target.as_ref().unwrap().resolve(&data).unwrap();
+    assert_eq!(target.group.as_deref(), Some("Shared"));
+    assert_eq!(target.mod_id, disabled.id);
+    assert!(!data.groups["Shared"].mods[0].enabled);
+    if let ModOrGroup::Group { enabled, .. } = &mut data.profiles.get_mut("Active").unwrap().mods[4]
+    {
+        *enabled = false;
+    }
+    let blockers = unavailable_mods::install_blockers(
+        &data,
+        "Active",
+        |spec| spec.url != "cached" && spec.url != "healthy",
+        |spec| spec.url.clone(),
+    );
+    assert_eq!(blockers.len(), 1);
+}

@@ -40,7 +40,7 @@ use errors::*; // Snafu context selectors and classification helper.
 use metadata::process_modio_tags;
 pub use metadata::{ModioFile, ModioMod, ModioModResponse};
 use rate_limit::{MAX_DOWNLOAD_RESTARTS, RetryPolicy, global_rate_gate};
-pub(super) use url::cached_file;
+pub(super) use url::{cached_file, has_cached_download};
 use url::{ModIoModUrl, format_spec, parse_url};
 pub(crate) use url::{is_valid_modio_url, pinned_file};
 

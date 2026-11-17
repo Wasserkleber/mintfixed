@@ -28,6 +28,8 @@ mod app_main_panel;
 mod app_overlays;
 #[path = "app/status_details.rs"]
 mod app_status_details;
+#[path = "app/install_preflight.rs"]
+mod app_install_preflight;
 #[path = "app/toolbar.rs"]
 mod app_toolbar;
 #[path = "mod_list/group_drop_target.rs"]

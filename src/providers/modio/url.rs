@@ -63,3 +63,22 @@ pub(super) fn format_spec(name_id: &str, mod_id: u32, file_id: Option<u32>) -> M
         format!("https://mod.io/g/drg/m/{name_id}#{mod_id}")
     })
 }
+
+/// Match the same exact file/blob mapping used by fetch_mod_impl. Metadata alone
+/// (or a blob for another version) cannot satisfy an installation.
+pub(crate) fn has_cached_download(
+    url: &str,
+    cache: &ProviderCache,
+    blobs: &super::BlobCache,
+) -> bool {
+    let Some((_, file)) = cached_file(url, cache) else {
+        return false;
+    };
+    cache
+        .read()
+        .unwrap()
+        .get::<ModioCache>(MODIO_PROVIDER_ID)
+        .and_then(|state| state.modfile_blobs.get(&file))
+        .and_then(|blob| blobs.get_path(blob))
+        .is_some_and(|path| path.is_file())
+}

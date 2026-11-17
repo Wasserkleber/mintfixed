@@ -370,3 +370,52 @@ fn refactor_cache_json_round_trip_preserves_numeric_ids_and_unavailable_state() 
         Some(&true)
     );
 }
+
+#[test]
+fn unavailable_preflight_requires_the_requested_download_on_disk() {
+    let cache = Arc::new(RwLock::new(crate::state::config::ConfigWrapper::<
+        VersionAnnotatedCache,
+    >::memory(VersionAnnotatedCache::default())));
+    let temp = tempfile::tempdir().unwrap();
+    let blobs = BlobCache::new(temp.path());
+    let url = "https://mod.io/g/drg/m/refactor-offline-mod";
+    {
+        let mut lock = cache.write().unwrap();
+        let state = lock.get_mut::<ModioCache>(MODIO_PROVIDER_ID);
+        state.mods.insert(7, refactor_sample_cached_mod());
+        state.mod_id_map.insert("refactor-offline-mod".into(), 7);
+    }
+    assert!(!has_cached_download(url, &cache, &blobs));
+    let old = blobs.write(b"old version").unwrap();
+    cache
+        .write()
+        .unwrap()
+        .get_mut::<ModioCache>(MODIO_PROVIDER_ID)
+        .modfile_blobs
+        .insert(41, old);
+    assert!(has_cached_download(&format!("{url}#7/41"), &cache, &blobs));
+    assert!(!has_cached_download(url, &cache, &blobs));
+    let latest = blobs.write(b"latest version").unwrap();
+    let path = blobs.get_path(&latest).unwrap();
+    cache
+        .write()
+        .unwrap()
+        .get_mut::<ModioCache>(MODIO_PROVIDER_ID)
+        .modfile_blobs
+        .insert(42, latest);
+    assert!(has_cached_download(url, &cache, &blobs));
+    assert!(has_cached_download(&format!("{url}#7/42"), &cache, &blobs));
+    std::fs::remove_file(&path).unwrap();
+    assert!(!has_cached_download(url, &cache, &blobs));
+    std::fs::create_dir(&path).unwrap();
+    assert!(!has_cached_download(url, &cache, &blobs));
+    // Explicit pins remain usable even if the mod's metadata is absent.
+    cache
+        .write()
+        .unwrap()
+        .get_mut::<ModioCache>(MODIO_PROVIDER_ID)
+        .mods
+        .clear();
+    assert!(has_cached_download(&format!("{url}#7/41"), &cache, &blobs));
+    assert!(!has_cached_download(url, &cache, &blobs));
+}
