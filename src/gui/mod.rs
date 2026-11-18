@@ -42,6 +42,8 @@ mod mod_list_style;
 mod mod_tags;
 #[path = "mod_list/profile_ui.rs"]
 mod profile_ui;
+#[path = "dialogs/replacement_prompt.rs"]
+mod replacement_prompt;
 use group_controls::{Drag, Target};
 #[path = "runtime/message.rs"]
 mod message;
@@ -302,7 +304,15 @@ fn status_message(ui: &mut Ui, message: &str) -> bool {
     .clicked()
 }
 
+struct PendingReplacementAddition {
+    specs: Vec<ModSpecification>,
+    is_dependency: bool,
+    profile_id: String,
+    decided: HashSet<String>,
+}
+
 pub struct App {
+    pending_replacement_addition: Option<PendingReplacementAddition>,
     crash_history: crash_history::CrashHistory,
     bitfix_menu: bitfix_menu::BitfixMenu,
     args: Option<Vec<String>>,
@@ -445,6 +455,7 @@ impl App {
         let edit_history =
             edit_history::ModEditHistory::new(&state.mod_data, state.mod_data.revision());
         Ok(Self {
+            pending_replacement_addition: None,
             crash_history: crash_history::CrashHistory::default(),
             bitfix_menu: bitfix_menu::BitfixMenu::default(),
             args,

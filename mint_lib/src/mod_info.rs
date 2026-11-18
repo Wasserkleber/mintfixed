@@ -68,7 +68,14 @@ impl ModSpecification {
     pub fn new(url: String) -> Self {
         Self { url }
     }
+    pub fn replacement_rule(&self) -> Option<&'static crate::mod_replacements::ReplacementRule> {
+        crate::mod_replacements::rule_for_original(self)
+    }
     pub fn satisfies_dependency(&self, other: &ModSpecification) -> bool {
+        self.matches_identity(other) || crate::mod_replacements::satisfies_alternative(self, other)
+    }
+    /// Match the same mod (including pinned/unpinned versions), not an alternative.
+    pub fn matches_identity(&self, other: &ModSpecification) -> bool {
         if self.url == other.url {
             return true;
         }

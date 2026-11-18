@@ -155,6 +155,7 @@
                         }
 
                         if enabled {
+                            // ModHub requirements can be fulfilled by one enabled alternative.
                             let missing_deps = info
                                 .suggested_dependencies
                                 .iter()
@@ -167,14 +168,27 @@
                                 let mut msg = "Add missing dependencies:".to_string();
                                 for dep in &missing_deps {
                                     msg.push('\n');
-                                    msg.push_str(&dep.url);
+                                    if let Some(rule) = dep.replacement_rule() {
+                                        if rule.dependency_warning.is_empty() {
+                                            msg.push_str(&format!("{} (recommended: {})", rule.original_name, rule.replacement_name));
+                                        } else {
+                                            msg.push_str(&rule.dependency_warning);
+                                        }
+                                    } else {
+                                        msg.push_str(&dep.url);
+                                    }
                                 }
                                 if icon_buttons::warning_button(ui, group_control_tint)
                                     .on_hover_text(msg)
                                     .clicked()
                                 {
-                                    ctx.add_deps =
-                                        Some(missing_deps.into_iter().cloned().collect());
+                                    ctx.add_deps = Some(missing_deps.into_iter()
+                                        .map(|dep| if let Some(rule) = dep.replacement_rule() {
+                                            ModSpecification::new(rule.replacement.clone())
+                                        } else {
+                                            dep.clone()
+                                        })
+                                        .collect());
                                 }
                             }
                         }

@@ -35,6 +35,9 @@ impl ModStore {
                 &precise_mod_specs,
                 &attempted,
             );
+            // Do not silently install a configured legacy source mod. The GUI
+            // offers its configured replacement when the dependency is missing.
+            to_resolve.retain(|spec| spec.replacement_rule().is_none());
         }
         Ok(mods_map)
     }

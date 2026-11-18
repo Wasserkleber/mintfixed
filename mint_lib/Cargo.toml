@@ -12,6 +12,7 @@ anyhow.workspace = true
 steamlocate.workspace = true
 repak.workspace = true
 serde.workspace = true
+serde_json.workspace = true
 itertools.workspace = true
 fs-err.workspace = true
 tracing.workspace = true

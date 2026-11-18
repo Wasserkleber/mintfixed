@@ -31,5 +31,6 @@ impl App {
         self.crash_history.show(ctx, &self.state);
         self.show_bitfix_menu(ctx);
         self.show_bitfix_conflict(ctx);
+        self.show_replacement_prompt(ctx);
     }
 }

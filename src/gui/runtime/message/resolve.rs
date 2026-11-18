@@ -17,6 +17,32 @@ impl ResolveMods {
         specs: Vec<ModSpecification>,
         is_dependency: bool,
     ) {
+        if !is_dependency && specs.iter().any(|spec| spec.replacement_rule().is_some()) {
+            if app.resolve_mod_rid.is_some() || app.pending_replacement_addition.is_some() {
+                app.last_action = Some(LastAction::failure(
+                    "Finish the pending mod addition first.".into(),
+                ));
+                return;
+            }
+            let active = &app.state.mod_data.active_profile;
+            app.pending_replacement_addition = Some(super::PendingReplacementAddition {
+                specs,
+                is_dependency,
+                profile_id: app.state.mod_data.profiles[active].id.clone(),
+                decided: std::collections::HashSet::new(),
+            });
+            ctx.request_repaint();
+            return;
+        }
+        Self::send_inner(app, ctx, specs, is_dependency, false);
+    }
+    /// Bypass the prompt only after an explicit choice in its confirmation dialog.
+    pub(super) fn send_confirmed(
+        app: &mut App,
+        ctx: &egui::Context,
+        specs: Vec<ModSpecification>,
+        is_dependency: bool,
+    ) {
         Self::send_inner(app, ctx, specs, is_dependency, false);
     }
     pub fn send_bitfix(app: &mut App, ctx: &egui::Context, specs: Vec<ModSpecification>) {
