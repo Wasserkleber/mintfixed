@@ -365,52 +365,234 @@ pub(super) fn ui<E, N>(
     ui.data_mut(|data| data.insert_temp(state_id, editor));
 }
 
-/// Copy the same TXT/JSON payloads as the former Copy Mods toolbar button.
-/// STATUS feedback is returned to mod.rs without borrowing the parent App.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+enum ProfileExportKind {
+    #[default]
+    Json,
+    Txt,
+}
+
+impl ProfileExportKind {
+    fn extension(self) -> &'static str {
+        match self {
+            Self::Json => "json",
+            Self::Txt => "txt",
+        }
+    }
+}
+
+/// Create a new export file beside the executable, without replacing an old one.
+fn save_profile_export(
+    profile_name: &str,
+    kind: ProfileExportKind,
+    contents: &str,
+) -> Result<std::path::PathBuf, String> {
+    let exe = std::env::current_exe()
+        .map_err(|error| format!("Cannot locate the mintfixed executable: {error}"))?;
+    save_profile_export_beside(&exe, profile_name, kind.extension(), contents)
+}
+
+fn save_profile_export_beside(
+    exe: &std::path::Path,
+    name: &str,
+    extension: &str,
+    contents: &str,
+) -> Result<std::path::PathBuf, String> {
+    use std::io::Write as _;
+
+    let folder = exe
+        .parent()
+        .ok_or("Cannot determine the executable's folder")?
+        .join("mintfixed exports");
+    std::fs::create_dir_all(&folder)
+        .map_err(|error| format!("Cannot create export folder {}: {error}", folder.display()))?;
+
+    // Make profile names safe for Windows filenames (including reserved device names).
+    let safe: String = name
+        .chars()
+        .take(100)
+        .map(|ch| match ch {
+            '<' | '>' | ':' | '"' | '/' | '\\' | '|' | '?' | '*' => '_',
+            ch if ch.is_control() => '_',
+            ch => ch,
+        })
+        .collect();
+    let safe = safe.trim_matches(|ch: char| ch == '.' || ch.is_whitespace());
+    let safe = if safe.is_empty() { "profile" } else { safe };
+    let device = safe
+        .split('.')
+        .next()
+        .unwrap_or_default()
+        .to_ascii_uppercase();
+    let reserved = matches!(
+        device.as_str(),
+        "CON"
+            | "PRN"
+            | "AUX"
+            | "NUL"
+            | "COM1"
+            | "COM2"
+            | "COM3"
+            | "COM4"
+            | "COM5"
+            | "COM6"
+            | "COM7"
+            | "COM8"
+            | "COM9"
+            | "LPT1"
+            | "LPT2"
+            | "LPT3"
+            | "LPT4"
+            | "LPT5"
+            | "LPT6"
+            | "LPT7"
+            | "LPT8"
+            | "LPT9"
+    );
+    let safe = if reserved {
+        format!("_{safe}")
+    } else {
+        safe.to_owned()
+    };
+
+    for number in 1..=10_000 {
+        let filename = if number == 1 {
+            format!("{safe}.{extension}")
+        } else {
+            format!("{safe} ({number}).{extension}")
+        };
+        let path = folder.join(filename);
+        // Atomic create_new also handles another export starting at the same time.
+        match std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&path)
+        {
+            Ok(mut file) => {
+                if let Err(error) = file.write_all(contents.as_bytes()) {
+                    drop(file);
+                    let _ = std::fs::remove_file(&path);
+                    return Err(format!(
+                        "Could not write export {}: {error}",
+                        path.display()
+                    ));
+                }
+                return Ok(path);
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(error) => {
+                return Err(format!(
+                    "Could not create export {}: {error}",
+                    path.display()
+                ));
+            }
+        }
+    }
+    Err(format!(
+        "Too many exports for profile \"{name}\" in {}",
+        folder.display()
+    ))
+}
+
+/// Export the active profile as a file in the same folder as Group Export.
+/// JSON preserves group definitions, order and overrides; TXT is enabled mod URLs.
 pub(super) fn copy_options(
     ui: &mut egui::Ui,
     mod_data: &ModData,
 ) -> Option<Result<String, String>> {
-    ui.label("Export the active profile by copying it to the clipboard.");
-    if ui.button("Copy mod list (TXT)").clicked() {
-        let mut mods = String::new();
-        let active_profile = mod_data.active_profile.clone();
-        mod_data.for_each_enabled_mod(&active_profile, |mc| {
-            mods.push_str(&mc.spec.url);
-            mods.push('\n');
-        });
-        ui.ctx().copy_text(mods);
-        return Some(Ok("Copied mod list (TXT) to clipboard".into()));
+    let format_id = ui.id().with("profile-export-format");
+    let mut kind = ui
+        .data(|data| data.get_temp::<ProfileExportKind>(format_id))
+        .unwrap_or_default();
+
+    ui.horizontal(|ui| {
+        ui.radio_value(&mut kind, ProfileExportKind::Json, "JSON");
+        ui.radio_value(&mut kind, ProfileExportKind::Txt, "TXT");
+    });
+    ui.data_mut(|data| data.insert_temp(format_id, kind));
+    match kind {
+        ProfileExportKind::Json => {
+            ui.label("Preserves mod order, enabled states, settings and groups.");
+        }
+        ProfileExportKind::Txt => {
+            ui.label("Exports enabled mod URLs only (one per line).");
+        }
     }
-    if ui.button("Copy profile with groups (JSON)").clicked() {
-        let profile = &mod_data.profiles[&mod_data.active_profile];
-        // Preserve ordering, disabled mods, group references, and member overrides.
-        // Include only the group definitions used by this profile.
-        let groups: BTreeMap<&str, &crate::state::ModGroup> = profile
-            .mods
-            .iter()
-            .filter_map(|entry| match entry {
-                ModOrGroup::Group { group_name, .. } => mod_data
-                    .groups
-                    .get(group_name)
-                    .map(|group| (group_name.as_str(), group)),
-                ModOrGroup::Individual(_) => None,
-            })
-            .collect();
-        let payload = serde_json::json!({
-            "format": "mintfixed-profile-mod-list",
-            "version": 1,
-            "profile_name": &mod_data.active_profile,
-            "mods": &profile.mods,
-            "groups": groups,
-        });
-        return Some(match serde_json::to_string_pretty(&payload) {
-            Ok(json) => {
-                ui.ctx().copy_text(json);
-                Ok("Copied profile with groups (JSON) to clipboard".into())
-            }
-            Err(error) => Err(format!("Could not copy group JSON: {error}")),
-        });
+    if !ui.button("Export profile").clicked() {
+        return None;
     }
-    None
+
+    let active_profile = &mod_data.active_profile;
+    let contents = match kind {
+        ProfileExportKind::Txt => {
+            let mut urls = String::new();
+            mod_data.for_each_enabled_mod(active_profile, |mc| {
+                urls.push_str(&mc.spec.url);
+                urls.push('\n');
+            });
+            Ok(urls)
+        }
+        ProfileExportKind::Json => {
+            let profile = &mod_data.profiles[active_profile];
+            // Include only the shared group definitions used by this profile.
+            let groups: BTreeMap<&str, &crate::state::ModGroup> = profile
+                .mods
+                .iter()
+                .filter_map(|entry| match entry {
+                    ModOrGroup::Group { group_name, .. } => mod_data
+                        .groups
+                        .get(group_name)
+                        .map(|group| (group_name.as_str(), group)),
+                    ModOrGroup::Individual(_) => None,
+                })
+                .collect();
+            let payload = serde_json::json!({
+                "format": "mintfixed-profile-mod-list",
+                "version": 1,
+                "profile_name": active_profile,
+                "mods": &profile.mods,
+                "groups": groups,
+            });
+            serde_json::to_string_pretty(&payload)
+                .map_err(|error| format!("Could not serialize profile JSON: {error}"))
+        }
+    };
+
+    Some(contents.and_then(|contents| {
+        save_profile_export(active_profile, kind, &contents).map(|path| {
+            format!(
+                "Exported profile \"{active_profile}\" to {}",
+                path.display()
+            )
+        })
+    }))
+}
+
+#[cfg(test)]
+mod profile_export_file_tests {
+    use super::*;
+
+    #[test]
+    fn profile_export_creates_exe_adjacent_folder_and_never_overwrites() {
+        let base = std::env::temp_dir().join(format!(
+            "mintfixed-profile-export-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&base).unwrap();
+        let exe = base.join("mintfixed.exe");
+        let first = save_profile_export_beside(&exe, "Test: Profile", "json", "first").unwrap();
+        assert_eq!(first.parent().unwrap(), base.join("mintfixed exports"));
+        assert_eq!(first.file_name().unwrap(), "Test_ Profile.json");
+        let second = save_profile_export_beside(&exe, "Test: Profile", "json", "second").unwrap();
+        assert_eq!(second.file_name().unwrap(), "Test_ Profile (2).json");
+        assert_eq!(std::fs::read_to_string(&first).unwrap(), "first");
+        assert_eq!(std::fs::read_to_string(&second).unwrap(), "second");
+        let txt = save_profile_export_beside(&exe, "CON", "txt", "url\n").unwrap();
+        assert_eq!(txt.file_name().unwrap(), "_CON.txt");
+        std::fs::remove_dir_all(base).unwrap();
+    }
 }
