@@ -744,3 +744,5 @@ mod tests {
         assert_eq!(profile.mods.len(), 4);
     }
 }
+#[cfg(test)]
+mod large_profile_tests;
