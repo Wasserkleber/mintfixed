@@ -34,7 +34,7 @@ impl App {
             .show(ctx, |ui| {
                 ui.set_min_width(390.0);
                 ui.label(format!(
-                    "You're trying to add {}. Would you rather use {}?",
+                    "You're trying to add {}. We recommend using {} instead.",
                     rule.original_name, rule.replacement_name
                 ));
                 if !rule.description.is_empty() {
