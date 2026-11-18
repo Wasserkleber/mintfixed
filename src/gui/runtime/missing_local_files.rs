@@ -1,7 +1,8 @@
 //! Missing local file diagnostics for imported profiles and groups.
 //! Scan on import and before an installation, not every idle GUI frame.
-use std::collections::BTreeSet;
-use std::path::Path;
+use std::collections::{BTreeMap, BTreeSet};
+use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex};
 
 use crate::state::{ModData_v0_1_0 as Data, ModGroup, ModOrGroup};
 
@@ -16,6 +17,204 @@ struct Notice {
     origin: Origin,
     paths: Vec<String>,
     error: Option<String>,
+    scan_error: Option<String>,
+    relinked: Vec<(String, String)>,
+    auto_count: usize,
+    ambiguous: BTreeMap<String, usize>,
+    scan: Scan,
+}
+
+#[derive(Clone, Debug)]
+enum Scan {
+    Pending,
+    Running {
+        folder: PathBuf,
+        result: Arc<Mutex<Option<Result<Matches, String>>>>,
+    },
+    Finished {
+        folder: PathBuf,
+    },
+}
+
+type Matches = BTreeMap<String, Vec<PathBuf>>;
+
+/// Match by filename, never by partial name, and restrict automatic recovery
+/// to local mod archives. Folder references remain manual relocation cases.
+fn filename_key(value: &str) -> Option<String> {
+    let filename = value.rsplit(['/', '\\']).next()?.trim();
+    let extension = Path::new(filename).extension()?.to_str()?;
+    if extension.eq_ignore_ascii_case("pak") || extension.eq_ignore_ascii_case("zip") {
+        Some(filename.to_lowercase())
+    } else {
+        None
+    }
+}
+
+/// Scan the configured folder only when triggered by an import. Work is run
+/// on a worker thread, never in the egui frame callback. Avoid symlink/junction
+/// traversals and collect only the filenames actually requested by this import.
+fn find_in_mod_folder(root: &Path, wanted: &BTreeSet<String>) -> Result<Matches, String> {
+    if !root.is_dir() {
+        return Err(format!(
+            "The Settings local mods folder is not accessible: {}",
+            root.display()
+        ));
+    }
+    let mut matches = BTreeMap::new();
+    let mut pending = vec![root.to_path_buf()];
+    while let Some(folder) = pending.pop() {
+        let entries = match std::fs::read_dir(&folder) {
+            Ok(entries) => entries,
+            Err(error) if folder == root => {
+                return Err(format!("Cannot read {}: {error}", folder.display()));
+            }
+            Err(error) => {
+                tracing::warn!(
+                    "Skipping unreadable mod folder {}: {error}",
+                    folder.display()
+                );
+                continue;
+            }
+        };
+        for entry in entries {
+            let Ok(entry) = entry else { continue };
+            let Ok(kind) = entry.file_type() else {
+                continue;
+            };
+            if kind.is_symlink() {
+                continue;
+            }
+            let path = entry.path();
+            if kind.is_dir() {
+                pending.push(path);
+            } else if kind.is_file() {
+                let Some(key) = path
+                    .file_name()
+                    .and_then(|name| name.to_str())
+                    .and_then(filename_key)
+                else {
+                    continue;
+                };
+                if wanted.contains(&key) {
+                    matches.entry(key).or_insert_with(Vec::new).push(path);
+                }
+            }
+        }
+    }
+    // Deterministic order makes ambiguous results easy to inspect/test.
+    for paths in matches.values_mut() {
+        paths.sort();
+    }
+    Ok(matches)
+}
+
+/// A filename alone cannot prove file identity, but exactly one same-name
+/// archive in the user-selected mods folder is a useful conservative match.
+/// Never pick arbitrarily when multiple files share that name.
+fn apply_matches(notice: &mut Notice, data: &mut Data, matches: &Matches) -> bool {
+    let mut changed = false;
+    notice.ambiguous.clear();
+    for old in notice.paths.clone() {
+        let Some(key) = filename_key(&old) else {
+            continue;
+        };
+        let Some(candidates) = matches.get(&key) else {
+            continue;
+        };
+        match candidates.as_slice() {
+            [candidate] => {
+                if relocate(data, &notice.origin, &old, candidate).is_ok() {
+                    notice
+                        .relinked
+                        .push((old.clone(), candidate.display().to_string()));
+                    notice.auto_count += 1;
+                    notice.paths.retain(|path| path != &old);
+                    changed = true;
+                }
+            }
+            [_, _, ..] => {
+                notice.ambiguous.insert(old, candidates.len());
+            }
+            [] => {}
+        }
+    }
+    changed
+}
+
+/// Start or poll one scan for the active import. A changed Settings path
+/// invalidates any in-flight result. No scanning happens in idle frames.
+fn resolve_from_settings(
+    ctx: &egui::Context,
+    notice: &mut Notice,
+    data: &mut Data,
+    configured_folder: Option<&Path>,
+) -> bool {
+    if notice.paths.is_empty() {
+        return false;
+    }
+    let Some(folder) = configured_folder else {
+        notice.scan = Scan::Pending;
+        return false;
+    };
+    if !folder.is_dir() {
+        notice.scan = Scan::Pending;
+        notice.scan_error = Some(format!(
+            "Configured local mods folder is unavailable: {}",
+            folder.display()
+        ));
+        return false;
+    }
+    let folder = folder.to_path_buf();
+    let stale = match &notice.scan {
+        Scan::Pending => false,
+        Scan::Running { folder: active, .. } | Scan::Finished { folder: active } => {
+            active != &folder
+        }
+    };
+    if stale {
+        notice.scan = Scan::Pending;
+    }
+    if matches!(&notice.scan, Scan::Pending) {
+        let wanted: BTreeSet<String> = notice
+            .paths
+            .iter()
+            .filter_map(|path| filename_key(path))
+            .collect();
+        if wanted.is_empty() {
+            notice.scan = Scan::Finished { folder };
+            return false;
+        }
+        notice.scan_error = None;
+        let result = Arc::new(Mutex::new(None));
+        let worker_result = Arc::clone(&result);
+        let worker_folder = folder.clone();
+        let worker_ctx = ctx.clone();
+        std::thread::spawn(move || {
+            let found = find_in_mod_folder(&worker_folder, &wanted);
+            if let Ok(mut slot) = worker_result.lock() {
+                *slot = Some(found);
+            }
+            worker_ctx.request_repaint();
+        });
+        notice.scan = Scan::Running { folder, result };
+        return false;
+    }
+    let Scan::Running { folder, result } = &notice.scan else {
+        return false;
+    };
+    let finished_folder = folder.clone();
+    let outcome = result.lock().ok().and_then(|mut slot| slot.take());
+    let Some(outcome) = outcome else { return false };
+    notice.scan = Scan::Finished {
+        folder: finished_folder,
+    };
+    match outcome {
+        Ok(matches) => apply_matches(notice, data, &matches),
+        Err(error) => {
+            notice.scan_error = Some(error);
+            false
+        }
+    }
 }
 
 const NOTICE_ID: &str = "mintfixed-import-missing-local-files";
@@ -93,6 +292,11 @@ pub(super) fn notify(ctx: &egui::Context, origin: Origin, paths: Vec<String>) {
                 origin,
                 paths,
                 error: None,
+                scan_error: None,
+                relinked: Vec::new(),
+                auto_count: 0,
+                ambiguous: BTreeMap::new(),
+                scan: Scan::Pending,
             },
         );
     });
@@ -181,14 +385,14 @@ fn relocate(
 }
 
 /// Returns true only when a saved URL was changed and the caller must save it.
-pub(super) fn show(ctx: &egui::Context, data: &mut Data) -> bool {
+pub(super) fn show(ctx: &egui::Context, data: &mut Data, configured_folder: Option<&Path>) -> bool {
     let key = egui::Id::new(NOTICE_ID);
     let Some(mut notice) = ctx.data(|memory| memory.get_temp::<Notice>(key)) else {
         return false;
     };
+    let mut changed = resolve_from_settings(ctx, &mut notice, data, configured_folder);
     let mut open = true;
     let mut dismiss = false;
-    let mut changed = false;
     let title = match &notice.origin {
         Origin::Profile(_) => "Imported profile: missing local files",
         Origin::Group(_) => "Imported group: missing local files",
@@ -204,22 +408,42 @@ pub(super) fn show(ctx: &egui::Context, data: &mut Data) -> bool {
                 Origin::Profile(name) => ("profile", name.as_str()),
                 Origin::Group(name) => ("group", name.as_str()),
             };
-            let number = notice.paths.len();
+            let total = notice.paths.len() + notice.relinked.len();
             ui.colored_label(
                 ui.visuals().warn_fg_color,
                 format!(
-                    "Imported {kind} \"{name}\" with {number} missing local {}.",
-                    if number == 1 { "file" } else { "files" }
+                    "Imported {kind} \"{name}\": {total} missing local {} detected.",
+                    if total == 1 { "file" } else { "files" }
                 ),
             );
-            ui.label("The files could not be found at their saved locations. Their entries and settings have been preserved.");
-            ui.small("Choose Relocate to point an entry to an existing local file. Nothing is deleted automatically.");
+            ui.label("Original paths were missing. Entries, IDs, priorities, and enabled settings are preserved.");
+            if !notice.relinked.is_empty() {
+                ui.label(format!("Reconnected {} file(s), including {} automatically from the configured local mods folder.", notice.relinked.len(), notice.auto_count));
+                if notice.auto_count > 0 {
+                    ui.small("Automatic matches use the exact filename (case-insensitive). Verify the file is the intended mod if different versions share its name.");
+                }
+            }
+            if !notice.paths.is_empty() {
+                match &notice.scan {
+                    Scan::Running { .. } => { ui.spinner(); ui.label("Searching Settings -> Local mods folder and subfolders..."); }
+                    Scan::Pending if configured_folder.is_none() => { ui.small("Set Settings -> Local mods folder to search automatically, or choose Relocate."); }
+                    _ => {}
+                }
+                ui.small("Files without a unique match remain unchanged. Select Relocate to fix them manually; nothing is deleted.");
+            }
+            if let Some(error) = &notice.scan_error {
+                ui.colored_label(ui.visuals().warn_fg_color, error);
+            }
             ui.separator();
             egui::ScrollArea::vertical()
                 .max_height(240.0)
                 .show(ui, |ui| {
                     // Clone because a successful relocation removes a row in the same frame.
                     for old in notice.paths.clone() {
+                        if let Some(count) = notice.ambiguous.get(&old) {
+                            ui.colored_label(ui.visuals().warn_fg_color,
+                                format!("{count} files share this filename in the configured folder. Select the correct one manually."));
+                        }
                         ui.horizontal(|ui| {
                             ui.add(egui::Label::new(egui::RichText::new(&old).monospace()).wrap());
                             if ui.button("Relocate...").clicked() {
@@ -230,16 +454,29 @@ pub(super) fn show(ctx: &egui::Context, data: &mut Data) -> bool {
                                     ext.eq_ignore_ascii_case("pak") || ext.eq_ignore_ascii_case("zip")
                                 });
                                 let replacement = if file_expected {
-                                    rfd::FileDialog::new()
-                                        .add_filter("Local mods", &["pak", "zip"])
-                                        .pick_file()
+                                    let mut dialog = rfd::FileDialog::new()
+                                        .add_filter("Local mods", &["pak", "zip"]);
+                                    if let Some(folder) = configured_folder {
+                                        if folder.is_dir() {
+                                            dialog = dialog.set_directory(folder);
+                                        }
+                                    }
+                                    dialog.pick_file()
                                 } else {
-                                    rfd::FileDialog::new().pick_folder()
+                                    let mut dialog = rfd::FileDialog::new();
+                                    if let Some(folder) = configured_folder {
+                                        if folder.is_dir() {
+                                            dialog = dialog.set_directory(folder);
+                                        }
+                                    }
+                                    dialog.pick_folder()
                                 };
                                 if let Some(replacement) = replacement {
                                     match relocate(data, &notice.origin, &old, &replacement) {
                                         Ok(_) => {
                                             notice.paths.retain(|path| path != &old);
+                                            notice.ambiguous.remove(&old);
+                                            notice.relinked.push((old.clone(), replacement.display().to_string()));
                                             notice.error = None;
                                             changed = true;
                                         }
@@ -251,10 +488,26 @@ pub(super) fn show(ctx: &egui::Context, data: &mut Data) -> bool {
                         ui.separator();
                     }
                 });
+            if !notice.relinked.is_empty() {
+                ui.collapsing("Relinked file locations", |ui| {
+                    for (old, new) in &notice.relinked {
+                        ui.label(format!("{} -> {}", old, new));
+                    }
+                });
+            }
             if let Some(error) = &notice.error {
                 ui.colored_label(ui.visuals().error_fg_color, error);
             }
             ui.horizontal(|ui| {
+                if !notice.paths.is_empty()
+                    && matches!(&notice.scan, Scan::Finished { .. })
+                    && ui.button("Search local mods folder again").clicked()
+                {
+                    notice.scan = Scan::Pending;
+                    notice.ambiguous.clear();
+                    notice.scan_error = None;
+                    ui.ctx().request_repaint();
+                }
                 if ui.button("Copy missing paths").clicked() {
                     ui.ctx().copy_text(notice.paths.join("\n"));
                 }
@@ -263,7 +516,7 @@ pub(super) fn show(ctx: &egui::Context, data: &mut Data) -> bool {
                 }
             });
         });
-    if !open || dismiss || notice.paths.is_empty() {
+    if !open || dismiss {
         ctx.data_mut(|memory| memory.remove::<Notice>(key));
     } else {
         ctx.data_mut(|memory| memory.insert_temp(key, notice));
@@ -457,5 +710,110 @@ mod tests {
         assert!(!is_missing_local_path(&path.to_string_lossy()));
         std::fs::remove_file(&path).unwrap();
         assert!(is_missing_local_path(&path.to_string_lossy()));
+    }
+
+    #[test]
+    fn configured_mod_folder_finds_exact_filename_in_subfolders() {
+        let temp = tempfile::tempdir().unwrap();
+        let subfolder = temp.path().join("nested").join("another");
+        std::fs::create_dir_all(&subfolder).unwrap();
+        let target = subfolder.join("RainbowNitra.pak");
+        std::fs::write(&target, b"mod").unwrap();
+        std::fs::write(temp.path().join("RainbowNitraOlder.pak"), b"other").unwrap();
+        let wanted = BTreeSet::from(["rainbownitra.pak".into()]);
+        let matches = find_in_mod_folder(temp.path(), &wanted).unwrap();
+        assert_eq!(matches["rainbownitra.pak"], vec![target]);
+    }
+
+    #[test]
+    fn identical_names_in_multiple_folders_are_ambiguous() {
+        let temp = tempfile::tempdir().unwrap();
+        for folder in ["first", "second"] {
+            let dir = temp.path().join(folder);
+            std::fs::create_dir(&dir).unwrap();
+            std::fs::write(dir.join("same.zip"), b"mod").unwrap();
+        }
+        let wanted = BTreeSet::from(["same.zip".into()]);
+        let matches = find_in_mod_folder(temp.path(), &wanted).unwrap();
+        assert_eq!(matches["same.zip"].len(), 2);
+    }
+
+    #[test]
+    fn automatic_relocation_preserves_group_members_and_does_not_guess() {
+        let temp = tempfile::tempdir().unwrap();
+        let target = temp.path().join("mod.pak");
+        std::fs::write(&target, b"mod").unwrap();
+        let old = r"C:\AnotherPC\Mods\mod.pak";
+        let mut data = Data::default();
+        data.groups.insert(
+            "Imported".into(),
+            ModGroup {
+                id: crate::state::new_id(),
+                tint_color: None,
+                description: None,
+                mods: vec![member(old)],
+            },
+        );
+        data.groups.insert(
+            "Other".into(),
+            ModGroup {
+                id: crate::state::new_id(),
+                tint_color: None,
+                description: None,
+                mods: vec![member(old)],
+            },
+        );
+        let id = data.groups["Imported"].mods[0].id.clone();
+        let mut notice = Notice {
+            origin: Origin::Group("Imported".into()),
+            paths: vec![old.into()],
+            error: None,
+            scan_error: None,
+            relinked: Vec::new(),
+            auto_count: 0,
+            ambiguous: BTreeMap::new(),
+            scan: Scan::Pending,
+        };
+        let matches = BTreeMap::from([("mod.pak".into(), vec![target.clone()])]);
+        assert!(apply_matches(&mut notice, &mut data, &matches));
+        assert!(notice.paths.is_empty());
+        assert_eq!(
+            data.groups["Imported"].mods[0].spec.url,
+            target.to_string_lossy()
+        );
+        assert_eq!(data.groups["Imported"].mods[0].id, id);
+        assert_eq!(data.groups["Imported"].mods[0].priority, 7);
+        assert!(!data.groups["Imported"].mods[0].enabled);
+        assert_eq!(data.groups["Other"].mods[0].spec.url, old);
+
+        let mut ambiguous = Notice {
+            origin: Origin::Group("Other".into()),
+            paths: vec![old.into()],
+            error: None,
+            scan_error: None,
+            relinked: Vec::new(),
+            auto_count: 0,
+            ambiguous: BTreeMap::new(),
+            scan: Scan::Pending,
+        };
+        let duplicates = BTreeMap::from([("mod.pak".into(), vec![target.clone(), target])]);
+        assert!(!apply_matches(&mut ambiguous, &mut data, &duplicates));
+        assert_eq!(ambiguous.paths, vec![old]);
+        assert_eq!(ambiguous.ambiguous[old], 2);
+        assert_eq!(data.groups["Other"].mods[0].spec.url, old);
+    }
+
+    #[test]
+    fn only_mod_archive_filenames_qualify_for_automatic_search() {
+        assert_eq!(
+            filename_key(r"C:\Old\Mods\Example.PAK"),
+            Some("example.pak".into())
+        );
+        assert_eq!(
+            filename_key("/home/old/Mods/file.zip"),
+            Some("file.zip".into())
+        );
+        assert_eq!(filename_key("/home/old/Mods/folder"), None);
+        assert_eq!(filename_key("file.txt"), None);
     }
 }

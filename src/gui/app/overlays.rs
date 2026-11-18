@@ -10,7 +10,12 @@ impl App {
         self.startup_crash_reporter_update.show(ctx);
         self.show_provider_parameters(ctx);
         self.show_profile_windows(ctx);
-        if missing_local_files::show(ctx, self.state.mod_data.deref_mut().deref_mut()) {
+        let local_mod_folder = self.state.config.local_mod_folder.clone();
+        if missing_local_files::show(
+            ctx,
+            self.state.mod_data.deref_mut().deref_mut(),
+            local_mod_folder.as_deref(),
+        ) {
             self.state.mod_data.save().unwrap();
             self.edit_history
                 .reset(&self.state.mod_data, self.state.mod_data.revision());

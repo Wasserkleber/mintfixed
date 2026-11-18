@@ -383,22 +383,16 @@ pub(in crate::gui) fn controls(
                     .clicked()
                     {
                         let kind = export_editor.kind;
-                        let extension = kind.extension();
-                        let filter = match kind {
-                            GroupExportKind::Json => "JSON group export",
-                            GroupExportKind::Txt => "MINT mod list",
-                        };
-                        requested_export = rfd::FileDialog::new()
-                            .add_filter(filter, &[extension])
-                            .set_file_name(format!("mintfixed-group.{extension}"))
-                            .save_file()
-                            .map(|path| {
-                                (
-                                    path.with_extension(extension),
-                                    export_editor.selected.clone(),
-                                    kind,
-                                )
-                            });
+                        match group_export_path(&export_editor.selected, kind.extension()) {
+                            Ok(path) => {
+                                requested_export = Some((path, export_editor.selected.clone(), kind));
+                                export_editor.error = None;
+                            }
+                            Err(error) => {
+                                export_editor.success = None;
+                                export_editor.error = Some(error);
+                            }
+                        }
                     }
                 });
             if export_section.header_response.clicked() {
@@ -615,7 +609,15 @@ pub(in crate::gui) fn controls(
             GroupExportKind::Txt => export_group_mod_list(data, &name),
         }
         .and_then(|contents| {
-            std::fs::write(&path, contents).map_err(|e| format!("Failed to save export: {e}"))
+            // Avoid overwriting a previous export, even if a file appeared since
+            // the unique filename was selected.
+            use std::io::Write as _;
+            std::fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(&path)
+                .and_then(|mut file| file.write_all(contents.as_bytes()))
+                .map_err(|e| format!("Failed to save export: {e}"))
         });
         match result {
             Ok(()) => {

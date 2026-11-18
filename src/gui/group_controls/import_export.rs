@@ -230,10 +230,128 @@ pub(super) fn export_group_mod_list(data: &Data, name: &str) -> Result<String, S
         + "\n")
 }
 
+/// Save group exports beside the running mintfixed executable, not the working directory.
+/// The directory is created on the first export and existing exports are never replaced.
+pub(super) fn group_export_path(name: &str, extension: &str) -> Result<std::path::PathBuf, String> {
+    let exe = std::env::current_exe()
+        .map_err(|error| format!("Cannot locate the mintfixed executable: {error}"))?;
+    group_export_path_beside(&exe, name, extension)
+}
+
+fn group_export_path_beside(
+    exe: &std::path::Path,
+    name: &str,
+    extension: &str,
+) -> Result<std::path::PathBuf, String> {
+    let folder = exe
+        .parent()
+        .ok_or("Cannot determine the executable's folder")?
+        .join("mintfixed exports");
+    std::fs::create_dir_all(&folder)
+        .map_err(|error| format!("Cannot create export folder {}: {error}", folder.display()))?;
+
+    let safe_name: String = name
+        .chars()
+        .take(100)
+        .map(|ch| match ch {
+            '<' | '>' | ':' | '"' | '/' | '\\' | '|' | '?' | '*' => '_',
+            ch if ch.is_control() => '_',
+            ch => ch,
+        })
+        .collect();
+    let safe_name = safe_name.trim_matches(|ch: char| ch == '.' || ch.is_whitespace());
+    let safe_name = if safe_name.is_empty() {
+        "group"
+    } else {
+        safe_name
+    };
+    // Windows treats these as device names, even with an extension.
+    let stem = safe_name
+        .split('.')
+        .next()
+        .unwrap_or_default()
+        .to_ascii_uppercase();
+    let reserved = matches!(
+        stem.as_str(),
+        "CON"
+            | "PRN"
+            | "AUX"
+            | "NUL"
+            | "COM1"
+            | "COM2"
+            | "COM3"
+            | "COM4"
+            | "COM5"
+            | "COM6"
+            | "COM7"
+            | "COM8"
+            | "COM9"
+            | "LPT1"
+            | "LPT2"
+            | "LPT3"
+            | "LPT4"
+            | "LPT5"
+            | "LPT6"
+            | "LPT7"
+            | "LPT8"
+            | "LPT9"
+    );
+    let safe_name = if reserved {
+        format!("_{safe_name}")
+    } else {
+        safe_name.to_owned()
+    };
+
+    for number in 1..=10_000 {
+        let filename = if number == 1 {
+            format!("{safe_name}.{extension}")
+        } else {
+            format!("{safe_name} ({number}).{extension}")
+        };
+        let path = folder.join(filename);
+        if !path.exists() {
+            return Ok(path);
+        }
+    }
+    Err(format!(
+        "Too many exports for group \"{name}\" in {}",
+        folder.display()
+    ))
+}
+
 #[cfg(test)]
 mod group_import_export_tests {
     use super::*;
 
+    #[test]
+    fn group_exports_create_exe_adjacent_folder_and_avoid_overwriting() {
+        let temporary = std::env::temp_dir().join(format!(
+            "mintfixed-group-export-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&temporary).unwrap();
+        let exe = temporary.join("mintfixed.exe");
+
+        let first = group_export_path_beside(&exe, "Tools: Utility/Mods", "json").unwrap();
+        assert_eq!(first.parent().unwrap(), temporary.join("mintfixed exports"));
+        assert_eq!(first.file_name().unwrap(), "Tools_ Utility_Mods.json");
+        std::fs::write(&first, "first export").unwrap();
+        let second = group_export_path_beside(&exe, "Tools: Utility/Mods", "json").unwrap();
+        assert_eq!(second.file_name().unwrap(), "Tools_ Utility_Mods (2).json");
+        assert_eq!(std::fs::read_to_string(&first).unwrap(), "first export");
+        assert_eq!(
+            group_export_path_beside(&exe, "CON", "txt")
+                .unwrap()
+                .file_name()
+                .unwrap(),
+            "_CON.txt"
+        );
+        std::fs::remove_dir_all(&temporary).unwrap();
+    }
     #[test]
     fn txt_import_keeps_order_and_deduplicates_lines() {
         let incoming = parse_mod_list_txt(
