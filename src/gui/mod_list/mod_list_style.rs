@@ -169,6 +169,29 @@ pub(super) fn row_frame(
     frame
 }
 
+// mintfixed-selection-boundaries-v1: selection is a muted fill, not a box.
+// Use the existing row color as the base so group tints remain visible.
+pub(super) fn selected_row_frame(ui: &Ui, frame: egui::Frame) -> egui::Frame {
+    let base = if frame.fill == Color32::TRANSPARENT {
+        ui.visuals().panel_fill
+    } else {
+        frame.fill
+    };
+    let accent = if ui.visuals().dark_mode {
+        Color32::from_rgb(62, 103, 153)
+    } else {
+        Color32::from_rgb(137, 181, 222)
+    };
+    frame
+        .fill(mix(
+            base,
+            accent,
+            if ui.visuals().dark_mode { 27 } else { 20 },
+        ))
+        .stroke(egui::Stroke::NONE)
+        .corner_radius(4)
+}
+
 /// Softly tint only the version selector and load-priority control of a
 /// mod inside a manually colored group. Call from a `ui.scope` so other
 /// widgets (toggles, icons, popup controls, standalone mods) are unaffected.

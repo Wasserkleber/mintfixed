@@ -34,11 +34,22 @@ impl Drag {
                 egui::Order::Tooltip,
                 ui.id().with(("moving-row", profile, key)),
             );
-            let painted = ui.scope_builder(egui::UiBuilder::new().layer_id(layer), draw);
+            // mintfixed-multi-drag-scroll-clip-v1: the floating rows must not inherit the ScrollArea clip.
+            // They are translated after painting, so the clip needs to contain
+            // the ORIGINAL row even when it has scrolled outside the viewport.
+            // Restrict this to the dedicated Tooltip layer, never the list UI.
+            let painted = ui.scope_builder(
+                egui::UiBuilder::new().layer_id(layer),
+                |preview_ui| {
+                    preview_ui.set_clip_rect(egui::Rect::EVERYTHING);
+                    draw(preview_ui)
+                },
+            );
             let rect = painted.response.rect;
-            // Form a compact vertical stack near the pointer. The row contents
+            // Pack preview rows at their real height, with only 1 px between them.
+            // The row contents
             // (name, version, color and warnings) are still their actual UI.
-            let stride = rect.height().max(28.0) + 4.0;
+            let stride = rect.height() + 1.0;
             let desired = egui::pos2(
                 pointer.x - 22.0,
                 pointer.y + 24.0 + position as f32 * stride,
@@ -134,12 +145,16 @@ impl Drag {
         }
         let selected = !is_group && Self::is_selected(ui.ctx(), profile, key);
         if selected {
-            ui.painter().rect_stroke(
-                rect,
-                egui::CornerRadius::same(3),
-                ui.visuals().selection.stroke,
-                egui::StrokeKind::Inside,
+            let marker = egui::Rect::from_min_max(
+                egui::pos2(rect.left() + 1.0, rect.top() + 3.0),
+                egui::pos2(rect.left() + 3.5, rect.bottom() - 3.0),
             );
+            let accent = if ui.visuals().dark_mode {
+                egui::Color32::from_rgb(102, 164, 228)
+            } else {
+                egui::Color32::from_rgb(58, 117, 186)
+            };
+            ui.painter().rect_filled(marker, egui::CornerRadius::same(2), accent);
         }
         let response = if is_group {
             response

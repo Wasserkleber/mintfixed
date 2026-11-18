@@ -208,7 +208,7 @@ impl App {
                     let frame = if matches!(&*item, ModOrGroup::Individual(mc)
                         if Drag::is_selected(ui.ctx(), profile_name, &mc.id))
                     {
-                        frame.stroke(egui::Stroke::new(1.5, ui.visuals().selection.stroke.color))
+                        mod_list_style::selected_row_frame(ui, frame)
                     } else {
                         frame
                     };
