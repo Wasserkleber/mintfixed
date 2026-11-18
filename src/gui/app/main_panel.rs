@@ -13,12 +13,14 @@ impl App {
 
             let mut group_changed = false;
             let mut group_success = None;
+            let configured_group_mod_folder = self.state.config.local_mod_folder.clone();
             let buttons = |ui: &mut Ui, mod_data: &mut ModData| {
                 (group_changed, group_success) = group_controls::controls(
                     ui,
                     mod_data,
                     &mut self.new_group_name,
                     self.pending_group_files > 0,
+                    configured_group_mod_folder.as_deref(),
                 );
 
                 // TODO find better icon, flesh out multiple-view usage, fix GUI locking

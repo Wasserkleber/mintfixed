@@ -4,6 +4,7 @@ pub(in crate::gui) fn controls(
     data: &mut Data,
     name: &mut String,
     files_pending: bool,
+    configured_mod_folder: Option<&std::path::Path>,
 ) -> (bool, Option<String>) {
     let profile = data.profiles.get_mut(&data.active_profile).unwrap();
     let mut changed = false;
@@ -37,10 +38,50 @@ pub(in crate::gui) fn controls(
     let mut requested_rename = None;
     let mut requested_duplicate = None;
     let mut requested_delete = None;
-    let mut requested_export: Option<(PathBuf, String, GroupExportKind)> = None;
+    let mut requested_export: Option<(PathBuf, String, GroupExportKind, bool)> = None;
     let mut requested_import: Option<PathBuf> = None;
     let mut requested_import_name: Option<String> = None;
     let mut success_message = None;
+
+    // ZIP copying and SHA-256 verification run off the GUI thread.
+    if let Some(job) = &export_editor.job {
+        let completed = job.lock().ok().and_then(|mut value| value.take());
+        if let Some(result) = completed {
+            export_editor.job = None;
+            match result {
+                Ok(path) => {
+                    let message = format!("Exported group package to {}", path.display());
+                    export_editor.success = Some(message.clone());
+                    export_editor.error = None;
+                    success_message = Some(message);
+                }
+                Err(error) => {
+                    export_editor.success = None;
+                    export_editor.error = Some(error);
+                }
+            }
+        } else {
+            ui.ctx().request_repaint_after(std::time::Duration::from_millis(300));
+        }
+    }
+    if let Some(job) = &import_editor.job {
+        let completed = job.lock().ok().and_then(|mut value| value.take());
+        if let Some(result) = completed {
+            import_editor.job = None;
+            match result {
+                Ok((name, group)) => {
+                    import_editor.pending = Some(PendingGroupImport {
+                        suggested_name: Some(name.clone()), group,
+                    });
+                    import_editor.bundle_path = None;
+                    requested_import_name = Some(name);
+                }
+                Err(error) => import_editor.error = Some(error),
+            }
+        } else {
+            ui.ctx().request_repaint_after(std::time::Duration::from_millis(300));
+        }
+    }
     if button.clicked() {
         editor.picker_open = false;
         editor.success = None;
@@ -367,25 +408,35 @@ pub(in crate::gui) fn controls(
                     ui.horizontal(|ui| {
                         ui.radio_value(&mut export_editor.kind, GroupExportKind::Json, "JSON");
                         ui.radio_value(&mut export_editor.kind, GroupExportKind::Txt, "TXT");
-                    });
-                    ui.label(match export_editor.kind {
-                        GroupExportKind::Json => "Preserves mod order, settings and descriptions.",
-                        GroupExportKind::Txt => "One mod path or URL per line; no settings.",
-                    });
+        });
+        ui.checkbox(&mut export_editor.include_files, "Include local PAK/ZIP files (portable ZIP)");
+        if export_editor.job.is_some() {
+            ui.label("Packaging local mod files...");
+        }
+                    ui.label(if export_editor.include_files {
+            "Creates one ZIP with the selected definition and local PAK/ZIP files. Remote URLs remain links."
+        } else {
+            match export_editor.kind {
+                GroupExportKind::Json => "Preserves mod order, settings and descriptions.",
+                GroupExportKind::Txt => "One mod path or URL per line; no settings.",
+            }
+        });
                     if group_action_button(
                         ui,
                         "Export group",
                         data.groups
                             .get(&export_editor.selected)
                             .and_then(|g| g.tint_color.as_deref()),
-                        data.groups.contains_key(&export_editor.selected),
-                    )
-                    .clicked()
+                        data.groups.contains_key(&export_editor.selected) && export_editor.job.is_none(),
+        )
+        .clicked()
                     {
                         let kind = export_editor.kind;
-                        match group_export_path(&export_editor.selected, kind.extension()) {
+                        let include_files = export_editor.include_files;
+        let extension = if include_files { "zip" } else { kind.extension() };
+        match group_export_path(&export_editor.selected, extension) {
                             Ok(path) => {
-                                requested_export = Some((path, export_editor.selected.clone(), kind));
+                                requested_export = Some((path, export_editor.selected.clone(), kind, include_files));
                                 export_editor.error = None;
                             }
                             Err(error) => {
@@ -410,19 +461,31 @@ pub(in crate::gui) fn controls(
                 if let Some(error) = &import_editor.error {
                     ui.colored_label(ui.visuals().warn_fg_color, error);
                 }
-                ui.label("Import one JSON group or a MINT-style TXT mod list.");
+                ui.label("Import a JSON/TXT group or a portable ZIP with local mod files.");
                 ui.label("Imported groups are added to the active profile; existing groups are never overwritten.");
                 if files_pending {
                     ui.label("Wait for dropped files to finish before importing.");
                 }
                 if ui.add_enabled(!files_pending, Button::new("Choose file to import...")).clicked() {
                     requested_import = rfd::FileDialog::new()
-                        .add_filter("Group exports and mod lists", &["json", "txt"])
+                        .add_filter("Group exports, mod lists and packages", &["json", "txt", "zip"])
                         .pick_file();
                 }
-                if let Some(pending) = &import_editor.pending {
-                    if let Some(suggested) = &pending.suggested_name {
-                        ui.label(format!("Group in file: {suggested}"));
+                if import_editor.job.is_some() {
+            ui.label("Verifying and extracting local mod files...");
+        }
+        if import_editor.bundle_path.is_some() {
+            if let Some(folder) = configured_mod_folder.filter(|folder| folder.is_dir()) {
+                ui.label(format!(
+                    "Bundled PAK/ZIP files will be saved in a new subfolder of {}.",
+                    folder.display(),
+                ));
+            }
+        }
+        if let Some(pending) = &import_editor.pending {
+
+                        if let Some(suggested) = &pending.suggested_name {
+                            ui.label(format!("Group in file: {suggested}"));
                     } else {
                         ui.label("This file has no group name. Please enter one.");
                     }
@@ -437,13 +500,14 @@ pub(in crate::gui) fn controls(
                         );
                     }
                     ui.horizontal(|ui| {
-                        if ui.button("Cancel").clicked() {
-                            import_editor.pending = None;
+                        if ui.add_enabled(import_editor.job.is_none(), Button::new("Cancel")).clicked() {
+            import_editor.pending = None;
+            import_editor.bundle_path = None;
                             import_editor.name.clear();
                             import_editor.error = None;
                         }
                         if ui.add_enabled(
-                            !files_pending && !candidate.is_empty()
+                            !files_pending && import_editor.job.is_none() && !candidate.is_empty()
                                 && !data.groups.contains_key(candidate.as_str()),
                             Button::new("Import group"),
                         ).clicked() {
@@ -603,32 +667,46 @@ pub(in crate::gui) fn controls(
             }
         }
     }
-    if let Some((path, name, kind)) = requested_export {
-        let result = match kind {
-            GroupExportKind::Json => serialize_single_group(data, &name),
-            GroupExportKind::Txt => export_group_mod_list(data, &name),
-        }
-        .and_then(|contents| {
-            // Avoid overwriting a previous export, even if a file appeared since
-            // the unique filename was selected.
-            use std::io::Write as _;
-            std::fs::OpenOptions::new()
-                .write(true)
-                .create_new(true)
-                .open(&path)
-                .and_then(|mut file| file.write_all(contents.as_bytes()))
-                .map_err(|e| format!("Failed to save export: {e}"))
-        });
-        match result {
-            Ok(()) => {
-                let message = format!("Exported group \"{name}\" to {}", path.display());
-                export_editor.success = Some(message.clone());
-                export_editor.error = None;
-                success_message = Some(message);
-            }
-            Err(error) => {
+    if let Some((path, name, kind, include_files)) = requested_export {
+        if include_files {
+            if let Some(group) = data.groups.get(&name).cloned() {
+                let result = std::sync::Arc::new(std::sync::Mutex::new(None));
+                let worker_result = result.clone();
+                let ctx = ui.ctx().clone();
+                std::thread::spawn(move || {
+                    let outcome = super::group_package::export_bundle(
+                        &name, &group, &path, kind == GroupExportKind::Json,
+                    ).map(|()| path);
+                    if let Ok(mut slot) = worker_result.lock() { *slot = Some(outcome); }
+                    ctx.request_repaint();
+                });
+                export_editor.job = Some(result);
                 export_editor.success = None;
-                export_editor.error = Some(error);
+                export_editor.error = None;
+            } else {
+                export_editor.error = Some("The selected group no longer exists".into());
+            }
+        } else {
+            let result = match kind {
+                GroupExportKind::Json => serialize_single_group(data, &name),
+                GroupExportKind::Txt => export_group_mod_list(data, &name),
+            }.and_then(|contents| {
+                use std::io::Write as _;
+                std::fs::OpenOptions::new().write(true).create_new(true).open(&path)
+                    .and_then(|mut file| file.write_all(contents.as_bytes()))
+                    .map_err(|e| format!("Failed to save export: {e}"))
+            });
+            match result {
+                Ok(()) => {
+                    let message = format!("Exported group \"{name}\" to {}", path.display());
+                    export_editor.success = Some(message.clone());
+                    export_editor.error = None;
+                    success_message = Some(message);
+                }
+                Err(error) => {
+                    export_editor.success = None;
+                    export_editor.error = Some(error);
+                }
             }
         }
         ui.ctx().request_repaint();
@@ -636,12 +714,20 @@ pub(in crate::gui) fn controls(
     if let Some(path) = requested_import {
         match read_single_group_import(&path) {
             Ok(pending) => {
+                import_editor.bundle_path = (
+                    path.extension().and_then(|ext| ext.to_str())
+                        .is_some_and(|ext| ext.eq_ignore_ascii_case("zip"))
+                        && pending.group.mods.iter().any(|item| {
+                            item.spec.url.starts_with("mintfixed-bundle:")
+                        })
+                ).then(|| path.clone());
                 import_editor.name = pending.suggested_name.clone().unwrap_or_default();
                 import_editor.pending = Some(pending);
                 import_editor.error = None;
                 import_editor.success = None;
             }
             Err(error) => {
+                import_editor.bundle_path = None;
                 import_editor.pending = None;
                 import_editor.name.clear();
                 import_editor.success = None;
@@ -651,6 +737,35 @@ pub(in crate::gui) fn controls(
         ui.ctx().request_repaint();
     }
     if let Some(name) = requested_import_name {
+        if import_editor.pending.as_ref().is_some_and(|pending| {
+            super::group_package::group_import_requires_mod_folder(
+                &pending.group, import_editor.bundle_path.is_some(), configured_mod_folder,
+            )
+        }) {
+            import_editor.error = Some(
+                "Cannot import this group: configure a valid local mods folder in Settings first.".into(),
+            );
+        } else if let Some(archive) = import_editor.bundle_path.clone() {
+            if import_editor.job.is_none() {
+                if let Some(folder) = super::group_package::bundle_destination(configured_mod_folder) {
+                    let result = std::sync::Arc::new(std::sync::Mutex::new(None));
+                    let worker_result = result.clone();
+                    let ctx = ui.ctx().clone();
+                    std::thread::spawn(move || {
+                        let outcome = super::group_package::extract_bundle(&archive, &folder)
+                            .map(|group| (name, group));
+                        if let Ok(mut slot) = worker_result.lock() { *slot = Some(outcome); }
+                        ctx.request_repaint();
+                    });
+                    import_editor.job = Some(result);
+                    import_editor.error = None;
+                } else {
+                    import_editor.error = Some(
+                        "Cannot import this group: configure a valid local mods folder in Settings first.".into(),
+                    );
+                }
+            }
+        } else {
         if let Some(pending) = &import_editor.pending {
             // Explicit name validation. Never silently rename or overwrite a group.
             if data.groups.contains_key(&name) {
@@ -680,6 +795,7 @@ pub(in crate::gui) fn controls(
             }
         }
         ui.ctx().request_repaint();
+    }
     }
     ui.ctx().data_mut(|d| {
         d.insert_temp(export_id, export_editor);

@@ -140,6 +140,14 @@ pub(super) fn parse_single_group_json(text: &str) -> Result<PendingGroupImport, 
 pub(super) fn read_single_group_import(
     path: &std::path::Path,
 ) -> Result<PendingGroupImport, String> {
+    if path
+        .extension()
+        .and_then(|ext| ext.to_str())
+        .is_some_and(|ext| ext.eq_ignore_ascii_case("zip"))
+    {
+        return super::group_package::inspect_bundle(path);
+    }
+
     const MAX_BYTES: u64 = 8 * 1024 * 1024;
     let size = std::fs::metadata(path)
         .map_err(|e| format!("Cannot read file: {e}"))?

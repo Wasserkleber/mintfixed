@@ -45,6 +45,8 @@ impl GroupExportKind {
 struct ExportEditor {
     selected: String,
     kind: GroupExportKind,
+    include_files: bool,
+    job: Option<std::sync::Arc<std::sync::Mutex<Option<Result<std::path::PathBuf, String>>>>>,
     picker_open: bool,
     success: Option<String>,
     error: Option<String>,
@@ -59,6 +61,8 @@ pub(super) struct PendingGroupImport {
 #[derive(Clone, Default)]
 struct ImportEditor {
     pending: Option<PendingGroupImport>,
+    bundle_path: Option<std::path::PathBuf>,
+    job: Option<std::sync::Arc<std::sync::Mutex<Option<Result<(String, crate::state::ModGroup), String>>>>>,
     name: String,
     success: Option<String>,
     error: Option<String>,
