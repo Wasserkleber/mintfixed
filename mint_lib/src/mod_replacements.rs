@@ -138,14 +138,32 @@ mod tests {
         parse_json(EMBEDDED_RULES).unwrap();
     }
     #[test]
-    fn default_rule_is_forward_only_and_pins_match() {
-        let installed = ModSpecification::new("https://mod.io/g/drg/m/unified-ui#123/456".into());
-        let required = ModSpecification::new("https://mod.io/g/drg/m/mod-hub#567/891".into());
-        if rule_for_original(&required).is_some() {
-            assert!(satisfies_alternative(&installed, &required));
-            assert!(!satisfies_alternative(&required, &installed));
-            let emm = ModSpecification::new("https://mod.io/g/drg/m/emm".into());
-            assert!(satisfies_alternative(&emm, &required));
+    fn configured_rules_are_forward_only_and_pins_match() {
+        // Derive expectations from shipped JSON, not a hardcoded optional mod.
+        for rule in rules() {
+            let original = ModSpecification::new(rule.original.clone());
+            let replacement = ModSpecification::new(rule.replacement.clone());
+            assert!(satisfies_alternative(&replacement, &original));
+            assert!(!satisfies_alternative(&original, &replacement));
+
+            for url in std::iter::once(&rule.replacement).chain(rule.alternatives.iter()) {
+                let installed = ModSpecification::new(url.clone());
+                assert!(
+                    satisfies_alternative(&installed, &original),
+                    "configured alternative {url} must satisfy {}",
+                    rule.original
+                );
+                // Append a pin only to an unpinned URL.
+                if !rule.original.contains('#') {
+                    let pinned_original =
+                        ModSpecification::new(format!("{}#567/891", rule.original));
+                    assert!(satisfies_alternative(&installed, &pinned_original));
+                }
+                if !url.contains('#') {
+                    let pinned_installed = ModSpecification::new(format!("{url}#123/456"));
+                    assert!(satisfies_alternative(&pinned_installed, &original));
+                }
+            }
         }
     }
     #[test]

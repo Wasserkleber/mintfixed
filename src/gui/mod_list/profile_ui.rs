@@ -66,40 +66,6 @@ impl App {
         };
 
         let mut ui_profile = |ui: &mut Ui, profile: &mut ModProfile| {
-            let enabled_specs = profile
-                .mods
-                .iter()
-                .enumerate()
-                .flat_map(|(i, m)| -> Box<dyn Iterator<Item = _>> {
-                    match m {
-                        ModOrGroup::Individual(mc) => Box::new(
-                            mc.enabled
-                                .then_some(((None, i), mc.spec.clone()))
-                                .into_iter(),
-                        ),
-                        ModOrGroup::Group {
-                            group_name,
-                            enabled,
-                            member_overrides,
-                            ..
-                        } => Box::new(
-                            enabled
-                                .then(|| groups.get(group_name))
-                                .flatten()
-                                .into_iter()
-                                .flat_map(move |g| {
-                                    g.mods.iter().enumerate().filter_map(move |(index, mc)| {
-                                        member_overrides.enabled(mc).then_some((
-                                            (Some(group_name.clone()), index),
-                                            mc.spec.clone(),
-                                        ))
-                                    })
-                                }),
-                        ),
-                    }
-                })
-                .collect::<Vec<_>>();
-
             let group_tint_snapshot: std::collections::BTreeMap<String, Option<String>> = groups
                 .iter()
                 .map(|(name, group)| (name.clone(), group.tint_color.clone()))
@@ -347,6 +313,7 @@ impl App {
                     match self.state.mod_data.save() {
                         Ok(()) => {
                             ctx.needs_save = false;
+                            ui.ctx().request_repaint();
                         }
                         Err(error) => {
                             *self.state.mod_data.deref_mut().deref_mut() = before;
@@ -375,6 +342,7 @@ impl App {
 
         if ctx.needs_save {
             self.state.mod_data.save().unwrap();
+            ui.ctx().request_repaint();
         }
         ctx.file_group
     }

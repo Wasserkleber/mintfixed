@@ -1,6 +1,8 @@
 |ctx: &mut Ctx,
                  ui: &mut Ui,
                  group: Option<&str>,
+                 group_entry_id: Option<&str>,
+                 parent_enabled: bool,
                  row_index: usize,
                  mc: &mut ModConfig,
                  overrides: Option<&mut MemberOverrides>| {
@@ -154,19 +156,13 @@
                             ui.ctx().copy_text(mc.spec.url.to_string());
                         }
 
-                        if enabled {
+                        if enabled && parent_enabled {
                             // ModHub requirements can be fulfilled by one enabled alternative.
-                            let missing_deps = info
-                                .suggested_dependencies
-                                .iter()
-                                .filter(|d| {
-                                    !enabled_specs.iter().any(|(_, s)| s.satisfies_dependency(d))
-                                })
-                                .collect::<Vec<_>>();
+                            let missing_deps = issues.missing_dependencies(group_entry_id, &mc.id);
 
                             if !missing_deps.is_empty() {
                                 let mut msg = "Add missing dependencies:".to_string();
-                                for dep in &missing_deps {
+                                for dep in missing_deps {
                                     msg.push('\n');
                                     if let Some(rule) = dep.replacement_rule() {
                                         if rule.dependency_warning.is_empty() {

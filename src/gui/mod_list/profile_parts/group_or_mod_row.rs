@@ -27,7 +27,7 @@
                 match mc {
                     ModOrGroup::Individual(mc) => {
                         let row = ui.push_id(("mod", row_index), |ui| {
-                            ui_mod(ctx, ui, None, row_index, mc, None);
+                            ui_mod(ctx, ui, None, None, true, row_index, mc, None);
                         });
                         if ctx.show_target.as_ref().is_some_and(|t| t.group_entry_id.is_none() && t.mod_id == mc.id) {
                             row.response.scroll_to_me(Some(egui::Align::Center));
@@ -224,6 +224,8 @@ ui.push_id(("group", group_name.as_str(), index), |ui| {
                                                 ctx,
                                                 ui,
                                                 Some(group_name),
+                                                Some(group_entry_id.as_str()),
+                                                *enabled,
                                                 index,
                                                 &mut group.mods[index],
                                                 Some(member_overrides),

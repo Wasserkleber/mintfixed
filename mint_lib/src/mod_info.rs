@@ -71,6 +71,13 @@ impl ModSpecification {
     pub fn replacement_rule(&self) -> Option<&'static crate::mod_replacements::ReplacementRule> {
         crate::mod_replacements::rule_for_original(self)
     }
+    /// The canonical mod.io identity used by `satisfies_dependency`.
+    /// Exposed so bulk dependency checks can index the same identities without
+    /// duplicating or changing the URL-parsing rules.
+    pub fn dependency_identity(&self) -> Option<(&str, Option<u32>)> {
+        modio_dependency_identity(&self.url)
+    }
+
     pub fn satisfies_dependency(&self, other: &ModSpecification) -> bool {
         self.matches_identity(other) || crate::mod_replacements::satisfies_alternative(self, other)
     }
