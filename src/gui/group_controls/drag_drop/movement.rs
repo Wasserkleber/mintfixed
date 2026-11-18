@@ -1,13 +1,74 @@
 impl Drag {
+
+    // multi-preview-v3: preview every selected row, not just the grabbed row.
+    // Row hitboxes and drop targets stay in their original scroll-list positions.
     pub fn paint_row<R>(
         ui: &mut Ui,
         profile: &str,
         group: Option<&str>,
         index: usize,
+        key: &str,
         draw: impl FnOnce(&mut Ui) -> R,
     ) -> R {
-        let active = egui::DragAndDrop::payload::<Self>(ui.ctx()).is_some_and(|drag| {
-            drag.profile == profile && drag.group.as_deref() == group && drag.index == index
+        let drag = egui::DragAndDrop::payload::<Self>(ui.ctx());
+        let batch = drag.as_ref().and_then(|source| {
+            if source.profile != profile || source.is_group {
+                return None;
+            }
+            let ids = Self::dragged_mod_ids(ui.ctx(), source);
+            if ids.len() < 2 {
+                return None;
+            }
+            ids.iter()
+                .position(|id| id == key)
+                .map(|position| (position, ids.len(), source.key == key))
+        });
+
+        if let Some((position, count, is_source)) = batch {
+            let Some(pointer) = ui.input(|i| i.pointer.interact_pos()) else {
+                return draw(ui);
+            };
+            // A unique layer per mod is essential: transforming a shared layer
+            // repeatedly would shift previously drawn rows a second time.
+            let layer = egui::LayerId::new(
+                egui::Order::Tooltip,
+                ui.id().with(("moving-row", profile, key)),
+            );
+            let painted = ui.scope_builder(egui::UiBuilder::new().layer_id(layer), draw);
+            let rect = painted.response.rect;
+            // Form a compact vertical stack near the pointer. The row contents
+            // (name, version, color and warnings) are still their actual UI.
+            let stride = rect.height().max(28.0) + 4.0;
+            let desired = egui::pos2(
+                pointer.x - 22.0,
+                pointer.y + 24.0 + position as f32 * stride,
+            );
+            ui.ctx().transform_layer_shapes(
+                layer,
+                egui::emath::TSTransform::from_translation(desired - rect.min),
+            );
+            if is_source {
+                let counter_layer = egui::LayerId::new(
+                    egui::Order::Tooltip,
+                    ui.id().with(("moving-count", profile)),
+                );
+                ui.ctx().layer_painter(counter_layer).text(
+                    pointer + egui::vec2(16.0, 4.0),
+                    egui::Align2::LEFT_TOP,
+                    format!("{count} mods"),
+                    egui::FontId::proportional(13.0),
+                    ui.visuals().selection.stroke.color,
+                );
+            }
+            return painted.inner;
+        }
+
+        // Keep the pre-existing single-mod and group drag behavior unchanged.
+        let active = drag.is_some_and(|source| {
+            source.profile == profile
+                && source.group.as_deref() == group
+                && source.index == index
+                && source.key == key
         });
         if !active {
             return draw(ui);
@@ -16,7 +77,6 @@ impl Drag {
         let Some((pointer, press_origin)) = positions else {
             return draw(ui);
         };
-        // Move only the paint. Keep layout and drop targets in their saved positions.
         let layer = egui::LayerId::new(egui::Order::Tooltip, ui.id().with("moving-row"));
         let painted = ui.scope_builder(egui::UiBuilder::new().layer_id(layer), draw);
         let current_row = painted.response.rect.min;
@@ -37,10 +97,13 @@ impl Drag {
             current_row
         });
         let delta = drag_paint_translation(pointer, press_origin, initial_row, current_row);
-        ui.ctx()
-            .transform_layer_shapes(layer, egui::emath::TSTransform::from_translation(delta));
+        ui.ctx().transform_layer_shapes(
+            layer,
+            egui::emath::TSTransform::from_translation(delta),
+        );
         painted.inner
     }
+
 
     pub fn handle(
         ui: &mut Ui,
@@ -52,7 +115,7 @@ impl Drag {
     ) {
         let (rect, response) = ui.allocate_exact_size(
             egui::vec2(18.0, ui.spacing().interact_size.y),
-            egui::Sense::drag(),
+            egui::Sense::click_and_drag(),
         );
         let center = rect.center();
         for offset in [-4.0, 0.0, 4.0] {
@@ -64,7 +127,30 @@ impl Drag {
         }
         let response = response.on_hover_cursor(egui::CursorIcon::Grab);
 
+        // Multi-selection is controlled by the grip only. Existing drag
+        // payload, row painting and boundary behavior remain unchanged.
+        if !is_group {
+            Self::register_visible(ui.ctx(), profile, key);
+        }
+        let selected = !is_group && Self::is_selected(ui.ctx(), profile, key);
+        if selected {
+            ui.painter().rect_stroke(
+                rect,
+                egui::CornerRadius::same(3),
+                ui.visuals().selection.stroke,
+                egui::StrokeKind::Inside,
+            );
+        }
+        let response = if is_group {
+            response
+        } else {
+            response.on_hover_text("Drag to move; Ctrl+click to select; Shift+click for a range")
+        };
+        if !is_group && response.clicked() {
+            Self::selection_click(ui.ctx(), profile, key);
+        }
         if response.drag_started() {
+            Self::selection_drag_started(ui.ctx(), profile, key, is_group);
             // Reset the preview origin for every drag, even if it begins at the
             // same cursor coordinates as the previous drag.
             ui.ctx().data_mut(|data| {

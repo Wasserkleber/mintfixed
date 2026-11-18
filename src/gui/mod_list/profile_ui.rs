@@ -13,6 +13,7 @@ impl App {
             sorting_config = None;
         }
 
+        Drag::begin_selection_frame(ui, profile_name, sorting_config.is_none());
         let revision = (
             self.state.mod_data.revision(),
             self.state.store.metadata_revision(),
@@ -204,19 +205,31 @@ impl App {
                         ),
                         _ => mod_list_style::row_frame(ui, index, false, None, false, false),
                     };
-                    let row = Drag::paint_row(ui, profile_name, None, index, |ui| {
-                        frame.show(ui, |ui| {
-                            ui.set_min_width(ui.available_width());
-                            ui.horizontal(|ui| {
-                                let (key, is_group) = match item {
-                                    ModOrGroup::Individual(mc) => (mc.id.as_str(), false),
-                                    ModOrGroup::Group { id, .. } => (id.as_str(), true),
-                                };
-                                Drag::handle(ui, profile_name, None, index, key, is_group);
-                                ui_item(&mut ctx, ui, item, index);
-                            });
-                        })
-                    });
+                    let frame = if matches!(&*item, ModOrGroup::Individual(mc)
+                        if Drag::is_selected(ui.ctx(), profile_name, &mc.id))
+                    {
+                        frame.stroke(egui::Stroke::new(1.5, ui.visuals().selection.stroke.color))
+                    } else {
+                        frame
+                    };
+                    let drag_preview_key = match &*item {
+                        ModOrGroup::Individual(mc) => mc.id.clone(),
+                        ModOrGroup::Group { id, .. } => id.clone(),
+                    };
+                    let row =
+                        Drag::paint_row(ui, profile_name, None, index, &drag_preview_key, |ui| {
+                            frame.show(ui, |ui| {
+                                ui.set_min_width(ui.available_width());
+                                ui.horizontal(|ui| {
+                                    let (key, is_group) = match item {
+                                        ModOrGroup::Individual(mc) => (mc.id.as_str(), false),
+                                        ModOrGroup::Group { id, .. } => (id.as_str(), true),
+                                    };
+                                    Drag::handle(ui, profile_name, None, index, key, is_group);
+                                    ui_item(&mut ctx, ui, item, index);
+                                });
+                            })
+                        });
                     // The group header already handles its three drop zones.
                     // Do not paint a second, competing profile-row marker on top
                     // of its highlight. Still handle gaps between rows and group drags.
@@ -305,8 +318,28 @@ impl App {
         if let Some((source, dest)) = ctx.drag {
             let before = self.state.mod_data.deref().deref().clone();
             let destination_group = dest.group.clone();
-            match source.apply(&mut self.state.mod_data, profile, dest, &self.state.store) {
-                Ok(()) => {
+            let selected_ids = Drag::dragged_mod_ids(ui.ctx(), &source);
+            let batch_size = selected_ids.len();
+            let result = if !source.is_group && batch_size > 1 {
+                source.apply_batch(
+                    &mut self.state.mod_data,
+                    profile,
+                    dest,
+                    &self.state.store,
+                    &selected_ids,
+                )
+            } else {
+                source
+                    .apply(&mut self.state.mod_data, profile, dest, &self.state.store)
+                    .map(|_| (1, 0))
+            };
+            match result {
+                Ok((moved, skipped)) => {
+                    if skipped > 0 {
+                        self.last_action = Some(LastAction::success(format!(
+                            "Moved {moved} mods; skipped {skipped} duplicate(s)"
+                        )));
+                    }
                     if let Some(name) = destination_group {
                         self.groups_to_open.insert((profile.to_owned(), name));
                         ui.ctx().request_repaint();

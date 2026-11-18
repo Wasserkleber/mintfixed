@@ -189,7 +189,8 @@
                                     if bitfix_menu::is_lua_spec(&group.mods[index].spec) {
                                         continue;
                                     }
-                                    let member = Drag::paint_row(ui, profile_name, Some(group_name), index, |ui| {
+                                    let drag_preview_key = group.mods[index].id.clone();
+                                    let member = Drag::paint_row(ui, profile_name, Some(group_name), index, &drag_preview_key, |ui| {
                                         mod_list_style::row_frame(ui, visual_index, false, selected_group_tint.as_deref(), true, false)
                                             .show(ui, |ui| {
                                                 ui.set_min_width(ui.available_width());
@@ -225,6 +226,14 @@ ui.push_id(("group", group_name.as_str(), index), |ui| {
                                             })
                                             .inner
                                     });
+                                    if Drag::is_selected(ui.ctx(), profile_name, &group.mods[index].id) {
+                                        ui.painter().rect_stroke(
+                                            member.response.rect,
+                                            egui::CornerRadius::same(3),
+                                            ui.visuals().selection.stroke,
+                                            egui::StrokeKind::Inside,
+                                        );
+                                    }
                                     // Wait for the expansion animation so scrolling uses the full row position.
                                     if fully_open && ctx.show_target.as_ref().is_some_and(|t|
                                         t.group_entry_id.as_ref() == Some(&*group_entry_id) && t.mod_id == group.mods[index].id) {
