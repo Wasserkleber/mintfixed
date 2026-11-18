@@ -16,17 +16,17 @@ use crate::state::ModGroup;
 
 const FORMAT: &str = "mintfixed-group-package";
 const VERSION: u32 = 1;
-const PREFIX: &str = "mintfixed-bundle:";
-const MAX_FILES: usize = 1000;
-const MAX_TOTAL: u64 = 8 * 1024 * 1024 * 1024;
-const MAX_DEFINITION: u64 = 8 * 1024 * 1024;
-const MAX_MANIFEST: u64 = 512 * 1024;
+pub(crate) const PREFIX: &str = "mintfixed-bundle:";
+pub(crate) const MAX_FILES: usize = 1000;
+pub(crate) const MAX_TOTAL: u64 = 8 * 1024 * 1024 * 1024;
+pub(crate) const MAX_DEFINITION: u64 = 8 * 1024 * 1024;
+pub(crate) const MAX_MANIFEST: u64 = 512 * 1024;
 
 #[derive(Clone, Serialize, Deserialize)]
-struct IncludedFile {
-    path: String,
-    size: u64,
-    sha256: String,
+pub(crate) struct IncludedFile {
+    pub(crate) path: String,
+    pub(crate) size: u64,
+    pub(crate) sha256: String,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -43,7 +43,7 @@ struct Preview {
     group: ModGroup,
 }
 
-fn local_archive(url: &str) -> bool {
+pub(crate) fn local_archive(url: &str) -> bool {
     if url.starts_with("http://") || url.starts_with("https://") {
         return false;
     }
@@ -51,7 +51,7 @@ fn local_archive(url: &str) -> bool {
     matches!(extension, Some(ext) if ext.eq_ignore_ascii_case("pak") || ext.eq_ignore_ascii_case("zip"))
 }
 
-fn safe_component(value: &str) -> String {
+pub(crate) fn safe_component(value: &str) -> String {
     let sanitized: String = value
         .chars()
         .take(90)
@@ -72,7 +72,7 @@ fn safe_component(value: &str) -> String {
     }
 }
 
-fn bundle_filename(index: usize, url: &str) -> Result<String, String> {
+pub(crate) fn bundle_filename(index: usize, url: &str) -> Result<String, String> {
     let original = url.rsplit(['/', '\\']).next().unwrap_or_default();
     let extension = Path::new(original)
         .extension()
@@ -97,7 +97,7 @@ fn bundle_filename(index: usize, url: &str) -> Result<String, String> {
     ))
 }
 
-fn safe_archive_path(path: &str) -> bool {
+pub(crate) fn safe_archive_path(path: &str) -> bool {
     if !path.starts_with("mods/") {
         return false;
     }
@@ -111,7 +111,7 @@ fn safe_archive_path(path: &str) -> bool {
         && matches!(Path::new(file).extension().and_then(|e| e.to_str()), Some(e) if e.eq_ignore_ascii_case("pak") || e.eq_ignore_ascii_case("zip"))
 }
 
-fn copy_and_hash<R: Read, W: Write>(
+pub(crate) fn copy_and_hash<R: Read, W: Write>(
     input: &mut R,
     output: &mut W,
     limit: u64,

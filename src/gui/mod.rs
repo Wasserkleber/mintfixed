@@ -55,6 +55,8 @@ mod named_combobox;
 mod profile_import;
 #[path = "profiles/profile_management.rs"]
 mod profile_management;
+#[path = "profiles/profile_package.rs"]
+mod profile_package;
 #[path = "runtime/request_counter.rs"]
 mod request_counter;
 #[path = "widgets/toggle_switch.rs"]

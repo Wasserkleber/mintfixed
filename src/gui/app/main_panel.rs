@@ -36,8 +36,9 @@ impl App {
             };
 
             let mut imported_profile = None;
+            let profile_mod_folder = self.state.config.local_mod_folder.clone();
             let profile_import_button = |ui: &mut Ui, mod_data: &mut ModData, modified: &mut bool| {
-                imported_profile = profile_import::ui_inline(ui, mod_data, modified);
+                imported_profile = profile_import::ui_inline(ui, mod_data, modified, profile_mod_folder.as_deref());
             };
             let mut copy_feedback: Option<Result<String, String>> = None;
             let profile_copy_button = |ui: &mut Ui, mod_data: &mut ModData| {

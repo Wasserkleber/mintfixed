@@ -2,7 +2,7 @@ use super::*;
 use crate::state::{ModData_v0_1_0 as Data, ModProfile_v0_1_0 as Profile};
 
 mod drag_drop;
-mod group_package;
+pub(super) mod group_package;
 mod import_export;
 mod management;
 
