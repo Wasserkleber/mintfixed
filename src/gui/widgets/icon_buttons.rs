@@ -122,6 +122,62 @@ pub(super) fn warning_button(ui: &mut Ui, _group_color: Option<Color32>) -> egui
     .inner
 }
 
+/// Non-clickable error marker for unavailable or otherwise problematic mods.
+/// Styled like other 20x18 mod-row SVG controls, without a click action.
+fn mod_error_indicator(ui: &mut Ui, sense: egui::Sense) -> egui::Response {
+    // Shared passive/clickable red error indicator. Match the delete icon's
+    // background and hover palette in dark and light modes.
+    let (background, hovered_background, glyph, hovered_glyph) = if ui.visuals().dark_mode {
+        (
+            Color32::from_rgb(58, 41, 44),
+            Color32::from_rgb(84, 44, 49),
+            Color32::from_rgb(217, 107, 112),
+            Color32::from_rgb(240, 90, 96),
+        )
+    } else {
+        (
+            Color32::from_rgb(247, 231, 233),
+            Color32::from_rgb(243, 206, 210),
+            Color32::from_rgb(184, 65, 73),
+            Color32::from_rgb(215, 51, 63),
+        )
+    };
+
+    let (rect, response) = ui.allocate_exact_size(egui::vec2(20.0, 18.0), sense);
+    let hovered = response.hovered();
+    ui.painter().rect_filled(
+        rect,
+        2.0,
+        if hovered {
+            hovered_background
+        } else {
+            background
+        },
+    );
+
+    // Painting the image separately avoids a second interactable widget.
+    egui::Image::new(egui::include_image!("../../../assets/icons/mod_error.svg"))
+        .fit_to_exact_size(egui::vec2(14.0, 14.0))
+        .tint(if hovered { hovered_glyph } else { glyph })
+        .paint_at(
+            ui,
+            egui::Rect::from_center_size(rect.center(), egui::vec2(14.0, 14.0)),
+        );
+
+    response
+}
+
+/// Passive error marker for unavailable or otherwise problematic mod rows,
+/// including the unavailable-member indicator on group headers.
+pub(super) fn mod_error_badge(ui: &mut Ui) -> egui::Response {
+    mod_error_indicator(ui, egui::Sense::hover())
+}
+
+/// Clickable error marker used to open the global unavailable-mod overview.
+pub(super) fn mod_error_button(ui: &mut Ui) -> egui::Response {
+    mod_error_indicator(ui, egui::Sense::click()).on_hover_cursor(egui::CursorIcon::PointingHand)
+}
+
 /// Non-interactive provider icon for local-file mods.
 /// Matches the compact mod-row controls without adding borders or row padding.
 /// Passive file-type marker: not a clickable control and no button-style fill.

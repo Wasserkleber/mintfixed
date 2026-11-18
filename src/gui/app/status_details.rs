@@ -78,7 +78,36 @@ impl App {
             }
             self.edit_history
                 .reset(&self.state.mod_data, self.state.mod_data.revision());
-            self.search_string.clear();
+            // Use the normal search highlighting, while retaining the exact-ID
+            // scroll target so duplicate names cannot redirect navigation.
+            let member =
+                if let Some(group) = &target.group {
+                    self.state.mod_data.groups.get(group).and_then(|group| {
+                        group.mods.iter().find(|member| member.id == target.mod_id)
+                    })
+                } else {
+                    self.state
+                        .mod_data
+                        .profiles
+                        .get(&target.profile)
+                        .and_then(|profile| {
+                            profile.mods.iter().find_map(|entry| match entry {
+                                ModOrGroup::Individual(member) if member.id == target.mod_id => {
+                                    Some(member)
+                                }
+                                _ => None,
+                            })
+                        })
+                };
+            self.search_string = member
+                .map(|member| {
+                    self.state
+                        .store
+                        .get_mod_info(&member.spec)
+                        .map(|info| info.name)
+                        .unwrap_or_else(|| member.spec.url.clone())
+                })
+                .unwrap_or_default();
             self.scroll_to_match = false;
             if let Some(group) = &target.group {
                 self.groups_to_open
@@ -128,10 +157,17 @@ impl App {
             return;
         }
         ui.horizontal(|ui| {
-            let hint = "Show unavailable entries across all saved profiles and groups, including disabled entries. Shared mods are counted once per saved location.";
-            let icon = icon_buttons::warning_button(ui, None).on_hover_text(hint);
-            let label = ui.add(egui::Label::new(format!("{count} unavailable {}", if count == 1 { "entry" } else { "entries" }))
-                .sense(egui::Sense::click())).on_hover_text(hint);
+            let hint = "Click to see which mods are unavailable on mod.io.";
+            let icon = icon_buttons::mod_error_button(ui).on_hover_text(hint);
+            let label = ui
+                .add(
+                    egui::Label::new(format!(
+                        "{count} unavailable {}",
+                        if count == 1 { "entry" } else { "entries" }
+                    ))
+                    .sense(egui::Sense::click()),
+                )
+                .on_hover_text(hint);
             if icon.clicked() || label.clicked() {
                 self.open_unavailable_overview();
                 ui.ctx().request_repaint();

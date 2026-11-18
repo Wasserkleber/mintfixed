@@ -48,19 +48,23 @@
                     }
 
                     let info = self.state.store.get_mod_info(&mc.spec);
-                    if self.state.store.is_modio_unavailable(&mc.spec) {
-                        icon_buttons::warning_button(ui, group_control_tint)
-                            .on_hover_text("Unavailable on mod.io. Cached metadata and downloaded mod files were preserved; other mod updates can continue.");
-                    }
-                    if let Some(ref info) = info
-                        && let Some(modio_id) = info.modio_id
-                        && self.problematic_mod_id.is_some_and(|id| id == modio_id)
-                    {
-                        let icon = egui::Button::new(RichText::new("❌").color(Color32::WHITE))
-                            .fill(Color32::RED);
-                        ui.add_enabled(false, icon);
-                    }
+                    let unavailable = self.state.store.is_modio_unavailable(&mc.spec);
+                    let problematic = info
+                        .as_ref()
+                        .and_then(|info| info.modio_id)
+                        .is_some_and(|id| self.problematic_mod_id == Some(id));
 
+                    // Display one error icon even when both conditions apply. Keep the distinction
+                    // in the tooltip and leave duplicate/dependency warnings unchanged.
+                    if unavailable || problematic {
+                        let message = match (unavailable, problematic) {
+                            (true, true) => "Unavailable on mod.io (cached data and files preserved). This mod was also flagged as problematic.",
+                            (true, false) => "Unavailable on mod.io. Cached metadata and downloaded mod files were preserved; other mod updates can continue.",
+                            (false, true) => "This mod was flagged as problematic.",
+                            (false, false) => unreachable!(),
+                        };
+                        icon_buttons::mod_error_badge(ui).on_hover_text(message);
+                    }
                     if enabled && let Some(req) = &self.integrate_rid {
                         match req.state.get(&mc.spec) {
                             Some(SpecFetchProgress::Progress { progress, size }) => {

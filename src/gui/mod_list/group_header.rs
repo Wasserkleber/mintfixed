@@ -58,7 +58,7 @@ pub(super) fn render_contents(
         .weak(),
     );
     if let Some(tooltip) = unavailable_group_tooltip {
-        icon_buttons::warning_button(ui, None).on_hover_text_at_pointer(tooltip);
+        icon_buttons::mod_error_badge(ui).on_hover_text_at_pointer(tooltip);
     }
 
     let mut requested_color: Option<Option<String>> = None;
