@@ -24,11 +24,11 @@ a user's profiles.
          "original": "https://mod.io/g/drg/m/mod-hub",
          "original_name": "ModHub",
          "replacement": "https://mod.io/g/drg/m/unified-ui",
-         "replacement_name": "Unified UI (UUI)",
+         "replacement_name": "Unified UI",
          "alternatives": [
-           "https://mod.io/g/drg/m/emm"
+           "https://mod.io/g/drg/m/test"
          ],
-         "description": "Unified UI replaces ModHub for most mods, but not all mods are compatible.",
+         "description": "Unified UI replaces ModHub while being more performant.",
          "dependency_warning": "A mod settings menu (e.g. Unified UI) is needed. Click to add the recommended replacement."
        }
      ]
