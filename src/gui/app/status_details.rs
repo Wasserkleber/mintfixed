@@ -3,6 +3,13 @@ use super::*;
 impl App {
     pub(super) fn frame_status_details(&mut self, ctx: &egui::Context) {
         let mut show = None;
+        let mut refresh_cache = false;
+        if self.status_details.is_some() {
+            let store = &self.state.store;
+            unavailable_mods::check_downloads(&mut self.status_locations, false, |spec| {
+                store.has_cached_modio_download(spec)
+            });
+        }
         if let Some(details) = self.status_details.as_ref() {
             let mut open = true;
             let busy = self.integrate_rid.is_some()
@@ -17,7 +24,12 @@ impl App {
                 .default_width(540.0)
                 .show(ctx, |ui| {
                     if ui.button("Copy message").clicked() {
-                        ui.ctx().copy_text(details.clone());
+                        ui.ctx().copy_text(unavailable_mods::copy_details(details, &self.status_locations));
+                    }
+                    if !self.status_locations.is_empty() {
+                        refresh_cache = ui.button("Refresh cache status")
+                            .on_hover_text("Check the listed versions on disk again. Does not download anything.")
+                            .clicked();
                     }
                     ui.separator();
                     egui::ScrollArea::vertical()
@@ -51,7 +63,14 @@ impl App {
                                         .on_hover_text(hint).clicked() {
                                         show = target;
                                     }
-                                    ui.add(egui::Label::new(&location.label).wrap());
+                                    ui.vertical(|ui| {
+                                        ui.add(egui::Label::new(&location.label).wrap());
+                                        let color = if location.is_cached() {
+                                            ui.visuals().text_color()
+                                        } else { ui.visuals().warn_fg_color };
+                                        ui.colored_label(color, location.cache_status())
+                                            .on_hover_text("Checks the version listed here. Cached files still undergo the normal installation checks.");
+                                    });
                                 });
                             }
                             if !after.trim().is_empty() {
@@ -65,6 +84,13 @@ impl App {
                 self.status_locations.clear();
                 self.live_unavailable_details = false;
             }
+        }
+        if refresh_cache {
+            let store = &self.state.store;
+            unavailable_mods::check_downloads(&mut self.status_locations, true, |spec| {
+                store.has_cached_modio_download(spec)
+            });
+            ctx.request_repaint();
         }
         if let Some(target) = show {
             let previous = self.state.mod_data.active_profile.clone();

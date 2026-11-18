@@ -7,6 +7,8 @@ use crate::state::{ModData_v0_1_0, ModOrGroup};
 pub(super) struct Location {
     pub label: String,
     pub target: Option<Target>,
+    pub spec: ModSpecification,
+    cached_download: Option<bool>,
 }
 
 #[derive(Clone, Debug)]
@@ -67,6 +69,8 @@ pub(super) fn entries(
             match entry {
                 ModOrGroup::Individual(member) if unavailable(&member.spec) => {
                     locations.push(Location {
+                        spec: member.spec.clone(),
+                        cached_download: None,
                         label: format!(
                             "{} — profile {:?}\n  {}",
                             name(&member.spec),
@@ -86,6 +90,8 @@ pub(super) fn entries(
                         for member in &group.mods {
                             if unavailable(&member.spec) {
                                 locations.push(Location {
+                                    spec: member.spec.clone(),
+                                    cached_download: None,
                                     label: format!(
                                         "{} — profile {:?}, group {:?}\n  {}",
                                         name(&member.spec),
@@ -112,6 +118,8 @@ pub(super) fn entries(
             for member in &group.mods {
                 if unavailable(&member.spec) {
                     locations.push(Location {
+                        spec: member.spec.clone(),
+                        cached_download: None,
                         label: format!(
                             "{} — group {:?} (not used by any profile)\n  {}",
                             name(&member.spec),
@@ -203,6 +211,8 @@ pub(super) fn install_blockers(
             .map(|(_, name)| format!(", group {name:?}"))
             .unwrap_or_default();
         result.push(Location {
+            spec: member.spec.clone(),
+            cached_download: None,
             label: format!(
                 "{} — profile {:?}{}\n  {}",
                 name(&member.spec),
@@ -238,4 +248,49 @@ pub(super) fn install_blockers(
         }
     }
     result
+}
+
+impl Location {
+    pub fn cache_status(&self) -> &'static str {
+        match self.cached_download {
+            Some(true) => "Cached — can install",
+            Some(false) => "Not cached — disable or replace",
+            None => "Cache status not checked",
+        }
+    }
+
+    pub fn is_cached(&self) -> bool {
+        self.cached_download == Some(true)
+    }
+}
+
+/// Check on opening/explicit refresh, never repeatedly stat files on idle frames.
+/// Keep the exact listed specification; historical reports must not silently
+/// substitute a different version selected since the report was generated.
+pub(super) fn check_downloads(
+    locations: &mut [Location],
+    force: bool,
+    mut has_download: impl FnMut(&ModSpecification) -> bool,
+) {
+    let mut checked = std::collections::HashMap::new();
+    for location in locations {
+        if force || location.cached_download.is_none() {
+            let cached = *checked
+                .entry(location.spec.clone())
+                .or_insert_with(|| has_download(&location.spec));
+            location.cached_download = Some(cached);
+        }
+    }
+}
+
+pub(super) fn copy_details(details: &str, locations: &[Location]) -> String {
+    if locations.is_empty() {
+        return details.to_owned();
+    }
+    let cache_status = locations
+        .iter()
+        .map(|location| format!("{}\n  {}", location.label, location.cache_status()))
+        .collect::<Vec<_>>()
+        .join("\n\n");
+    format!("{details}\n\nDownload cache status (listed versions):\n\n{cache_status}")
 }

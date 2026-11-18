@@ -294,3 +294,54 @@ fn unavailable_preflight_respects_profile_selection_and_group_overrides() {
     );
     assert_eq!(blockers.len(), 1);
 }
+
+#[test]
+fn unavailable_download_status_checks_listed_versions_and_refreshes_on_request() {
+    use crate::state::{ModData_v0_1_0, ModProfile_v0_1_0};
+    let mut data = ModData_v0_1_0::default();
+    data.profiles.clear();
+    data.groups.clear();
+    let first = mod_config("https://mod.io/g/drg/m/example#7/41");
+    let second = mod_config("https://mod.io/g/drg/m/example#7/42");
+    data.profiles.insert(
+        "A".into(),
+        ModProfile_v0_1_0 {
+            mods: vec![
+                ModOrGroup::Individual(first.clone()),
+                ModOrGroup::Individual(second.clone()),
+            ],
+            ..Default::default()
+        },
+    );
+    data.groups.insert(
+        "Unused".into(),
+        ModGroup {
+            mods: vec![first.clone()],
+            ..Default::default()
+        },
+    );
+    let mut locations = unavailable_mods::entries(&data, |_| true, |_| "Example".into());
+    let report = unavailable_mods::describe(&locations);
+    let mut checks = 0;
+    unavailable_mods::check_downloads(&mut locations, false, |spec| {
+        checks += 1;
+        spec == &first.spec
+    });
+    assert_eq!(checks, 2); // shared specifications require one disk check
+    assert_eq!(
+        locations.iter().filter(|entry| entry.is_cached()).count(),
+        2
+    );
+    assert!(locations.iter().any(|entry| entry.spec == second.spec
+        && entry.cache_status() == "Not cached — disable or replace"));
+    unavailable_mods::check_downloads(&mut locations, false, |_| panic!("idle disk check"));
+    let copied = unavailable_mods::copy_details(&report, &locations);
+    assert!(copied.contains("Cached — can install"));
+    assert!(copied.contains("Not cached — disable or replace"));
+    // Cache annotation must not break status-details report splitting.
+    assert_eq!(unavailable_mods::describe(&locations), report);
+    unavailable_mods::check_downloads(&mut locations, true, |_| false);
+    assert!(locations.iter().all(|entry| !entry.is_cached()));
+    unavailable_mods::check_downloads(&mut locations, true, |_| true);
+    assert!(locations.iter().all(|entry| entry.is_cached()));
+}
