@@ -239,6 +239,13 @@ pub(super) fn ui_inline(ui: &mut egui::Ui, data: &mut Data, modified: &mut bool)
             match import_profile(data, &editor.json, &editor.name) {
                 Ok(name) => {
                     *modified = true;
+                    let missing =
+                        crate::gui::missing_local_files::profile_missing_paths(data, &name);
+                    crate::gui::missing_local_files::notify(
+                        ui.ctx(),
+                        crate::gui::missing_local_files::Origin::Profile(name.clone()),
+                        missing,
+                    );
                     success = Some(format!("Imported profile \"{name}\" with its groups."));
                     editor = ImportEditor::default();
                     ui.memory_mut(|mem| mem.close_popup());

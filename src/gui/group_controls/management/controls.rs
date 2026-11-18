@@ -659,6 +659,12 @@ pub(in crate::gui) fn controls(
                 match import_groups(data, source) {
                     Ok(_) => {
                         changed = true;
+                        let missing = crate::gui::missing_local_files::group_missing_paths(&data.groups[&name]);
+                        crate::gui::missing_local_files::notify(
+                            ui.ctx(),
+                            crate::gui::missing_local_files::Origin::Group(name.clone()),
+                            missing,
+                        );
                         let message = format!("Imported group \"{name}\" into the active profile.");
                         import_editor.pending = None;
                         import_editor.name.clear();

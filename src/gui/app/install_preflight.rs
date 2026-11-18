@@ -6,6 +6,41 @@ impl App {
     pub(super) fn preflight_unavailable_mods(&mut self, after_cache_update: bool) -> bool {
         let data = &self.state.mod_data;
         let store = &self.state.store;
+        // Nonexistent local files should never be discovered only after an
+        // installation has started. Disabled entries are not blockers.
+        let missing_files = unavailable_mods::install_blockers(
+            data,
+            &data.active_profile,
+            |spec| missing_local_files::is_missing_local_path(&spec.url),
+            |spec| spec.url.clone(),
+        );
+        if !missing_files.is_empty() {
+            let summary = format!(
+                "Installation blocked: {} enabled local {} missing",
+                missing_files.len(),
+                if missing_files.len() == 1 {
+                    "file is"
+                } else {
+                    "files are"
+                }
+            );
+            let details = format!(
+                "{summary}.\n\nRelocate, disable or replace these local mod entries, then retry. Your saved entries and existing installation have not been changed.\n\n{}",
+                missing_files
+                    .iter()
+                    .map(|location| location.label.as_str())
+                    .collect::<Vec<_>>()
+                    .join("\n\n")
+            );
+            let mut action = LastAction::failure(summary);
+            action.details = Some(details.clone());
+            self.last_action = Some(action);
+            self.status_details = Some(details);
+            self.status_locations.clear();
+            self.live_unavailable_details = false;
+            self.problematic_mod_id = None;
+            return false;
+        }
         let locations = unavailable_mods::install_blockers(
             data,
             &data.active_profile,

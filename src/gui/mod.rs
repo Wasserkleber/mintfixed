@@ -47,6 +47,8 @@ mod replacement_prompt;
 use group_controls::{Drag, Target};
 #[path = "runtime/message.rs"]
 mod message;
+#[path = "runtime/missing_local_files.rs"]
+mod missing_local_files;
 #[path = "widgets/named_combobox.rs"]
 mod named_combobox;
 #[path = "profiles/profile_import.rs"]
