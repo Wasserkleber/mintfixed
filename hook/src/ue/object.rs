@@ -134,6 +134,10 @@ pub struct FFieldVariant {
 #[derive(Debug)]
 #[repr(C)]
 pub struct FField {
+    // FField is polymorphic (virtual destructor and more), so its first word is the vtable.
+    // Without it every field below sits 8 bytes early: `next` read Owner's bool and padding,
+    // and FFrame::arg crashed stepping a second argument with no bytecode (ProcessEvent).
+    pub vtable: *const c_void,
     pub class_private: *const FFieldClass,
     pub owner: FFieldVariant,
     pub next: *const FField,
