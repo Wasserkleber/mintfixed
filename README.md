@@ -19,7 +19,7 @@ Supports both **Steam** and **Microsoft Store** versions of Deep Rock Galactic.
 - **97% Lower Background CPU Usage** — Significantly reduced idle CPU usage through GUI performance optimizations.
 - **No `-disablemodding` Required** — Removes the need for the additional Steam launch parameter.
 - **Custom In-Game Mod Menu** — Adds a dedicated in-game interface for Mintfixed's mod integration.
-- **Integrated Crash Reporter** — Automatically generates detailed crash reports to help diagnose game crashes and mod compatibility issues. To run your own build instead, turn off **Settings → Bundled crash reporter** (config key `bundled_crash_reporter`) and click Install; a reporter installed elsewhere is never touched.
+- **Integrated Crash Reporter** — Automatically generates detailed crash reports to help diagnose game crashes and mod compatibility issues. To run your own build instead, turn off **Settings → Bundled crash reporter** (config key `bundled_crash_reporter`) and click Install; a reporter installed elsewhere is never touched. For DRG native frames with names, Mintfixed fetches the game's PDB for the installed build in the background (keyed by the exe's PDB GUID and age, kept for two builds) into `mintfixed-bpcrash/symbols/`; a build with no published PDB is skipped.
 - **Bitfix Support** — Supports Bitfix DLL integration and Lua scripts for advanced game modifications beyond traditional `.pak` mods.
 
 ## Additional Improvements Over MINT
