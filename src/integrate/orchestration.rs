@@ -157,6 +157,7 @@ pub(crate) fn integrate_with_report<P: AsRef<Path>>(
             &mods,
             &mintfixed_crash_vanilla_pak,
             &path_mod_pak,
+            None, // unchanged install has no open ModPak objects
             report,
         );
     }
@@ -171,6 +172,17 @@ pub(crate) fn integrate_with_report<P: AsRef<Path>>(
     // Open every mod and parse each of its packages once, in parallel. The guard and the
     // registry rows below both read that one parse.
     let paks = mod_inputs::open_all(&mods)?;
+    // Capture the exact files and ZIP member that the integration reader opened.
+    // No second archive probe or directory scan on a rebuilt mods_P.pak.
+    let crash_indexes: Vec<crate::crash_context::PreparedModIndex> = paks
+        .iter()
+        .map(|mod_pak| {
+            crate::crash_context::indexed_from_prepass(
+                mod_pak.source.selected_member(),
+                mod_pak.files.keys().map(|path| path.as_str()),
+            )
+        })
+        .collect();
 
     // Blueprint dependency preflight. Resolve first-wins assets before emitting
     // anything into mods_P.pak, then inspect actual exported SuperIndex edges.
@@ -491,6 +503,7 @@ pub(crate) fn integrate_with_report<P: AsRef<Path>>(
         &mods,
         &mintfixed_crash_vanilla_pak,
         &path_mod_pak,
+        Some(&crash_indexes),
         report,
     )
 }
@@ -502,6 +515,7 @@ fn finish_install(
     mods: &[(ModInfo, PathBuf)],
     mintfixed_crash_vanilla_pak: &Path,
     path_mod_pak: &Path,
+    prepared: Option<&[crate::crash_context::PreparedModIndex]>,
     report: crate::installation::report::InstallReport,
 ) -> Result<crate::installation::report::InstallReport, IntegrationError> {
     #[cfg(feature = "hook")]
@@ -534,6 +548,7 @@ fn finish_install(
         &mintfixed_crash_vanilla_pak,
         &path_mod_pak,
         &mods,
+        prepared,
     ) {
         tracing::warn!("Mintfixed crash context export skipped: {error}");
     }

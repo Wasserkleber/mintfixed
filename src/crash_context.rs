@@ -3,18 +3,25 @@
 //!
 //! The `mods` argument is the FINAL deduplicated list actually passed to the
 //! integration pipeline, not the full saved profile or the entire cache.
-use std::fs::{self, File, OpenOptions};
-use std::io::{Read, Write};
+use std::fs::{self, OpenOptions};
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::providers::ModInfo;
 use serde::Serialize;
-use sha2::{Digest, Sha256};
 
 const SCHEMA_VERSION: u32 = 2;
 #[path = "crash_context_index.rs"]
 mod index;
+pub(crate) use index::PreparedModIndex;
+
+pub(crate) fn indexed_from_prepass<'a>(
+    member: Option<&str>,
+    files: impl IntoIterator<Item = &'a str>,
+) -> PreparedModIndex {
+    index::from_installed_files(member, files)
+}
 const CONTEXT_FILENAME: &str = "crash_context.json";
 
 #[derive(Serialize)]
@@ -48,7 +55,7 @@ struct InstalledMod {
     integration_order: usize,
     archive: FileFingerprint,
     archive_type: &'static str,
-    archive_sha256: Option<String>,
+
     archive_index: index::ArchiveIndex,
     // Only a query/fragment-stripped mod.io reference: never cache auth tokens.
     modio_reference: Option<String>,
@@ -76,39 +83,6 @@ fn now_ms() -> Result<u128, String> {
         .duration_since(UNIX_EPOCH)
         .map_err(|e| format!("system clock error: {e}"))?
         .as_millis())
-}
-
-fn archive_kind(path: &Path) -> &'static str {
-    let Ok(mut reader) = File::open(path) else {
-        return "missing";
-    };
-    let mut signature = [0u8; 4];
-    match reader.read_exact(&mut signature) {
-        Ok(())
-            if matches!(
-                signature,
-                [0x50, 0x4B, 0x03, 0x04] | [0x50, 0x4B, 0x05, 0x06] | [0x50, 0x4B, 0x07, 0x08]
-            ) =>
-        {
-            "zip"
-        }
-        Ok(()) => "pak_or_unknown",
-        Err(_) => "empty_or_unreadable",
-    }
-}
-
-fn sha256_file(path: &Path) -> Option<String> {
-    let mut source = File::open(path).ok()?;
-    let mut hash = Sha256::new();
-    let mut buffer = [0u8; 64 * 1024];
-    loop {
-        let count = source.read(&mut buffer).ok()?;
-        if count == 0 {
-            break;
-        }
-        hash.update(&buffer[..count]);
-    }
-    Some(format!("{:x}", hash.finalize()))
 }
 
 fn clean_modio_reference(value: &str) -> Option<String> {
@@ -207,20 +181,103 @@ fn write_atomically(path: &Path, contents: &[u8]) -> Result<(), String> {
     result
 }
 
+/// Do not retain attribution from an installation that has been removed.
+/// Best-effort: uninstall success never depends on the optional reporter.
+pub(crate) fn invalidate_after_uninstall(merged_pak: &Path) -> Result<(), String> {
+    let dir = reporter_directory(merged_pak)?;
+    match fs::remove_file(dir.join(CONTEXT_FILENAME)) {
+        Ok(()) => Ok(()),
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(err) => Err(format!("remove stale crash context: {err}")),
+    }
+}
+
+// `mods_P.pak` has already passed the installer's unchanged-key check on
+// this path. Reuse a matching manifest instead of reopening all source PAKs.
+// We still verify the current merged PAK and each source fingerprint/order;
+// an absent, older, or incompatible snapshot triggers a full fallback index.
+fn can_reuse_installed_context(
+    latest: &Path,
+    merged_pak: &Path,
+    mods: &[(ModInfo, PathBuf)],
+) -> bool {
+    let Ok(meta) = fs::metadata(latest) else {
+        return false;
+    };
+    if !meta.is_file() || meta.len() > 64 * 1024 * 1024 {
+        return false;
+    }
+    let Ok(bytes) = fs::read(latest) else {
+        return false;
+    };
+    let Ok(json) = serde_json::from_slice::<serde_json::Value>(&bytes) else {
+        return false;
+    };
+    if json["schema_version"] != SCHEMA_VERSION
+        || json["producer"] != "mintfixed"
+        || json["captured_after_successful_install"] != true
+    {
+        return false;
+    }
+    if serde_json::to_value(metadata_for(merged_pak)).ok().as_ref() != json.get("installed_pak") {
+        return false;
+    }
+    let Some(entries) = json["installed_mods"].as_array() else {
+        return false;
+    };
+    if entries.len() != mods.len() {
+        return false;
+    }
+    for (i, (entry, (info, archive))) in entries.iter().zip(mods).enumerate() {
+        if entry["name"].as_str() != Some(info.name.as_str())
+            || entry["provider"].as_str() != Some(info.provider.as_ref())
+            || entry["integration_order"].as_u64() != Some(i as u64)
+            || serde_json::to_value(metadata_for(archive)).ok().as_ref() != entry.get("archive")
+        {
+            return false;
+        }
+        // Never reuse legacy snapshots with multiple potentially uninstalled ZIP PAKs.
+        let Some(paks) = entry["archive_index"]["paks"].as_array() else {
+            return false;
+        };
+        if paks.len() > 1 {
+            return false;
+        }
+        if !matches!(
+            entry["archive_index"]["status"].as_str(),
+            Some("complete" | "partial" | "unreadable")
+        ) {
+            return false;
+        }
+    }
+    true
+}
+
 /// Best-effort, after install completion: errors are logged and must NEVER
 /// turn a successful mod installation into a failed one.
 pub(crate) fn write_installed_context(
     vanilla_pak: &Path,
     merged_pak: &Path,
     mods: &[(ModInfo, PathBuf)],
+    prepared: Option<&[PreparedModIndex]>,
 ) -> Result<PathBuf, String> {
     let dir = reporter_directory(vanilla_pak)?;
+    let latest = dir.join(CONTEXT_FILENAME);
+    if prepared.is_none() && can_reuse_installed_context(&latest, merged_pak, mods) {
+        return Ok(latest);
+    }
     let stamp = now_ms()?;
+    if prepared.is_some_and(|records| records.len() != mods.len()) {
+        return Err("pre-pass index count differs from installed mod count".into());
+    }
     let installed_mods = mods
         .iter()
         .enumerate()
         .map(|(index, (info, archive))| {
-            let archive_type = archive_kind(archive);
+            let selected = prepared
+                .and_then(|records| records.get(index))
+                .cloned()
+                .unwrap_or_else(|| index::index_archive(archive));
             let resolved_url = info.resolution.url.0.clone();
             let (modio_mod_id, modio_file_id) = if info.provider == "modio" {
                 clean_modio_ids(&resolved_url)
@@ -232,9 +289,8 @@ pub(crate) fn write_installed_context(
                 provider: info.provider.to_owned(),
                 integration_order: index,
                 archive: metadata_for(archive),
-                archive_type,
-                archive_sha256: sha256_file(archive),
-                archive_index: index::index_archive(archive, archive_type),
+                archive_type: selected.kind,
+                archive_index: selected.index,
                 modio_reference: if info.provider == "modio" {
                     clean_modio_reference(&resolved_url)
                 } else {
@@ -266,13 +322,6 @@ pub(crate) fn write_installed_context(
     }
     let latest = dir.join(CONTEXT_FILENAME);
     write_atomically(&latest, &bytes)?;
-    // Retain an immutable installation-era snapshot as well, so later profile
-    // changes do not destroy the evidence needed for an older crash report.
-    let history = dir.join("crash_context_history");
-    let archive = history.join(format!("crash_context_{stamp}_{}.json", std::process::id()));
-    if let Err(error) = write_atomically(&archive, &bytes) {
-        tracing::warn!("Could not preserve crash context history: {error}");
-    }
     tracing::info!(
         "Crash context generated successfully: {} mods, saved to {}",
         context.installed_mods.len(),
@@ -284,6 +333,25 @@ pub(crate) fn write_installed_context(
 #[cfg(test)]
 mod crash_context_tests {
     use super::*;
+
+    #[test]
+    fn unchanged_snapshot_is_reused_only_while_merged_pak_matches() {
+        let temp = tempfile::tempdir().unwrap();
+        let merged = temp.path().join("mods_P.pak");
+        let latest = temp.path().join(CONTEXT_FILENAME);
+        fs::write(&merged, b"current").unwrap();
+        let json = serde_json::json!({
+            "schema_version": SCHEMA_VERSION,
+            "producer": "mintfixed",
+            "captured_after_successful_install": true,
+            "installed_pak": metadata_for(&merged),
+            "installed_mods": []
+        });
+        fs::write(&latest, serde_json::to_vec(&json).unwrap()).unwrap();
+        assert!(can_reuse_installed_context(&latest, &merged, &[]));
+        fs::write(&merged, b"changed length").unwrap();
+        assert!(!can_reuse_installed_context(&latest, &merged, &[]));
+    }
 
     #[test]
     fn only_safe_modio_identifiers_are_exported() {
@@ -313,9 +381,25 @@ mod crash_context_tests {
     }
 
     #[test]
+    fn uninstall_invalidates_context_without_touching_other_files() {
+        let temp = tempfile::tempdir().unwrap();
+        let fsd = temp.path().join("FSD");
+        let dir = fsd.join("Binaries").join("Win64").join("mintfixed-bpcrash");
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(dir.join("bpcrash.exe"), b"test").unwrap();
+        fs::write(dir.join(CONTEXT_FILENAME), b"old snapshot").unwrap();
+        fs::write(dir.join("bpcrash_test.txt"), b"keep").unwrap();
+        let merged = fsd.join("Content").join("Paks").join("mods_P.pak");
+        invalidate_after_uninstall(&merged).unwrap();
+        assert!(!dir.join(CONTEXT_FILENAME).exists());
+        assert!(dir.join("bpcrash_test.txt").exists());
+        invalidate_after_uninstall(&merged).unwrap();
+    }
+
+    #[test]
     fn missing_archive_is_not_claimed_readable() {
         let missing = Path::new("__mintfixed_nonexistent_archive_12345__.zip");
-        assert_eq!(archive_kind(missing), "missing");
+        assert_eq!(index::index_archive(missing).kind, "missing");
         assert!(!metadata_for(missing).exists);
     }
 }

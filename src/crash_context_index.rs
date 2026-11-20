@@ -7,11 +7,11 @@ use std::path::Path;
 
 const MAX_PAK_BYTES: u64 = 512 * 1024 * 1024;
 const MAX_INDEX_BYTES: u64 = 32 * 1024 * 1024;
-const MAX_PAKS_PER_ZIP: usize = 32;
+
 const MAX_ZIP_ENTRIES: usize = 16384;
 const MAX_PACKAGE_NAMES: usize = 65536;
 
-#[derive(Serialize)]
+#[derive(Clone, Serialize)]
 pub(super) struct IndexedPak {
     // None: direct archive .pak; Some: original member name in a ZIP/cache blob.
     member: Option<String>,
@@ -19,8 +19,8 @@ pub(super) struct IndexedPak {
     complete: bool,
 }
 
-#[derive(Serialize)]
-pub(super) struct ArchiveIndex {
+#[derive(Clone, Serialize)]
+pub(crate) struct ArchiveIndex {
     // Complete means all PAK members were indexed. Partial/unreadable must NOT
     // be interpreted as proof that a package is absent.
     status: &'static str,
@@ -279,106 +279,188 @@ fn read_pak_index<R: Read + Seek>(reader: &mut R) -> Result<ParsedPakIndex, Stri
     })
 }
 
-pub(super) fn index_archive(path: &Path, kind: &str) -> ArchiveIndex {
-    let mut result = ArchiveIndex {
-        status: "unreadable",
-        paks: Vec::new(),
-    };
-    if kind == "zip" {
-        if std::fs::metadata(path)
-            .map(|m| m.len() > 1024 * 1024 * 1024)
-            .unwrap_or(true)
-        {
-            return result;
+/// The install pre-pass already holds every file path and the selected ZIP member.
+/// Never reopen or decompress the archive in this path.
+#[derive(Clone)]
+pub(crate) struct PreparedModIndex {
+    pub(crate) kind: &'static str,
+    pub(crate) index: ArchiveIndex,
+}
+
+pub(crate) fn from_installed_files<'a>(
+    member: Option<&str>,
+    files: impl IntoIterator<Item = &'a str>,
+) -> PreparedModIndex {
+    let mut packages = Vec::new();
+    let mut complete = true;
+    for path in files {
+        if packages.len() >= MAX_PACKAGE_NAMES {
+            complete = false;
+            break;
         }
-        let Ok(file) = File::open(path) else {
-            return result;
-        };
-        let Ok(mut zip) = zip::ZipArchive::new(file) else {
-            return result;
-        };
-        if zip.len() > MAX_ZIP_ENTRIES {
-            return result;
-        }
-        let mut attempted = 0usize;
-        let mut failed = false;
-        for i in 0..zip.len() {
-            let Ok(member) = zip.by_index(i) else {
-                failed = true;
-                continue;
-            };
-            let member_name = member.name().replace('\\', "/");
-            if !member_name.to_ascii_lowercase().ends_with(".pak") {
-                continue;
-            }
-            attempted += 1;
-            if attempted > MAX_PAKS_PER_ZIP {
-                failed = true;
-                break;
-            }
-            let mut record = IndexedPak {
-                member: Some(member_name),
-                packages: Vec::new(),
-                complete: false,
-            };
-            if member.size() <= MAX_PAK_BYTES {
-                let mut bytes = Vec::new();
-                if member
-                    .take(MAX_PAK_BYTES + 1)
-                    .read_to_end(&mut bytes)
-                    .is_ok()
-                    && bytes.len() as u64 <= MAX_PAK_BYTES
-                {
-                    if let Ok(index) = read_pak_index(&mut std::io::Cursor::new(bytes)) {
-                        record.packages = index.packages;
-                        record.complete = index.complete;
-                    }
-                }
-            }
-            if !record.complete {
-                failed = true;
-            }
-            result.paks.push(record);
-        }
-        if attempted > 0 {
-            result.status = if failed { "partial" } else { "complete" };
-        }
-    } else if kind == "pak_or_unknown" {
-        if let Ok(mut file) = File::open(path) {
-            let indexed = read_pak_index(&mut file);
-            let (packages, complete) = match indexed {
-                Ok(index) => (index.packages, index.complete),
-                Err(_) => (Vec::new(), false),
-            };
-            result.status = if complete {
-                "complete"
-            } else if packages.is_empty() {
-                "unreadable"
-            } else {
-                "partial"
-            };
-            result.paks.push(IndexedPak {
-                member: None,
-                packages,
-                complete,
-            });
+        let path = path.replace('\\', "/").to_ascii_lowercase();
+        if valid_package_name(&path) {
+            packages.push(path);
+        } else {
+            complete = false;
         }
     }
+    packages.sort_unstable();
+    packages.dedup();
+    let readable = !packages.is_empty();
+    let fully_indexed = readable && complete;
+    PreparedModIndex {
+        kind: if member.is_some() {
+            "zip"
+        } else {
+            "pak_or_unknown"
+        },
+        index: ArchiveIndex {
+            status: if fully_indexed {
+                "complete"
+            } else if readable {
+                "partial"
+            } else {
+                "unreadable"
+            },
+            paks: vec![IndexedPak {
+                member: member.map(str::to_owned),
+                packages,
+                complete: fully_indexed,
+            }],
+        },
+    }
+}
+
+/// Fallback only for an unchanged PAK without an acceptable existing context.
+/// Classify once by trying ZIP's central directory; do not independently sniff
+/// a PK magic header, and never index more than the selected ZIP member.
+pub(super) fn index_archive(path: &Path) -> PreparedModIndex {
+    let mut result = PreparedModIndex {
+        kind: "missing",
+        index: ArchiveIndex {
+            status: "unreadable",
+            paks: Vec::new(),
+        },
+    };
+    let Ok(mut file) = File::open(path) else {
+        return result;
+    };
+    let Ok(metadata) = file.metadata() else {
+        return result;
+    };
+    if metadata.len() == 0 {
+        result.kind = "empty_or_unreadable";
+        return result;
+    }
+    if let Ok(cloned) = file.try_clone() {
+        if let Ok(mut zip) = zip::ZipArchive::new(cloned) {
+            result.kind = "zip";
+            if metadata.len() > 1024 * 1024 * 1024 || zip.len() > MAX_ZIP_ENTRIES {
+                return result;
+            }
+            for i in 0..zip.len() {
+                let Ok(member) = zip.by_index(i) else {
+                    return result;
+                };
+                let installed_member = member.is_file()
+                    && member
+                        .enclosed_name()
+                        .is_some_and(|p| p.extension() == Some(std::ffi::OsStr::new("pak")));
+                if !installed_member {
+                    continue;
+                }
+                let name = member.name().to_owned();
+                let mut record = IndexedPak {
+                    member: Some(name),
+                    packages: Vec::new(),
+                    complete: false,
+                };
+                if member.size() <= MAX_PAK_BYTES {
+                    let mut bytes = Vec::new();
+                    if member
+                        .take(MAX_PAK_BYTES + 1)
+                        .read_to_end(&mut bytes)
+                        .is_ok()
+                        && bytes.len() as u64 <= MAX_PAK_BYTES
+                    {
+                        if let Ok(index) = read_pak_index(&mut std::io::Cursor::new(bytes)) {
+                            record.packages = index.packages;
+                            record.complete = index.complete;
+                        }
+                    }
+                }
+                result.index.status = if record.complete {
+                    "complete"
+                } else if record.packages.is_empty() {
+                    "unreadable"
+                } else {
+                    "partial"
+                };
+                result.index.paks.push(record);
+                break;
+            }
+            return result;
+        }
+    }
+    // This mirrors PakSource::open's fallback to direct PAK input.
+    result.kind = "pak_or_unknown";
+    let (packages, complete) = match read_pak_index(&mut file) {
+        Ok(index) => (index.packages, index.complete),
+        Err(_) => (Vec::new(), false),
+    };
+    result.index.status = if complete {
+        "complete"
+    } else if packages.is_empty() {
+        "unreadable"
+    } else {
+        "partial"
+    };
+    result.index.paks.push(IndexedPak {
+        member: None,
+        packages,
+        complete,
+    });
     result
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::io::Write;
+    #[test]
+    fn reuses_installed_file_list_without_opening_any_source_archive() {
+        let selected = from_installed_files(
+            Some("first.pak"),
+            ["FSD/Content/Test/Foo.uasset", "FSD/Content/Test/Foo.uexp"],
+        );
+        assert_eq!(selected.kind, "zip");
+        assert_eq!(selected.index.status, "complete");
+        assert_eq!(selected.index.paks.len(), 1);
+        assert_eq!(selected.index.paks[0].member.as_deref(), Some("first.pak"));
+        assert!(
+            selected.index.paks[0]
+                .packages
+                .contains(&"fsd/content/test/foo.uasset".to_owned())
+        );
+    }
+
+    #[test]
+    fn rejected_install_path_never_claims_a_complete_index() {
+        let result = from_installed_files(None, ["FSD/Content/Good.uasset", "bad\0file.uasset"]);
+        assert_eq!(result.kind, "pak_or_unknown");
+        assert_eq!(result.index.status, "partial");
+        assert!(!result.index.paks[0].complete);
+        assert_eq!(result.index.paks[0].packages.len(), 1);
+    }
+
     #[test]
     fn rejects_unreadable_and_truncated_paks() {
         assert!(read_pak_index(&mut std::io::Cursor::new(vec![0; 80])).is_err());
         assert_eq!(
-            index_archive(
-                Path::new("__missing_mintfixed_archive__.pak"),
-                "pak_or_unknown"
-            )
-            .status,
+            index_archive(Path::new("__missing_mintfixed_archive__.pak"))
+                .index
+                .status,
             "unreadable"
         );
     }
@@ -475,6 +557,53 @@ mod tests {
                 .contains(&"fsd/content/test/second.uexp".to_string())
         );
         assert!(parsed.packages.iter().all(|name| valid_package_name(name)));
+    }
+
+    #[test]
+    fn zip_manifest_indexes_only_the_first_installable_member() {
+        fn legacy_pak(filename: &str) -> Vec<u8> {
+            let mut index = 0i32.to_le_bytes().to_vec();
+            let name = format!("{filename}\0");
+            index.extend_from_slice(&(name.len() as u32).to_le_bytes());
+            index.extend_from_slice(name.as_bytes());
+            let mut pak = index.clone();
+            pak.extend_from_slice(&[0u8; 16]);
+            pak.push(0);
+            pak.extend_from_slice(&[0xE1, 0x12, 0x6F, 0x5A]);
+            pak.extend_from_slice(&9u32.to_le_bytes());
+            pak.extend_from_slice(&0u64.to_le_bytes());
+            pak.extend_from_slice(&(index.len() as u64).to_le_bytes());
+            pak
+        }
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("two_paks.zip");
+        let file = File::create(&path).unwrap();
+        let mut zip = zip::ZipWriter::new(file);
+        let options = zip::write::SimpleFileOptions::default()
+            .compression_method(zip::CompressionMethod::Stored);
+        for (name, filename) in [
+            ("nope.PAK", "FSD/Content/Test/Excluded0.uasset"),
+            ("nested/first.pak", "FSD/Content/Test/Included.uasset"),
+            ("nested/second.pak", "FSD/Content/Test/Excluded1.uasset"),
+        ] {
+            zip.start_file(name, options).unwrap();
+            zip.write_all(&legacy_pak(filename)).unwrap();
+        }
+        zip.finish().unwrap();
+        let indexed = index_archive(&path);
+        assert_eq!(indexed.kind, "zip");
+        let indexed = indexed.index;
+        assert_eq!(indexed.status, "complete");
+        assert_eq!(
+            indexed.paks.len(),
+            1,
+            "must not attribute uninstalled ZIP members"
+        );
+        assert_eq!(indexed.paks[0].member.as_deref(), Some("nested/first.pak"));
+        assert_eq!(
+            indexed.paks[0].packages,
+            vec!["fsd/content/test/included.uasset".to_string()]
+        );
     }
 
     #[test]

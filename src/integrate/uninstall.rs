@@ -18,6 +18,10 @@ pub fn uninstall<P: AsRef<Path>>(path_pak: P, modio_mods: HashSet<u32>) -> Resul
         Err(e) => Err(e),
     }
     .with_whatever_context(|_| format!("failed to remove {}", path_mods_pak.display()))?;
+    // A removed mods_P.pak must not leave a seemingly-current attribution snapshot.
+    if let Err(err) = crate::crash_context::invalidate_after_uninstall(&path_mods_pak) {
+        warn!("could not invalidate Mintfixed crash context after uninstall: {err}");
+    }
     #[cfg(feature = "hook")]
     {
         let path_hook_dll = installation
