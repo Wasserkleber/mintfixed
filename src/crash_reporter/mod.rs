@@ -27,10 +27,10 @@ pub(crate) use windows_process::stop;
 #[cfg(target_os = "windows")]
 use windows_process::target_game_is_running;
 
-const VERSION: &str = "1.2.2";
-const ZIP_URL: &str = "https://github.com/Elytras/BP-Crash-Reporter/releases/download/1.2.2/bpcrash-1.2.2-windows.zip";
-// Pinned to the checksum published with upstream release 1.2.2.
-const ZIP_SHA256: &str = "cd4135958f4f052f0c85490c753da205d42ac10175157d666a5fddff8a2cc41b";
+const VERSION: &str = "1.2.3";
+const ZIP_URL: &str = "https://github.com/Elytras/BP-Crash-Reporter/releases/download/1.2.3/bpcrash-1.2.3-windows.zip";
+// Pinned to the checksum published with upstream release 1.2.3.
+const ZIP_SHA256: &str = "bfa0937ca74b45ebc82c8eb24d642329b26824188fe51c4d6da0d07c09dcdf1d";
 const MAX_ZIP_BYTES: u64 = 8 * 1024 * 1024;
 const MAX_EXE_BYTES: u64 = 16 * 1024 * 1024;
 
