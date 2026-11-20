@@ -25,6 +25,28 @@ impl App {
             message::ResolveMods::send_confirmed(self, ctx, pending.specs, pending.is_dependency);
             return;
         };
+        // mintfixed_modhub_enabled_menu_warning_v2: use the profile's enabled mod iterator (including group members).
+        let mintfixed_existing_modhub_menu = if rule.original == "https://mod.io/g/drg/m/mod-hub" {
+            let uui = ModSpecification::new("https://mod.io/g/drg/m/unified-ui".to_owned());
+            let emm = ModSpecification::new("https://mod.io/g/drg/m/emm".to_owned());
+            let mut has_uui = false;
+            let mut has_emm = false;
+            self.state.mod_data.for_each_enabled_mod(
+                &self.state.mod_data.active_profile,
+                |mod_config| {
+                    has_uui |= mod_config.spec.matches_identity(&uui);
+                    has_emm |= mod_config.spec.matches_identity(&emm);
+                },
+            );
+            match (has_uui, has_emm) {
+                (true, true) => Some("Unified UI (UUI) and EMM"),
+                (true, false) => Some("Unified UI (UUI)"),
+                (false, true) => Some("EMM"),
+                (false, false) => None,
+            }
+        } else {
+            None
+        };
         let mut choice = None;
         egui::Window::new(format!("{} alternative", rule.original_name))
             .id(egui::Id::new("mod_replacement_confirmation"))
@@ -39,6 +61,13 @@ impl App {
                 ));
                 if !rule.description.is_empty() {
                     ui.label(&rule.description);
+                }
+                // mintfixed_modhub_enabled_menu_warning_v2: advisory only; Keep ModHub remains available.
+                if let Some(existing) = mintfixed_existing_modhub_menu {
+                    ui.colored_label(
+                        ui.visuals().warn_fg_color,
+                        format!("{existing} is already enabled in this profile. Installing ModHub too is usually unnecessary. Only keep ModHub if a particular mod specifically requires it."),
+                    );
                 }
                 ui.add_space(8.0);
                 ui.horizontal_wrapped(|ui| {
