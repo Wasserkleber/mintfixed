@@ -15,6 +15,7 @@ use sha2::{Digest, Sha256};
 use tracing::{info, warn};
 
 mod install_files;
+mod symbols;
 #[cfg(target_os = "windows")]
 mod windows_process;
 
@@ -260,6 +261,7 @@ fn install_inner(bin_dir: &Path, installation_type: &DRGInstallationType) -> Res
             license.display()
         );
     }
+    symbols::spawn_fetch(dir.clone(), bin_dir.join(process));
     info!("BP-Crash-Reporter: installation ready at {}", dir.display());
     Ok(())
 }
