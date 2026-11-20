@@ -155,6 +155,7 @@ pub(crate) fn integrate_with_report<P: AsRef<Path>>(
             #[cfg(feature = "hook")]
             bundled_crash_reporter,
             &mods,
+            &mintfixed_crash_vanilla_pak,
             &path_mod_pak,
             report,
         );
@@ -488,6 +489,7 @@ pub(crate) fn integrate_with_report<P: AsRef<Path>>(
         #[cfg(feature = "hook")]
         bundled_crash_reporter,
         &mods,
+        &mintfixed_crash_vanilla_pak,
         &path_mod_pak,
         report,
     )
@@ -498,6 +500,7 @@ fn finish_install(
     installation: &DRGInstallation,
     #[cfg(feature = "hook")] bundled_crash_reporter: bool,
     mods: &[(ModInfo, PathBuf)],
+    mintfixed_crash_vanilla_pak: &Path,
     path_mod_pak: &Path,
     report: crate::installation::report::InstallReport,
 ) -> Result<crate::installation::report::InstallReport, IntegrationError> {
