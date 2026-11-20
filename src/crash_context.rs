@@ -12,7 +12,9 @@ use crate::providers::ModInfo;
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 
-const SCHEMA_VERSION: u32 = 1;
+const SCHEMA_VERSION: u32 = 2;
+#[path = "crash_context_index.rs"]
+mod index;
 const CONTEXT_FILENAME: &str = "crash_context.json";
 
 #[derive(Serialize)]
@@ -47,8 +49,7 @@ struct InstalledMod {
     archive: FileFingerprint,
     archive_type: &'static str,
     archive_sha256: Option<String>,
-    // If the original is a ZIP, the reporter must inspect .pak entries inside it.
-    nested_paks_must_be_scanned: bool,
+    archive_index: index::ArchiveIndex,
     // Only a query/fragment-stripped mod.io reference: never cache auth tokens.
     modio_reference: Option<String>,
     modio_mod_id: Option<String>,
@@ -233,7 +234,7 @@ pub(crate) fn write_installed_context(
                 archive: metadata_for(archive),
                 archive_type,
                 archive_sha256: sha256_file(archive),
-                nested_paks_must_be_scanned: archive_type == "zip",
+                archive_index: index::index_archive(archive, archive_type),
                 modio_reference: if info.provider == "modio" {
                     clean_modio_reference(&resolved_url)
                 } else {
@@ -260,6 +261,9 @@ pub(crate) fn write_installed_context(
     };
     let bytes =
         serde_json::to_vec_pretty(&context).map_err(|e| format!("serialize crash context: {e}"))?;
+    if bytes.len() > 64 * 1024 * 1024 {
+        return Err("crash context exceeds the 64 MiB reporter limit".into());
+    }
     let latest = dir.join(CONTEXT_FILENAME);
     write_atomically(&latest, &bytes)?;
     // Retain an immutable installation-era snapshot as well, so later profile
