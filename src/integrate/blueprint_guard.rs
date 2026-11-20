@@ -123,6 +123,13 @@ pub(super) fn scan(uasset: &[u8], uexp: &[u8]) -> Result<BlueprintScan, unreal_a
         .bulk(Cursor::new(uexp))
         .skip_data(true)
         .build()?;
+    Ok(scan_asset(&asset))
+}
+
+/// `scan` of an already parsed package, so the integration pre-pass parses each package once.
+pub(super) fn scan_asset<C: std::io::Read + std::io::Seek>(
+    asset: &unreal_asset::Asset<C>,
+) -> BlueprintScan {
     let exports = &asset.asset_data.exports;
     let mut result = BlueprintScan::default();
     let mut class_indices = HashSet::new();
@@ -166,7 +173,7 @@ pub(super) fn scan(uasset: &[u8], uexp: &[u8]) -> Result<BlueprintScan, unreal_a
         .dependencies
         .sort_by(|a, b| (&a.target, a.symbol.display()).cmp(&(&b.target, b.symbol.display())));
     result.dependencies.dedup();
-    Ok(result)
+    result
 }
 
 /// Only reject symbols that the *vanilla* package exports and a surviving mod

@@ -4,16 +4,17 @@ mod bundle_writer;
 use self::bundle_writer::ModBundleWriter;
 mod asset_paths;
 mod assets;
+mod mod_inputs;
 mod orchestration;
 mod pak_reader;
 mod patches;
+mod unchanged;
 mod uninstall;
 
 use self::asset_paths::supported_registry_asset_path;
 use self::assets::{collect_dir_files, format_soft_class};
 pub use self::orchestration::integrate;
 pub(crate) use self::orchestration::integrate_with_report;
-pub(crate) use self::pak_reader::get_pak_from_data;
 use self::patches::{
     hook_pcb, patch, patch_modding_tab, patch_modding_tab_item, patch_server_list_entry,
 };
@@ -37,7 +38,7 @@ use unreal_asset::AssetBuilder;
 use unreal_asset::engine_version::EngineVersion;
 
 use crate::mod_lints::LintError;
-use crate::providers::{ModInfo, ProviderError, ReadSeek};
+use crate::providers::{ModInfo, ProviderError};
 use mint_lib::DRGInstallation;
 use mint_lib::mod_info::MetaConfig;
 
