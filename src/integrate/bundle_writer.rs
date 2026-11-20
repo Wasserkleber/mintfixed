@@ -62,6 +62,21 @@ impl<W: Write + Seek> ModBundleWriter<W> {
         Ok(())
     }
 
+    /// Hashes an entry off the writer's thread; `write_entry` then appends it in order.
+    pub(super) fn entry_builder(&self) -> repak::EntryBuilder {
+        self.pak_writer.entry_builder()
+    }
+
+    pub(super) fn write_entry<D: AsRef<[u8]>>(
+        &mut self,
+        entry: repak::PartialEntry<D>,
+        path: &str,
+    ) -> Result<(), IntegrationError> {
+        let path = self.normalize_path(path).as_str().to_string();
+        self.pak_writer.write_entry(path, entry)?;
+        Ok(())
+    }
+
     pub(super) fn write_asset<C: Read + Seek>(
         &mut self,
         asset: Asset<C>,
@@ -79,38 +94,34 @@ impl<W: Write + Seek> ModBundleWriter<W> {
         Ok(())
     }
 
-    pub(super) fn write_meta(
-        &mut self,
-        config: MetaConfig,
-        mods: &[(ModInfo, PathBuf)],
-    ) -> Result<(), IntegrationError> {
-        let meta = Meta {
-            version: mint_lib::built_info::version().into(),
-            config,
-            mods: mods
-                .iter()
-                .map(|(info, _)| MetaMod {
-                    name: info.name.clone(),
-                    version: "TODO".into(), // TODO
-                    author: "TODO".into(),  // TODO
-                    required: info.suggested_require,
-                    url: info.resolution.get_resolvable_url_or_name().to_string(),
-                    approval: info
-                        .modio_tags
-                        .as_ref()
-                        .map(|t| t.approval_status)
-                        .unwrap_or(ApprovalStatus::Sandbox),
-                })
-                .collect(),
-        };
-        self.write_file(&postcard::to_allocvec(&meta).unwrap(), "meta")?;
-        Ok(())
-    }
-
     pub(super) fn finish(self) -> Result<(), IntegrationError> {
         self.pak_writer.write_index()?;
         Ok(())
     }
+}
+
+/// The pak's `meta` entry (read by the hook): MINT's version, the settings and the mod list.
+pub(super) fn meta_bytes(config: MetaConfig, mods: &[(ModInfo, PathBuf)]) -> Vec<u8> {
+    let meta = Meta {
+        version: mint_lib::built_info::version().into(),
+        config,
+        mods: mods
+            .iter()
+            .map(|(info, _)| MetaMod {
+                name: info.name.clone(),
+                version: "TODO".into(), // TODO
+                author: "TODO".into(),  // TODO
+                required: info.suggested_require,
+                url: info.resolution.get_resolvable_url_or_name().to_string(),
+                approval: info
+                    .modio_tags
+                    .as_ref()
+                    .map(|t| t.approval_status)
+                    .unwrap_or(ApprovalStatus::Sandbox),
+            })
+            .collect(),
+    };
+    postcard::to_allocvec(&meta).unwrap()
 }
 
 #[derive(Debug, Default)]

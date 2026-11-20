@@ -1,4 +1,5 @@
-// Mechanical source extraction from src/integrate.rs; no algorithm changes.
+use rayon::prelude::*;
+
 use super::*;
 
 #[tracing::instrument(skip_all)]
@@ -115,10 +116,6 @@ pub(crate) fn integrate_with_report<P: AsRef<Path>>(
         .collect();
     crate::bitfix::sync(&installation, &bitfix_patches)?;
 
-    let mut output = crate::installation::output::InstallOutput::new(&path_mod_pak)?;
-    let mut writer = BufWriter::new(output.file());
-    let mut bundle = ModBundleWriter::new(&mut writer, &fsd_pak.files())?;
-
     #[cfg(feature = "hook")]
     {
         let path_hook_dll = installation
@@ -140,8 +137,38 @@ pub(crate) fn integrate_with_report<P: AsRef<Path>>(
         }
     }
 
+    // Keep the installed mods_P.pak when nothing that goes into it changed. Every mod file
+    // is still hashed; a failure to hash only means the pak is rebuilt.
+    let meta = bundle_writer::meta_bytes(config, &mods);
+    let key = match unchanged::key(&meta, path_pak.as_ref(), &mods) {
+        Ok(key) => Some(key),
+        Err(err) => {
+            warn!("cannot fingerprint the mod set ({err}); rebuilding mods_P.pak");
+            None
+        }
+    };
+    if key.is_some_and(|key| unchanged::installed_key(&path_mod_pak).as_deref() == Some(&key[..])) {
+        info!("mods_P.pak is up to date (same MINT, game pak, settings and mod files): kept");
+        return finish_install(
+            &installation,
+            #[cfg(feature = "hook")]
+            bundled_crash_reporter,
+            &mods,
+            &path_mod_pak,
+            report,
+        );
+    }
+
+    let mut output = crate::installation::output::InstallOutput::new(&path_mod_pak)?;
+    let mut writer = BufWriter::new(output.file());
+    let mut bundle = ModBundleWriter::new(&mut writer, &fsd_pak.files())?;
+
     let mut init_spacerig_assets = HashSet::new();
     let mut init_cave_assets = HashSet::new();
+
+    // Open every mod and parse each of its packages once, in parallel. The guard and the
+    // registry rows below both read that one parse.
+    let paks = mod_inputs::open_all(&mods)?;
 
     // Blueprint dependency preflight. Resolve first-wins assets before emitting
     // anything into mods_P.pak, then inspect actual exported SuperIndex edges.
@@ -152,67 +179,24 @@ pub(crate) fn integrate_with_report<P: AsRef<Path>>(
         .into_iter()
         .map(|path| (path.to_ascii_lowercase(), path))
         .collect();
-    let mut selected_blueprints: HashMap<String, (String, blueprint_guard::BlueprintScan)> =
+    let mut selected_blueprints: HashMap<String, (&str, &blueprint_guard::BlueprintScan)> =
         HashMap::new();
     let mut seen_packages = HashSet::new();
-    for (mod_info, path) in &mods {
-        let raw_mod_file = fs::File::open(path).with_context(|_| CtxtIoSnafu {
-            mod_info: mod_info.clone(),
-        })?;
-        let mut reader = get_pak_from_data(Box::new(BufReader::new(raw_mod_file)))?;
-        let pak = repak::PakBuilder::new()
-            .reader(&mut reader)
-            .with_context(|_| CtxtRepakSnafu {
-                mod_info: mod_info.clone(),
-            })?;
-        let mount = PakPath::new(pak.mount_point());
-        let pak_files = pak
-            .files()
-            .into_iter()
-            .map(|file| -> Result<_, IntegrationError> {
-                let mounted = mount.join(&file);
-                Ok((
-                    mounted
-                        .strip_prefix("../../../")
-                        .map_err(|_| IntegrationError::ModfileInvalidPrefix {
-                            mod_info: mod_info.clone().into(),
-                            modfile_path: mounted.to_string(),
-                        })?
-                        .to_path_buf(),
-                    file,
-                ))
-            })
-            .collect::<Result<HashMap<_, _>, _>>()?;
-        for (normalized, pak_path) in &pak_files {
-            if !matches!(normalized.extension(), Some("uasset" | "umap")) {
-                continue;
-            }
-            let Some(uexp_path) = pak_files.get(&normalized.with_extension("uexp")) else {
-                continue;
-            };
+    for m in &paks {
+        for (normalized, package) in &m.packages {
             let stem = normalized.with_extension("").as_str().to_ascii_lowercase();
             if !seen_packages.insert(stem.clone()) {
                 continue; // The writer also gives the earlier mod precedence.
             }
-            let uasset = pak
-                .get(pak_path, &mut reader)
-                .with_context(|_| CtxtRepakSnafu {
-                    mod_info: mod_info.clone(),
-                })?;
-            let uexp = pak
-                .get(uexp_path, &mut reader)
-                .with_context(|_| CtxtRepakSnafu {
-                    mod_info: mod_info.clone(),
-                })?;
-            match blueprint_guard::scan(&uasset, &uexp) {
-                Ok(scan) => {
-                    selected_blueprints.insert(stem, (mod_info.name.clone(), scan));
+            match package {
+                Ok(package) => {
+                    selected_blueprints.insert(stem, (m.info.name.as_str(), &package.scan));
                 }
                 Err(error) => {
                     tracing::debug!(
                         "Blueprint dependency guard: cannot inspect {} from '{}': {}; no verdict",
                         normalized,
-                        mod_info.name,
+                        m.info.name,
                         error
                     );
                 }
@@ -291,107 +275,74 @@ pub(crate) fn integrate_with_report<P: AsRef<Path>>(
         selected_blueprints.len(),
         rejected_blueprints.len()
     );
+
+    // Decide, in mod order, which file of which mod wins (first mod wins; the patched
+    // vanilla packages keep their old last-wins handling) and add the registry rows.
+    // Reading the winners happens after, in parallel.
+    enum Target<'p> {
+        Write,
+        DeferredUasset(&'p str),
+        DeferredUexp(&'p str),
+    }
+    struct Op<'m, 'p> {
+        mod_index: usize,
+        pak_path: &'m str,
+        normalized: &'m str,
+        target: Target<'p>,
+    }
+    let deferred_keys: Vec<&str> = deferred_assets.keys().copied().collect();
+    let deferred_key =
+        |path: Option<&str>| path.and_then(|p| deferred_keys.iter().copied().find(|k| *k == p));
     let mut added_paths = HashSet::new();
+    let mut ops: Vec<Op> = vec![];
 
-    for (mod_info, path) in &mods {
-        let raw_mod_file = fs::File::open(path).with_context(|_| CtxtIoSnafu {
-            mod_info: mod_info.clone(),
-        })?;
-        let mut buf = get_pak_from_data(Box::new(BufReader::new(raw_mod_file))).map_err(|e| {
-            if let IntegrationError::IoError { source } = e {
-                IntegrationError::CtxtIoError {
-                    source,
-                    mod_info: mod_info.clone().into(),
-                }
-            } else {
-                e
-            }
-        })?;
-        let pak = repak::PakBuilder::new()
-            .reader(&mut buf)
-            .with_context(|_| CtxtRepakSnafu {
-                mod_info: mod_info.clone(),
-            })?;
-
-        let mount = PakPath::new(pak.mount_point());
-
-        let pak_files = pak
-            .files()
-            .into_iter()
-            .map(|p| -> Result<_, IntegrationError> {
-                let j = mount.join(&p);
-                Ok((
-                    j.strip_prefix("../../../")
-                        .map_err(|_| IntegrationError::ModfileInvalidPrefix {
-                            mod_info: mod_info.clone().into(),
-                            modfile_path: j.to_string(),
-                        })?
-                        .to_path_buf(),
-                    p,
-                ))
-            })
-            .collect::<Result<HashMap<_, _>, _>>()?;
-
-        for (normalized, pak_path) in &pak_files {
+    for (mod_index, m) in paks.iter().enumerate() {
+        for normalized in m.files.keys() {
             if blueprint_guard::rejected_sidecar(normalized.as_str(), &rejected_blueprints) {
                 continue;
             }
             if added_paths.contains(&normalized.as_str().to_ascii_lowercase()) {
                 continue;
             }
-            match normalized.extension() {
-                Some("uasset" | "umap")
-                    if pak_files.contains_key(&normalized.with_extension("uexp")) =>
-                {
-                    let uasset = pak
-                        .get(pak_path, &mut buf)
-                        .with_context(|_| CtxtRepakSnafu {
-                            mod_info: mod_info.clone(),
-                        })?;
-
-                    let uexp = pak
-                        .get(
-                            PakPath::new(pak_path).with_extension("uexp").as_str(),
-                            &mut buf,
-                        )
-                        .with_context(|_| CtxtRepakSnafu {
-                            mod_info: mod_info.clone(),
-                        })?;
-
-                    let asset = AssetBuilder::new(Cursor::new(uasset), EngineVersion::VER_UE4_27)
-                        .bulk(Cursor::new(uexp))
-                        .skip_data(true)
-                        .build();
-
-                    let asset = match asset {
-                        Ok(asset) => asset,
-                        Err(err) => {
-                            warn!("failed to parse asset {normalized}: {err}");
-                            continue;
-                        }
-                    };
-
-                    let asset_path = normalized.with_extension("");
-                    if !supported_registry_asset_path(asset_path.as_str()) {
-                        return Err(IntegrationError::ModfileInvalidAssetPath {
-                            mod_info: mod_info.clone().into(),
-                            asset_path: normalized.to_string(),
-                            mount_point: pak.mount_point().to_string(),
+            let Some(package) = m.packages.get(normalized) else {
+                continue; // Not a .uasset/.umap with its .uexp.
+            };
+            let (asset_name, asset_class) = match package {
+                Ok(package) => match &package.row {
+                    Ok(row) => row,
+                    Err(e) => {
+                        return Err(IntegrationError::CtxtGenericError {
+                            source: e.clone().into(),
+                            mod_info: m.info.clone().into(),
                         });
                     }
-
-                    asset_registry
-                        .populate(asset_path.as_str(), &asset)
-                        .map_err(|e| IntegrationError::CtxtGenericError {
-                            source: e.into(),
-                            mod_info: mod_info.clone().into(),
-                        })?;
+                },
+                Err(err) => {
+                    warn!("failed to parse asset {normalized}: {err}");
+                    continue;
                 }
-                _ => {}
+            };
+            let asset_path = normalized.with_extension("");
+            if !supported_registry_asset_path(asset_path.as_str()) {
+                return Err(IntegrationError::ModfileInvalidAssetPath {
+                    mod_info: m.info.clone().into(),
+                    asset_path: normalized.to_string(),
+                    mount_point: m.mount_point.clone(),
+                });
             }
+            mod_inputs::populate_row(
+                &mut asset_registry,
+                asset_path.as_str(),
+                asset_name,
+                asset_class,
+            )
+            .map_err(|e| IntegrationError::CtxtGenericError {
+                source: e.into(),
+                mod_info: m.info.clone().into(),
+            })?;
         }
 
-        for (normalized, pak_path) in pak_files {
+        for (normalized, pak_path) in &m.files {
             if blueprint_guard::rejected_sidecar(normalized.as_str(), &rejected_blueprints) {
                 continue;
             }
@@ -409,36 +360,74 @@ pub(crate) fn integrate_with_report<P: AsRef<Path>>(
                 }
                 let lower = filename.to_lowercase();
                 if lower == "initspacerig.uasset" {
-                    init_spacerig_assets.insert(format_soft_class(&normalized));
+                    init_spacerig_assets.insert(format_soft_class(normalized));
                 }
                 if lower == "initcave.uasset" {
-                    init_cave_assets.insert(format_soft_class(&normalized));
+                    init_cave_assets.insert(format_soft_class(normalized));
                 }
             }
 
-            let file_data = pak
-                .get(&pak_path, &mut buf)
-                .with_context(|_| CtxtRepakSnafu {
-                    mod_info: mod_info.clone(),
-                })?;
-            if let Some(raw) = normalized
-                .as_str()
-                .strip_suffix(".uasset")
-                .and_then(|path| deferred_assets.get_mut(path))
-            {
-                raw.uasset = Some(file_data);
-            } else if let Some(raw) = normalized
-                .as_str()
-                .strip_suffix(".uexp")
-                .and_then(|path| deferred_assets.get_mut(path))
-            {
-                raw.uexp = Some(file_data);
+            let path = normalized.as_str();
+            let target = if let Some(key) = deferred_key(path.strip_suffix(".uasset")) {
+                Target::DeferredUasset(key)
+            } else if let Some(key) = deferred_key(path.strip_suffix(".uexp")) {
+                Target::DeferredUexp(key)
             } else {
-                bundle.write_file(&file_data, normalized.as_str())?;
                 added_paths.insert(lowercase);
-            }
+                Target::Write
+            };
+            ops.push(Op {
+                mod_index,
+                pak_path,
+                normalized: path,
+                target,
+            });
         }
     }
+
+    // Read (decompress) and hash the winners in parallel a chunk at a time, one chunk ahead
+    // of this thread, which appends them in order.
+    // ponytail: 3 chunks of 128 in memory at once; 384 huge textures would all sit there together.
+    let entry_builder = bundle.entry_builder();
+    std::thread::scope(|scope| -> Result<(), IntegrationError> {
+        let (tx, rx) = std::sync::mpsc::sync_channel(1);
+        let (ops, paks, entry_builder) = (&ops, &paks, &entry_builder);
+        scope.spawn(move || {
+            for chunk in ops.chunks(128) {
+                let built = chunk
+                    .par_iter()
+                    .map(|op| -> Result<_, IntegrationError> {
+                        let data = paks[op.mod_index].read(op.pak_path)?;
+                        Ok(match op.target {
+                            Target::Write => (Some(entry_builder.build_entry(false, data)?), None),
+                            _ => (None, Some(data)),
+                        })
+                    })
+                    .collect::<Vec<_>>();
+                if tx.send((chunk, built)).is_err() {
+                    break; // The writer stopped on an error.
+                }
+            }
+        });
+        for (chunk, built) in rx {
+            for (op, built) in chunk.iter().zip(built) {
+                match (&op.target, built?) {
+                    (Target::Write, (Some(entry), _)) => {
+                        bundle.write_entry(entry, op.normalized)?
+                    }
+                    (Target::DeferredUasset(key), (_, data)) => {
+                        deferred_assets.get_mut(key).unwrap().uasset = data
+                    }
+                    (Target::DeferredUexp(key), (_, data)) => {
+                        deferred_assets.get_mut(key).unwrap().uexp = data
+                    }
+                    _ => unreachable!(),
+                }
+            }
+        }
+        Ok(())
+    })?;
+    drop(paks);
 
     {
         let mut pcb_asset = deferred_assets[&pcb_path].parse()?;
@@ -469,7 +458,10 @@ pub(crate) fn integrate_with_report<P: AsRef<Path>>(
         bundle.write_file(data, path)?;
     }
 
-    bundle.write_meta(config, &mods)?;
+    bundle.write_file(&meta, "meta")?;
+    if let Some(key) = key {
+        bundle.write_file(&key, unchanged::KEY_PATH)?;
+    }
 
     let mut buf = vec![];
     asset_registry
@@ -490,6 +482,24 @@ pub(crate) fn integrate_with_report<P: AsRef<Path>>(
         );
     }
 
+    finish_install(
+        &installation,
+        #[cfg(feature = "hook")]
+        bundled_crash_reporter,
+        &mods,
+        &path_mod_pak,
+        report,
+    )
+}
+
+/// The steps after mods_P.pak is in place, whether it was just written or kept unchanged.
+fn finish_install(
+    installation: &DRGInstallation,
+    #[cfg(feature = "hook")] bundled_crash_reporter: bool,
+    mods: &[(ModInfo, PathBuf)],
+    path_mod_pak: &Path,
+    report: crate::installation::report::InstallReport,
+) -> Result<crate::installation::report::InstallReport, IntegrationError> {
     #[cfg(feature = "hook")]
     if let Err(err) = crate::crash_reporter::install(
         &installation.binaries_directory(),
