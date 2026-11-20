@@ -18,6 +18,7 @@ pub(crate) fn integrate_with_report<P: AsRef<Path>>(
     locations: Vec<String>,
     skipped: Vec<crate::installation::report::SkippedMod>,
 ) -> Result<crate::installation::report::InstallReport, IntegrationError> {
+    let mintfixed_crash_vanilla_pak = path_pak.as_ref().to_path_buf();
     let mut report = crate::installation::report::InstallReport {
         installed: 0,
         skipped,
@@ -516,5 +517,12 @@ pub(crate) fn integrate_with_report<P: AsRef<Path>>(
 
     info!("Installation output: {}", path_mod_pak.display());
     info!("{}", report.details());
+    if let Err(error) = crate::crash_context::write_installed_context(
+        &mintfixed_crash_vanilla_pak,
+        &path_mod_pak,
+        &mods,
+    ) {
+        tracing::warn!("Mintfixed crash context export skipped: {error}");
+    }
     Ok(report)
 }

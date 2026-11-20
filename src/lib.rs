@@ -1,4 +1,5 @@
 mod bitfix;
+mod crash_context;
 mod crash_reporter;
 pub mod gui;
 mod installation;
