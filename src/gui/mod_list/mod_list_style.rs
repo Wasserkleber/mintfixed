@@ -4,13 +4,21 @@ use eframe::egui::{self, Color32, Ui};
 
 pub(super) const COLOR_OPTIONS: &[(&str, &str)] = &[
     ("red", "Red"),
+    ("coral", "Coral"),
     ("orange", "Orange"),
+    ("gold", "Gold"),
     ("yellow", "Yellow"),
+    ("lime", "Lime"),
     ("green", "Green"),
+    ("mint", "Mint"),
     ("teal", "Teal"),
+    ("cyan", "Cyan"),
     ("blue", "Blue"),
+    ("indigo", "Indigo"),
     ("purple", "Purple"),
+    ("lavender", "Lavender"),
     ("pink", "Pink"),
+    ("burgundy", "Burgundy"),
 ];
 
 fn accent(color: &str) -> Option<Color32> {
@@ -23,6 +31,14 @@ fn accent(color: &str) -> Option<Color32> {
         "blue" => Color32::from_rgb(92, 142, 216),
         "purple" => Color32::from_rgb(155, 121, 211),
         "pink" => Color32::from_rgb(201, 112, 160),
+        "burgundy" => Color32::from_rgb(138, 62, 88),
+        "coral" => Color32::from_rgb(242, 116, 100),
+        "gold" => Color32::from_rgb(233, 182, 55),
+        "lime" => Color32::from_rgb(156, 196, 73),
+        "mint" => Color32::from_rgb(91, 201, 159),
+        "cyan" => Color32::from_rgb(73, 192, 216),
+        "indigo" => Color32::from_rgb(102, 108, 204),
+        "lavender" => Color32::from_rgb(189, 145, 228),
         _ => return None,
     })
 }
@@ -238,7 +254,7 @@ pub(super) fn color_menu_option(
     let foreground = color_key
         .map(|key| swatch_color(Some(key), dark))
         .unwrap_or_else(|| ui.visuals().text_color());
-    let size = egui::vec2(92.0, 18.0);
+    let size = egui::vec2(112.0, 18.0);
     let (rect, response) = ui.allocate_exact_size(size, egui::Sense::click());
 
     if ui.is_rect_visible(rect) {
@@ -292,4 +308,20 @@ pub(super) fn color_menu_option(
         }
     }
     response.clicked()
+}
+
+#[cfg(test)]
+mod group_palette_tests {
+    use super::COLOR_OPTIONS;
+    use super::accent;
+
+    #[test]
+    fn extra_group_colours_are_available() {
+        for key in [
+            "burgundy", "coral", "gold", "lime", "mint", "cyan", "indigo", "lavender",
+        ] {
+            assert!(accent(key).is_some(), "missing group accent: {key}");
+        }
+        assert_eq!(COLOR_OPTIONS.len(), 16);
+    }
 }
