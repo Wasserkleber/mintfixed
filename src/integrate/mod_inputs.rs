@@ -5,7 +5,10 @@ use std::io::{Read, Seek};
 
 use anyhow::anyhow;
 use rayon::prelude::*;
-use uasset_utils::asset_registry::{AssetData, MapHandle, get_root_export};
+use uasset_utils::asset_registry::{
+    AssetData, ExportPath, MapHandle, NameIndex, NameIndexFlagged, Pair, Readable, Type,
+    get_root_export,
+};
 use uasset_utils::paths::{PakPathBuf, pak_path_to_game_path};
 use unreal_asset::reader::ArchiveTrait as _;
 
@@ -155,12 +158,7 @@ pub(super) fn populate_row(
     let package_name_str = game_path.as_str();
     let object_path_str = format!("{game_path}.{asset_name_str}");
 
-    if let Some(name_index) = registry.names.0.get_index_of(&object_path_str)
-        && registry
-            .asset_data
-            .iter()
-            .any(|a| a.object_path.0 as usize == name_index)
-    {
+    if has_row(registry, &object_path_str, None) {
         return Ok(());
     }
 
@@ -207,4 +205,309 @@ pub(super) fn populate_row(
         });
     }
     Ok(())
+}
+
+/// Whether `registry` already has a row for `object_path` (its name and number), the check `populate` makes.
+fn has_row(registry: &AssetRegistry, object_path: &str, number: Option<u32>) -> bool {
+    registry.names.0.get_index_of(object_path).is_some_and(|i| {
+        let wanted = NameIndexFlagged(i as u32, number);
+        registry.asset_data.iter().any(|a| a.object_path == wanted)
+    })
+}
+
+/// A mod's own `AssetRegistry.bin` (issue 1 of ue-mods' `docs/notes/mint-integration.md`). For the packages the
+/// mod wins, `copy_rows` takes its rows, tags included, in place of the tagless ones `populate_row` makes.
+pub(super) struct ModRegistry {
+    registry: AssetRegistry,
+    /// Lowercased package name -> its rows.
+    by_package: HashMap<String, Vec<usize>>,
+}
+
+impl ModRegistry {
+    /// Reads the mod's `FSD/AssetRegistry.bin`, if it ships one MINT can merge; a registry it cannot is logged and
+    /// skipped, and the mod's packages get `populate_row`'s rows as before.
+    pub(super) fn load(m: &ModPak, game: &AssetRegistry) -> Option<Self> {
+        let (_, pak_path) = m
+            .files
+            .iter()
+            .find(|(n, _)| n.as_str().eq_ignore_ascii_case("FSD/AssetRegistry.bin"))?;
+        let parsed = m
+            .read(pak_path)
+            .map_err(|e| e.to_string())
+            .and_then(|data| Self::parse(&data, game));
+        parsed
+            .inspect_err(|e| {
+                warn!(
+                    "'{}': its AssetRegistry.bin is not merged, its rows lose their tags: {e}",
+                    m.info.name
+                )
+            })
+            .ok()
+    }
+
+    pub(super) fn parse(data: &[u8], game: &AssetRegistry) -> Result<Self, String> {
+        // uasset_utils asserts (panics) where it meets what it does not model, such as numbered tag pairs.
+        let registry = std::panic::catch_unwind(|| AssetRegistry::read(&mut Cursor::new(data)))
+            .map_err(|_| "uasset_utils cannot read it".to_string())?
+            .map_err(|e| e.to_string())?;
+        if (registry.version, registry.version_int) != (game.version, game.version_int) {
+            return Err(format!(
+                "version {} is not the game's {}",
+                registry.version_int, game.version_int
+            ));
+        }
+        // uasset_utils reads neither numbered tag pairs nor asset bundles, so such a file was misread.
+        if registry.store.pair_count != 0 || registry.asset_data.iter().any(|a| a.bundle_count != 0)
+        {
+            return Err("it has numbered tag pairs or asset bundles".into());
+        }
+        let mut by_package: HashMap<String, Vec<usize>> = HashMap::new();
+        for (i, row) in registry.asset_data.iter().enumerate() {
+            let package = registry.names[row.package_name].to_ascii_lowercase();
+            by_package.entry(package).or_default().push(i);
+        }
+        Ok(Self {
+            registry,
+            by_package,
+        })
+    }
+
+    /// Copies the rows for the package at pak path `path` (no extension) into `to`, each with its tags, skipping one
+    /// whose ObjectPath `to` already has (a replaced vanilla asset keeps vanilla's row, as with `populate_row`).
+    /// False when this registry has no row for the package.
+    pub(super) fn copy_rows(&self, to: &mut AssetRegistry, path: &str) -> bool {
+        let Some(package) = pak_path_to_game_path(PakPath::new(path)) else {
+            return false;
+        };
+        let Some(rows) = self.by_package.get(&package.to_ascii_lowercase()) else {
+            return false;
+        };
+        let from = &self.registry;
+        let s = &from.store;
+        let name = |to: &mut AssetRegistry, n: NameIndexFlagged| {
+            NameIndexFlagged(to.get_name(&from.names[n]).0, n.1)
+        };
+        let export_path = |to: &mut AssetRegistry, e: &ExportPath| ExportPath {
+            object_path: name(to, e.object_path),
+            package_path: name(to, e.package_path),
+            asset_class: name(to, e.asset_class),
+        };
+        fn push<T>(to: &mut Vec<T>, value: T) -> u32 {
+            to.push(value);
+            to.len() as u32 - 1
+        }
+        for row in rows.iter().map(|&i| &from.asset_data[i]) {
+            if has_row(to, &from.names[row.object_path], row.object_path.1) {
+                continue;
+            }
+            let pair_begin = to.store.pairs.len() as u32;
+            for p in &s.pairs[row.tags.pair_begin as usize..][..row.tags.num as usize] {
+                let i = p.index as usize;
+                let index = match p.type_ {
+                    Type::AnsiString => push(&mut to.store.ansi_strings, s.ansi_strings[i].clone()),
+                    Type::WideString => push(&mut to.store.wide_strings, s.wide_strings[i].clone()),
+                    Type::LocalizedText => push(&mut to.store.texts, s.texts[i].clone()),
+                    Type::NumberlessName => {
+                        let n = name(to, s.nbl_names[i]);
+                        push(&mut to.store.nbl_names, n)
+                    }
+                    Type::Name => {
+                        let n = name(to, s.names[i]);
+                        push(&mut to.store.names, n)
+                    }
+                    Type::NumberlessExportPath => {
+                        let e = export_path(to, &s.nbl_export_paths[i]);
+                        push(&mut to.store.nbl_export_paths, e)
+                    }
+                    Type::ExportPath => {
+                        let e = export_path(to, &s.export_paths[i]);
+                        push(&mut to.store.export_paths, e)
+                    }
+                };
+                let key = to.get_name(&from.names[p.name]).0;
+                to.store.pairs.push(Pair {
+                    name: name_index(key),
+                    type_: p.type_,
+                    index,
+                });
+            }
+            let row = AssetData {
+                object_path: name(to, row.object_path),
+                package_path: name(to, row.package_path),
+                asset_class: name(to, row.asset_class),
+                package_name: name(to, row.package_name),
+                asset_name: name(to, row.asset_name),
+                tags: MapHandle {
+                    has_numberless_keys: true,
+                    num: row.tags.num,
+                    pair_begin,
+                },
+                bundle_count: 0,
+                chunk_ids: row.chunk_ids.clone(),
+                flags: row.flags,
+            };
+            to.asset_data.push(row);
+        }
+        true
+    }
+}
+
+/// ponytail: uasset_utils keeps `NameIndex`'s field private, so one is made the way its reader makes it.
+fn name_index(i: u32) -> NameIndex {
+    NameIndex::read(&mut Cursor::new(i.to_le_bytes())).unwrap()
+}
+
+#[cfg(test)]
+mod tests {
+    use uasset_utils::asset_registry::{Dependencies, Names, Store, Writable};
+
+    use super::*;
+
+    /// A registry holding one row per `(package, class, tags)`, each tag an ANSI string, plus a `Parent` name tag
+    /// when the value starts with `/`, to cover the remapping of a name value.
+    /// (package, class, tags) of one row.
+    type Row<'a> = (&'a str, &'a str, &'a [(&'a str, &'a str)]);
+
+    fn registry(rows: &[Row]) -> AssetRegistry {
+        let mut r = AssetRegistry {
+            version: [7; 16],
+            version_int: 8,
+            hash_version: 0,
+            names: Names(Default::default()),
+            store: Store {
+                pair_count: 0,
+                texts: vec![],
+                nbl_names: vec![],
+                names: vec![],
+                nbl_export_paths: vec![],
+                export_paths: vec![],
+                ansi_strings: vec![],
+                wide_strings: vec![],
+                pairs: vec![],
+            },
+            asset_data: vec![],
+            dependencies: Dependencies {
+                dependencies_size: 0,
+                dependencies: vec![],
+                package_data_buffer_size: 0,
+            },
+        };
+        for (package, class, tags) in rows {
+            let asset = package.rsplit('/').next().unwrap();
+            let pair_begin = r.store.pairs.len() as u32;
+            for (key, value) in *tags {
+                let name = name_index(r.get_name(key).0);
+                let (type_, index) = if value.starts_with('/') {
+                    let n = r.get_name(value);
+                    r.store.nbl_names.push(n);
+                    (Type::NumberlessName, r.store.nbl_names.len() - 1)
+                } else {
+                    r.store.ansi_strings.push(value.to_string());
+                    (Type::AnsiString, r.store.ansi_strings.len() - 1)
+                };
+                r.store.pairs.push(Pair {
+                    name,
+                    type_,
+                    index: index as u32,
+                });
+            }
+            let row = AssetData {
+                object_path: r.get_name(&format!("{package}.{asset}")),
+                package_path: r.get_name(package.rsplit_once('/').unwrap().0),
+                asset_class: r.get_name(class),
+                package_name: r.get_name(package),
+                asset_name: r.get_name(asset),
+                tags: MapHandle {
+                    has_numberless_keys: true,
+                    num: tags.len() as u16,
+                    pair_begin,
+                },
+                bundle_count: 0,
+                chunk_ids: vec![],
+                flags: 0,
+            };
+            r.asset_data.push(row);
+        }
+        r
+    }
+
+    fn bytes(r: &AssetRegistry) -> Vec<u8> {
+        let mut out = vec![];
+        r.write(&mut out).unwrap();
+        out
+    }
+
+    /// The tags of the row for `object_path`, read back as (key, value) strings.
+    fn tags(r: &AssetRegistry, object_path: &str) -> Vec<(String, String)> {
+        let row = r
+            .asset_data
+            .iter()
+            .find(|a| r.names[a.object_path] == object_path)
+            .unwrap();
+        r.store.pairs[row.tags.pair_begin as usize..][..row.tags.num as usize]
+            .iter()
+            .map(|p| {
+                let i = p.index as usize;
+                let value = match p.type_ {
+                    Type::AnsiString => r.store.ansi_strings[i].clone(),
+                    Type::NumberlessName => r.names[r.store.nbl_names[i]].clone(),
+                    t => panic!("unexpected {t:?}"),
+                };
+                (r.names[p.name].clone(), value)
+            })
+            .collect()
+    }
+
+    #[test]
+    fn mod_rows_keep_their_tags() {
+        let mut game = registry(&[(
+            "/Game/UI/M_Vanilla",
+            "Material",
+            &[("MaterialDomain", "MD_Surface")],
+        )]);
+        let ui = [
+            ("MaterialDomain", "MD_UI"),
+            ("Parent", "/Game/_ElytrasMods/M_Base.M_Base"),
+        ];
+        let ours = registry(&[
+            (
+                "/Game/_ElytrasMods/MI_Gold_UI",
+                "MaterialInstanceConstant",
+                &ui,
+            ),
+            // A replaced vanilla package keeps vanilla's row.
+            (
+                "/Game/UI/M_Vanilla",
+                "Material",
+                &[("MaterialDomain", "MD_UI")],
+            ),
+        ]);
+        let ours = ModRegistry::parse(&bytes(&ours), &game).unwrap();
+
+        // The package path as MINT sees it in the pak, any case.
+        assert!(ours.copy_rows(&mut game, "FSD/Content/_ElytrasMods/mi_gold_ui"));
+        assert!(ours.copy_rows(&mut game, "FSD/Content/UI/M_Vanilla"));
+        assert!(!ours.copy_rows(&mut game, "FSD/Content/_ElytrasMods/Unlisted"));
+
+        // Through the file MINT writes.
+        let merged = AssetRegistry::read(&mut Cursor::new(bytes(&game))).unwrap();
+        assert_eq!(merged.asset_data.len(), 2);
+        assert_eq!(
+            tags(&merged, "/Game/_ElytrasMods/MI_Gold_UI.MI_Gold_UI"),
+            ui.map(|(k, v)| (k.to_string(), v.to_string()))
+        );
+        assert_eq!(
+            tags(&merged, "/Game/UI/M_Vanilla.M_Vanilla"),
+            [("MaterialDomain".to_string(), "MD_Surface".to_string())]
+        );
+    }
+
+    #[test]
+    fn another_version_is_not_merged() {
+        let game = registry(&[]);
+        let mut ours = registry(&[]);
+        ours.version_int = 7;
+        assert!(ModRegistry::parse(&bytes(&ours), &game).is_err());
+        assert!(ModRegistry::parse(b"not a registry", &game).is_err());
+    }
 }
