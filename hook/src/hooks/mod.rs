@@ -34,6 +34,7 @@ pub type FnLoadGameFromMemory =
 type ExecFn = unsafe extern "system" fn(*mut ue::UObject, *mut ue::kismet::FFrame, *mut c_void);
 
 pub unsafe fn initialize() -> Result<()> {
+    crate::startup_checkpoint("hooks::initialize(): entered");
     let hooks = [
         (
             "/Game/_mint/BPL_MINT.BPL_MINT_C:Get Mod JSON",
@@ -54,12 +55,15 @@ pub unsafe fn initialize() -> Result<()> {
     .collect::<std::collections::HashMap<_, ExecFn>>();
 
     unsafe {
+        crate::startup_checkpoint("WinMain detour: initialize BEGIN");
         WinMain.initialize(
             std::mem::transmute(globals().resolution.core.as_ref().unwrap().main.0),
             lifecycle::detour_main,
         )?;
+        crate::startup_checkpoint("WinMain detour: enable BEGIN");
         WinMain.enable()?;
 
+        crate::startup_checkpoint("UFunctionBind detour: initialize BEGIN");
         HookUFunctionBind.initialize(
             std::mem::transmute(globals().resolution.core.as_ref().unwrap().ufunction_bind.0),
             move |function| {
@@ -81,15 +85,19 @@ pub unsafe fn initialize() -> Result<()> {
                 }
             },
         )?;
+        crate::startup_checkpoint("UFunctionBind detour: enable BEGIN");
         HookUFunctionBind.enable()?;
 
+        crate::startup_checkpoint("Server-list hooks: initialization BEGIN");
         server_list::init_hooks()?;
 
+        crate::startup_checkpoint("Server-list hooks completed; detecting DRG installation");
         let installation_type = DRGInstallationType::from_exe_path()?;
 
         match installation_type {
             DRGInstallationType::Steam => {
                 if let Ok(address) = &globals().resolution.disable {
+                    crate::startup_checkpoint("Steam memory patch: BEGIN");
                     memory::patch_mem(
                         (address.0 as *mut u8).add(29),
                         [0xB8, 0x01, 0x00, 0x00, 0x00],
@@ -132,5 +140,6 @@ pub unsafe fn initialize() -> Result<()> {
             }
         }
     }
+    crate::startup_checkpoint("hooks::initialize(): completed successfully");
     Ok(())
 }

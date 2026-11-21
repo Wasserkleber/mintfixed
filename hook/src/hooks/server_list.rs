@@ -20,8 +20,11 @@ pub fn kismet_hooks() -> &'static [(&'static str, ExecFn)] {
 }
 
 pub unsafe fn init_hooks() -> Result<()> {
+    crate::startup_checkpoint("server_list::init_hooks(): entered");
+    crate::startup_checkpoint("Server-name hook: checking resolved pattern");
     if let Ok(server_name) = &globals().resolution.server_name {
         unsafe {
+            crate::startup_checkpoint("Server-name detour: initialize BEGIN");
             GetServerName
                 .initialize(
                     std::mem::transmute(server_name.get_server_name.0),
@@ -31,8 +34,10 @@ pub unsafe fn init_hooks() -> Result<()> {
         }
     }
 
+    crate::startup_checkpoint("Server-mods hook: checking resolved pattern");
     if let Ok(server_mods) = &globals().resolution.server_mods {
         unsafe {
+            crate::startup_checkpoint("Session-setting detour: initialize BEGIN");
             USessionHandlingFSDFillSessionSetting
                 .initialize(
                     std::mem::transmute(server_mods.fill_session_setting.0),

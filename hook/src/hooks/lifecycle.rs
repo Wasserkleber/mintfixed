@@ -9,8 +9,12 @@ pub(super) fn detour_main(
     n_cmd_show: i32,
     cmd_line: *const (),
 ) -> i32 {
+    crate::startup_checkpoint("WinMain detour: entered");
     // Start outside DllMain, before the original game WinMain.
+    crate::startup_checkpoint("BP-Crash-Reporter autolaunch: BEGIN");
     crate::crash_reporter::autolaunch();
+    crate::startup_checkpoint("BP-Crash-Reporter autolaunch: returned");
+    crate::startup_checkpoint("Original WinMain call: BEGIN");
     let ret = unsafe {
         WinMain.call(
             h_instance,
@@ -22,6 +26,7 @@ pub(super) fn detour_main(
     };
 
     // about to exit, drop log guard
+    crate::startup_checkpoint("Original WinMain call: returned; dropping tracing guard");
     drop(LOG_GUARD.with_borrow_mut(|g| g.take()).unwrap());
 
     ret
