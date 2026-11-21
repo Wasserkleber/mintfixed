@@ -8,8 +8,9 @@ member overrides, ordering, and other JSON settings are retained.
 In **Profile Management → Import Profile**, load the resulting `.zip`. The preview shows the
 profile name and bundled definition. Click **Import Profile** to verify and extract. If it
 contains local mod archives and no valid **Settings → Local mods folder** is configured,
-mintfixed shows an error instead of opening a folder picker. Extraction creates a new unique
-subfolder under the configured folder; it does not overwrite previous imports. Local paths
+mintfixed shows an error instead of opening a folder picker. New mod files are saved directly in the configured mod folder. Identical
+existing files are reused; filenames conflicting with different files receive
+a numbered suffix such as `(2)`. Existing files are never overwritten. Local paths
 are then updated before the profile and its groups are added to the active configuration.
 
 You can still paste standard profile JSON or load an ordinary `.json` file. If the imported profile name already exists, the importer shows a warning and requires

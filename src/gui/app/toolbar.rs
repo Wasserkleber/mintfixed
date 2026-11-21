@@ -257,8 +257,8 @@ impl App {
                                 }
                             } else if self.integrate_rid.is_some() {
                                 let progress = match self.install_phase {
-                                    message::InstallPhase::Resolving => "Resolving mod versions and dependencies...",
-                                    message::InstallPhase::Downloading => "Downloading / checking cached mods...",
+                                    message::InstallPhase::Resolving => "mod.io rate limits may slow version / dependency checks...",
+                                    message::InstallPhase::Downloading => "mod.io rate limits may slow downloads / cache checks...",
                                     message::InstallPhase::Integrating => "Writing mods_P.pak...",
                                 };
                                 if status_message(ui, progress) {

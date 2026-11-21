@@ -27,6 +27,8 @@ pub(crate) struct IncludedFile {
     pub(crate) path: String,
     pub(crate) size: u64,
     pub(crate) sha256: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) original_name: Option<String>,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -72,43 +74,65 @@ pub(crate) fn safe_component(value: &str) -> String {
     }
 }
 
-pub(crate) fn bundle_filename(index: usize, url: &str) -> Result<String, String> {
-    let original = url.rsplit(['/', '\\']).next().unwrap_or_default();
-    let extension = Path::new(original)
-        .extension()
-        .and_then(|ext| ext.to_str())
-        .ok_or_else(|| format!("Invalid local mod filename: {original}"))?;
-    if !["pak", "zip"]
-        .iter()
-        .any(|ext| extension.eq_ignore_ascii_case(ext))
-    {
+/// Use the actual filename in portable ZIPs, not a four-digit index.
+/// The manifest tracks both its original name and SHA-256 independently.
+pub(crate) fn bundle_filename(_index: usize, url: &str) -> Result<String, String> {
+    let filename = url.rsplit(['/', '\\']).next().unwrap_or_default();
+    let member = format!("mods/{filename}");
+    if !safe_archive_path(&member) {
         return Err(format!(
-            "Only local .pak/.zip files can be included: {original}"
+            "Unsafe or unsupported local mod filename: {filename}"
         ));
     }
-    let stem = original
-        .rsplit_once('.')
-        .map(|(stem, _)| stem)
-        .unwrap_or(original);
-    Ok(format!(
-        "mods/{index:04}_{}.{}",
-        safe_component(stem),
-        extension.to_ascii_lowercase()
-    ))
+    Ok(member)
 }
 
+/// Keep ordinary ZIP members unchanged. Two *different source paths* may have
+/// the same basename, so allocate a unique archive entry only on collision.
+/// original_name in the manifest always retains the source's real filename.
+pub(crate) fn unique_bundle_filename(
+    url: &str,
+    used: &mut HashSet<String>,
+) -> Result<String, String> {
+    let base = bundle_filename(0, url)?;
+    if used.insert(base.to_lowercase()) {
+        return Ok(base);
+    }
+    let filename = base.strip_prefix("mods/").ok_or("Invalid ZIP filename")?;
+    let (stem, extension) = filename.rsplit_once('.').ok_or("Invalid mod extension")?;
+    for index in 2..=10_000 {
+        let suffix = format!(" ({index})");
+        // Keep the Windows filename limit even when appending a collision suffix.
+        let max_stem = 240usize.saturating_sub(suffix.len() + extension.len() + 1);
+        let mut boundary = stem.len().min(max_stem);
+        while !stem.is_char_boundary(boundary) {
+            boundary -= 1;
+        }
+        let candidate = format!("mods/{}{}.{}", &stem[..boundary], suffix, extension);
+        if safe_archive_path(&candidate) && used.insert(candidate.to_lowercase()) {
+            return Ok(candidate);
+        }
+    }
+    Err("Too many bundled local mods with the same name".into())
+}
+
+/// Reuse the same Windows-safe filename validation as imported originals.
+/// This permits spaces and Unicode in normal mod filenames but rejects ZIP
+/// traversal, directory components, alternate streams and device names.
 pub(crate) fn safe_archive_path(path: &str) -> bool {
-    if !path.starts_with("mods/") {
+    let Some(filename) = path.strip_prefix("mods/") else {
+        return false;
+    };
+    if filename.contains("..") {
         return false;
     }
-    let file = &path[5..];
-    !file.is_empty()
-        && file.len() <= 110
-        && !file.contains("..")
-        && file
-            .bytes()
-            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b'-'))
-        && matches!(Path::new(file).extension().and_then(|e| e.to_str()), Some(e) if e.eq_ignore_ascii_case("pak") || e.eq_ignore_ascii_case("zip"))
+    original_file_name(&IncludedFile {
+        path: path.to_owned(),
+        size: 0,
+        sha256: String::new(),
+        original_name: Some(filename.to_owned()),
+    })
+    .is_ok()
 }
 
 pub(crate) fn copy_and_hash<R: Read, W: Write>(
@@ -176,7 +200,8 @@ pub(super) fn export_bundle(
     let mut modified = group.clone();
     let mut sources: Vec<(PathBuf, String, u64)> = Vec::new();
     let mut declared_total = 0_u64;
-    for (index, item) in modified.mods.iter_mut().enumerate() {
+    let mut archive_names = HashSet::new();
+    for item in modified.mods.iter_mut() {
         if !local_archive(&item.spec.url) {
             continue;
         }
@@ -195,7 +220,7 @@ pub(super) fn export_bundle(
         if declared_total > MAX_TOTAL {
             return Err("Bundled mods exceed the 8 GiB size limit".into());
         }
-        let member = bundle_filename(index, &item.spec.url)?;
+        let member = unique_bundle_filename(&item.spec.url, &mut archive_names)?;
         item.spec.url = format!("{PREFIX}{member}");
         sources.push((source, member, metadata.len()));
     }
@@ -238,6 +263,13 @@ pub(super) fn export_bundle(
                 path: member,
                 size,
                 sha256: hash,
+                original_name: Some(
+                    source
+                        .file_name()
+                        .ok_or("Invalid original filename")?
+                        .to_string_lossy()
+                        .into_owned(),
+                ),
             });
         }
         let manifest = Manifest {
@@ -445,75 +477,340 @@ pub(super) fn bundle_destination(configured: Option<&Path>) -> Option<PathBuf> {
 
 /// Extract into a new dedicated subfolder inside the chosen directory.
 /// Never overwrite existing PAK files or follow ZIP paths outside the folder.
-pub(super) fn extract_bundle(path: &Path, folder: &Path) -> Result<ModGroup, String> {
-    let parsed = preview(path)?;
+
+/// Reconstruct the displayed/original filename, including for old bundles
+/// created before the manifest explicitly stored original_name.
+pub(crate) fn original_file_name(file: &IncludedFile) -> Result<String, String> {
+    let archive_name = file
+        .path
+        .strip_prefix("mods/")
+        .ok_or("Invalid bundled mod path")?;
+    let original = if let Some(original) = &file.original_name {
+        original.as_str()
+    } else if archive_name.len() > 5
+        && archive_name.as_bytes()[..4].iter().all(u8::is_ascii_digit)
+        && archive_name.as_bytes()[4] == b'_'
+    {
+        &archive_name[5..]
+    } else {
+        archive_name
+    };
+    // Validate before joining with local paths. No path components, alternate
+    // data streams, Windows device names, or non-PAK/ZIP output is accepted.
+    if original.is_empty()
+        || original.len() > 240
+        || original == "."
+        || original == ".."
+        || original.starts_with(' ')
+        || original.ends_with(' ')
+        || original.ends_with('.')
+        || original.chars().any(|ch| {
+            ch.is_control() || matches!(ch, '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|')
+        })
+    {
+        return Err(format!("Unsafe original mod filename: {original}"));
+    }
+    let stem = original
+        .split('.')
+        .next()
+        .unwrap_or_default()
+        .to_ascii_uppercase();
+    if matches!(
+        stem.as_str(),
+        "CON"
+            | "PRN"
+            | "AUX"
+            | "NUL"
+            | "COM1"
+            | "COM2"
+            | "COM3"
+            | "COM4"
+            | "COM5"
+            | "COM6"
+            | "COM7"
+            | "COM8"
+            | "COM9"
+            | "LPT1"
+            | "LPT2"
+            | "LPT3"
+            | "LPT4"
+            | "LPT5"
+            | "LPT6"
+            | "LPT7"
+            | "LPT8"
+            | "LPT9"
+    ) {
+        return Err(format!("Windows reserved mod filename: {original}"));
+    }
+    if !matches!(Path::new(original).extension().and_then(|s| s.to_str()),
+        Some(ext) if ext.eq_ignore_ascii_case("pak") || ext.eq_ignore_ascii_case("zip"))
+    {
+        return Err(format!("Unsupported original mod filename: {original}"));
+    }
+    Ok(original.to_owned())
+}
+
+/// Never follow symbolic links while discovering reusable local mods. Only
+/// hash files whose size could match an entry in the package.
+fn existing_mod_files(
+    root: &Path,
+    wanted_sizes: &HashSet<u64>,
+) -> Result<std::collections::HashMap<(u64, String), Vec<PathBuf>>, String> {
+    let mut index: std::collections::HashMap<(u64, String), Vec<PathBuf>> =
+        std::collections::HashMap::new();
+    let mut pending = vec![root.to_path_buf()];
+    let mut visited = 0usize;
+    while let Some(dir) = pending.pop() {
+        let iter = fs::read_dir(&dir)
+            .map_err(|e| format!("Cannot scan configured mod folder {}: {e}", dir.display()))?;
+        for entry in iter {
+            let entry = entry.map_err(|e| format!("Cannot scan configured mod folder: {e}"))?;
+            visited += 1;
+            if visited > 100_000 {
+                return Err(
+                    "Configured mod folder contains too many entries to scan safely".into(),
+                );
+            }
+            let path = entry.path();
+            let kind = entry
+                .file_type()
+                .map_err(|e| format!("Cannot inspect {}: {e}", path.display()))?;
+            if kind.is_symlink() {
+                continue;
+            }
+            if kind.is_dir() {
+                // Never mistake another import's unfinished temporary files for usable mods.
+                if !entry
+                    .file_name()
+                    .to_string_lossy()
+                    .starts_with(".mintfixed-")
+                {
+                    pending.push(path);
+                }
+                continue;
+            }
+            if !kind.is_file() || !local_archive(&path.to_string_lossy()) {
+                continue;
+            }
+            let Ok(meta) = entry.metadata() else {
+                continue;
+            };
+            if !wanted_sizes.contains(&meta.len()) {
+                continue;
+            }
+            let Ok(mut input) = File::open(&path) else {
+                continue;
+            };
+            let Ok((size, checksum)) = copy_and_hash(&mut input, &mut std::io::sink(), meta.len())
+            else {
+                continue;
+            };
+            if size == meta.len() {
+                index.entry((size, checksum)).or_default().push(path);
+            }
+        }
+    }
+    Ok(index)
+}
+
+fn unique_destination_name(original: &str, used: &mut HashSet<String>) -> String {
+    if used.insert(original.to_ascii_lowercase()) {
+        return original.to_owned();
+    }
+    let (stem, extension) = original.rsplit_once('.').expect("validated filename");
+    for number in 2..=100_000 {
+        let suffix = format!(" ({number})");
+        let keep = stem
+            .len()
+            .min(240usize.saturating_sub(extension.len() + suffix.len() + 1));
+        let mut boundary = keep;
+        while !stem.is_char_boundary(boundary) {
+            boundary -= 1;
+        }
+        let proposed = format!("{}{}.{}", &stem[..boundary], suffix, extension);
+        if used.insert(proposed.to_ascii_lowercase()) {
+            return proposed;
+        }
+    }
+    unreachable!("exhausted import filenames")
+}
+
+/// Tracks only files that *this* import created. If the extraction fails,
+/// or the group import cannot complete, existing files are never removed.
+pub(crate) struct InstalledModFiles {
+    pub(crate) mapping: BTreeMap<String, String>,
+    created: Vec<PathBuf>,
+    committed: bool,
+}
+impl InstalledModFiles {
+    pub(crate) fn commit(&mut self) {
+        self.committed = true;
+    }
+    /// Transfer cleanup responsibility to a pending profile import.
+    pub(crate) fn into_created(mut self) -> Vec<PathBuf> {
+        self.committed = true;
+        std::mem::take(&mut self.created)
+    }
+}
+impl Drop for InstalledModFiles {
+    fn drop(&mut self) {
+        if !self.committed {
+            for path in self.created.iter().rev() {
+                let _ = fs::remove_file(path);
+            }
+        }
+    }
+}
+
+/// Shared profile/group import: check each ZIP payload, reuse existing files by
+/// size and SHA-256, and install only new files straight into Settings' folder.
+/// The temporary directory is for validation only and is never preserved.
+pub(crate) fn extract_mod_files(
+    archive: &mut ZipArchive<File>,
+    files: &[IncludedFile],
+    folder: &Path,
+    _package_name: &str,
+    _package_kind: &str,
+) -> Result<InstalledModFiles, String> {
     if !folder.is_dir() {
         return Err(format!(
-            "Extraction folder does not exist: {}",
+            "Configured mod folder does not exist: {}",
             folder.display()
         ));
     }
-    let base_name = safe_component(&parsed.manifest.name);
-    let mut target = None;
-    for index in 1..=10_000 {
-        let name = if index == 1 {
-            format!("{base_name} (mintfixed group)")
-        } else {
-            format!("{base_name} (mintfixed group {index})")
-        };
-        let candidate = folder.join(name);
-        if !candidate.exists() {
-            target = Some(candidate);
-            break;
-        }
+    let wanted_sizes: HashSet<u64> = files.iter().map(|f| f.size).collect();
+    let index = existing_mod_files(folder, &wanted_sizes)?;
+
+    // Reserve names belonging to every existing root entry, including folders,
+    // so a new mod never replaces a file or clashes with a directory.
+    let mut used_names = HashSet::new();
+    for entry in fs::read_dir(folder).map_err(|e| format!("Cannot read mod folder: {e}"))? {
+        let entry = entry.map_err(|e| format!("Cannot inspect mod folder entry: {e}"))?;
+        used_names.insert(entry.file_name().to_string_lossy().to_ascii_lowercase());
     }
-    let target = target.ok_or("Too many imported group folders")?;
     let staging = tempfile::Builder::new()
-        .prefix(".mintfixed-group-")
+        .prefix(".mintfixed-bundle-")
         .tempdir_in(folder)
-        .map_err(|e| format!("Cannot prepare extraction folder: {e}"))?;
-    let file = File::open(path).map_err(|e| format!("Cannot reopen ZIP: {e}"))?;
-    let mut archive = ZipArchive::new(file).map_err(|e| format!("Cannot reopen ZIP: {e}"))?;
-    let mut extracted = BTreeMap::new();
-    for file in &parsed.manifest.files {
-        let filename = file
-            .path
-            .strip_prefix("mods/")
-            .ok_or("Invalid packaged mod path")?;
-        let temporary = staging.path().join(filename);
+        .map_err(|e| format!("Cannot prepare temporary import: {e}"))?;
+
+    let mut installed = InstalledModFiles {
+        mapping: BTreeMap::new(),
+        created: Vec::new(),
+        committed: false,
+    };
+    let mut planned = std::collections::HashMap::<(u64, String), PathBuf>::new();
+    let mut to_install = Vec::<(PathBuf, PathBuf)>::new();
+
+    // Verify *all* bundled bytes before installing any mod into the root.
+    for (number, file) in files.iter().enumerate() {
+        let original = original_file_name(file)?;
+        let scratch = staging.path().join(format!("payload-{number:04}"));
         let mut output = OpenOptions::new()
             .write(true)
             .create_new(true)
-            .open(&temporary)
-            .map_err(|e| format!("Cannot create local mod {}: {e}", temporary.display()))?;
-        let mut source = archive
+            .open(&scratch)
+            .map_err(|e| format!("Cannot create temporary mod: {e}"))?;
+        let mut payload = archive
             .by_name(&file.path)
-            .map_err(|e| format!("Cannot read {}: {e}", file.path))?;
-        let (size, sha256) = copy_and_hash(&mut source, &mut output, file.size)?;
-        if size != file.size || !sha256.eq_ignore_ascii_case(&file.sha256) {
+            .map_err(|e| format!("Missing bundled mod {}: {e}", file.path))?;
+        let (size, digest) = copy_and_hash(&mut payload, &mut output, file.size)?;
+        output
+            .flush()
+            .map_err(|e| format!("Cannot flush staged mod: {e}"))?;
+        drop(output);
+        if size != file.size || !digest.eq_ignore_ascii_case(&file.sha256) {
             return Err(format!(
                 "Bundled mod failed integrity verification: {}",
                 file.path
             ));
         }
-        output
-            .flush()
-            .map_err(|e| format!("Cannot flush imported mod: {e}"))?;
-        extracted.insert(
-            file.path.clone(),
-            target.join(filename).to_string_lossy().into_owned(),
-        );
+        let key = (size, digest.to_ascii_lowercase());
+        // Prefer an identical file with the original filename, otherwise any
+        // byte-identical local file, including one inside a legacy subfolder.
+        let existing = index.get(&key).and_then(|candidates| {
+            candidates
+                .iter()
+                .find(|path| {
+                    path.file_name()
+                        .is_some_and(|name| name.to_string_lossy().eq_ignore_ascii_case(&original))
+                })
+                .or_else(|| candidates.first())
+        });
+        let resolved = if let Some(path) = existing {
+            path.clone()
+        } else if let Some(path) = planned.get(&key) {
+            path.clone()
+        } else {
+            let filename = unique_destination_name(&original, &mut used_names);
+            let destination = folder.join(filename);
+            planned.insert(key, destination.clone());
+            to_install.push((scratch.clone(), destination.clone()));
+            destination
+        };
+        installed
+            .mapping
+            .insert(file.path.clone(), resolved.to_string_lossy().into_owned());
     }
+
+    // hard_link is an atomic no-overwrite operation on Windows/NTFS and
+    // Unix filesystems. Fallback uses exclusive create_new for filesystems
+    // without hardlinks; both paths refuse an existing destination.
+    for (staged, destination) in to_install {
+        match fs::hard_link(&staged, &destination) {
+            Ok(()) => {
+                installed.created.push(destination);
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
+                return Err(format!(
+                    "Another file appeared during import: {} (retry import)",
+                    destination.display()
+                ));
+            }
+            Err(_) => {
+                let mut input =
+                    File::open(&staged).map_err(|e| format!("Cannot reopen verified mod: {e}"))?;
+                let mut output = OpenOptions::new()
+                    .write(true)
+                    .create_new(true)
+                    .open(&destination)
+                    .map_err(|e| format!("Cannot safely create {}: {e}", destination.display()))?;
+                // Mark as owned *before* copying, so partial writes are cleaned.
+                installed.created.push(destination);
+                std::io::copy(&mut input, &mut output)
+                    .map_err(|e| format!("Cannot finish imported mod copy: {e}"))?;
+                output
+                    .flush()
+                    .map_err(|e| format!("Cannot flush imported mod: {e}"))?;
+            }
+        }
+    }
+    Ok(installed)
+}
+
+/// Extract validated bundle files directly into the Settings mod folder.
+/// Existing files are never overwritten; matching SHA-256 files are reused.
+pub(super) fn extract_bundle(path: &Path, folder: &Path) -> Result<ModGroup, String> {
+    let parsed = preview(path)?;
+    let file = File::open(path).map_err(|e| format!("Cannot reopen ZIP: {e}"))?;
+    let mut archive = ZipArchive::new(file).map_err(|e| format!("Cannot reopen ZIP: {e}"))?;
+    let mut installed = extract_mod_files(
+        &mut archive,
+        &parsed.manifest.files,
+        folder,
+        &parsed.manifest.name,
+        "group",
+    )?;
     let mut imported_group = parsed.group;
     for item in &mut imported_group.mods {
         if let Some(relative) = item.spec.url.strip_prefix(PREFIX) {
-            item.spec.url = extracted
+            item.spec.url = installed
+                .mapping
                 .get(relative)
                 .ok_or("Missing extracted mod")?
                 .clone();
         }
     }
-    fs::rename(staging.path(), &target).map_err(|e| format!("Cannot finish extraction: {e}"))?;
+    installed.commit();
     Ok(imported_group)
 }
 
@@ -664,11 +961,11 @@ mod group_package_tests {
     fn package_filenames_are_unique_and_safe() {
         assert_eq!(
             bundle_filename(0, r"C:\mods\tool.pak").unwrap(),
-            "mods/0000_tool.pak"
+            "mods/tool.pak"
         );
         assert_eq!(
             bundle_filename(1, r"D:\more\tool.pak").unwrap(),
-            "mods/0001_tool.pak"
+            "mods/tool.pak"
         );
         assert!(!safe_archive_path("mods/../escape.pak"));
         assert!(!safe_archive_path("mods/subfolder/file.pak"));
@@ -794,5 +1091,203 @@ mod group_package_tests {
         let output = folder.path().join("out.zip");
         assert!(export_bundle("Missing", &group, &output, true).is_err());
         assert!(!output.exists());
+    }
+
+    #[test]
+    fn old_numbered_zip_manifest_restores_unprefixed_name() {
+        let older = IncludedFile {
+            path: "mods/0001_OBNC_patchedMEV7.pak".into(),
+            size: 0,
+            sha256: String::new(),
+            original_name: None,
+        };
+        assert_eq!(original_file_name(&older).unwrap(), "OBNC_patchedMEV7.pak");
+        let newer = IncludedFile {
+            original_name: Some("True Original Name.pak".into()),
+            ..older
+        };
+        assert_eq!(
+            original_file_name(&newer).unwrap(),
+            "True Original Name.pak"
+        );
+        let mut used = HashSet::new();
+        assert_eq!(unique_destination_name("Same.pak", &mut used), "Same.pak");
+        assert_eq!(
+            unique_destination_name("same.pak", &mut used),
+            "same (2).pak"
+        );
+    }
+    #[test]
+    fn reused_local_file_is_never_replaced_and_keeps_original_path() {
+        let root = tempfile::tempdir().unwrap();
+        let configured = root.path().join("configured");
+        fs::create_dir(&configured).unwrap();
+        let from = root.path().join("OriginalMod.pak");
+        let present = configured.join("OriginalMod.pak");
+        fs::write(&from, b"matching-mod-content").unwrap();
+        fs::write(&present, b"matching-mod-content").unwrap();
+        let original = fs::read(&present).unwrap();
+        let group = ModGroup {
+            id: crate::state::new_id(),
+            mods: vec![crate::state::ModConfig {
+                id: crate::state::new_id(),
+                description: None,
+                spec: ModSpecification::new(from.to_string_lossy().into_owned()),
+                enabled: true,
+                required: false,
+                member_id: None,
+                priority: 0,
+            }],
+            description: None,
+            tint_color: None,
+        };
+        let archive = root.path().join("bundle.zip");
+        export_bundle("Test", &group, &archive, true).unwrap();
+        let restored = extract_bundle(&archive, &configured).unwrap();
+        assert_eq!(Path::new(&restored.mods[0].spec.url), present);
+        assert_eq!(fs::read(&present).unwrap(), original);
+        assert!(!configured.join("Test (mintfixed group)").exists());
+    }
+
+    #[test]
+    fn filename_conflict_preserves_existing_and_restores_original_name() {
+        let root = tempfile::tempdir().unwrap();
+        let configured = root.path().join("configured");
+        fs::create_dir(&configured).unwrap();
+        let from = root.path().join("Something.pak");
+        fs::write(&from, b"new-file").unwrap();
+        fs::write(configured.join("Something.pak"), b"different-existing-file").unwrap();
+        let group = ModGroup {
+            id: crate::state::new_id(),
+            mods: vec![crate::state::ModConfig {
+                id: crate::state::new_id(),
+                description: None,
+                spec: ModSpecification::new(from.to_string_lossy().into_owned()),
+                enabled: true,
+                required: false,
+                member_id: None,
+                priority: 0,
+            }],
+            description: None,
+            tint_color: None,
+        };
+        let archive = root.path().join("bundle.zip");
+        export_bundle("Test", &group, &archive, true).unwrap();
+        let imported = extract_bundle(&archive, &configured).unwrap();
+        let path = Path::new(&imported.mods[0].spec.url);
+        assert_eq!(
+            path.file_name().unwrap().to_string_lossy(),
+            "Something (2).pak"
+        );
+        assert_eq!(fs::read(path).unwrap(), b"new-file");
+        assert_eq!(
+            fs::read(configured.join("Something.pak")).unwrap(),
+            b"different-existing-file"
+        );
+    }
+
+    #[test]
+    fn import_new_mod_goes_into_root_without_subfolder() {
+        let root = tempfile::tempdir().unwrap();
+        let configured = root.path().join("configured");
+        fs::create_dir(&configured).unwrap();
+        let from = root.path().join("NewMod.pak");
+        fs::write(&from, b"new mod contents").unwrap();
+        let mut group = ModGroup::default();
+        group.mods.push(crate::state::ModConfig {
+            id: crate::state::new_id(),
+            description: None,
+            spec: ModSpecification::new(from.to_string_lossy().into_owned()),
+            enabled: true,
+            required: false,
+            member_id: None,
+            priority: 0,
+        });
+        let archive = root.path().join("group_bundle.zip");
+        export_bundle("Test", &group, &archive, true).unwrap();
+        let imported = extract_bundle(&archive, &configured).unwrap();
+        assert_eq!(
+            Path::new(&imported.mods[0].spec.url),
+            configured.join("NewMod.pak")
+        );
+        assert_eq!(
+            fs::read(configured.join("NewMod.pak")).unwrap(),
+            b"new mod contents"
+        );
+        assert!(!configured.join("Test (mintfixed group)").exists());
+    }
+
+    #[test]
+    fn export_uses_original_zip_member_names_and_manifest_metadata() {
+        let temp = tempfile::tempdir().unwrap();
+        let a = temp.path().join("ElytrasModManager_P.pak");
+        fs::write(&a, b"first payload").unwrap();
+        let other = temp.path().join("different");
+        fs::create_dir(&other).unwrap();
+        let b = other.join("ElytrasModManager_P.pak");
+        fs::write(&b, b"different payload").unwrap();
+        let mut group = ModGroup::default();
+        for source in [&a, &b] {
+            group.mods.push(crate::state::ModConfig {
+                id: crate::state::new_id(),
+                description: None,
+                spec: ModSpecification::new(source.to_string_lossy().into_owned()),
+                enabled: true,
+                required: false,
+                member_id: None,
+                priority: 0,
+            });
+        }
+        let zip_path = temp.path().join("group-export.zip");
+        export_bundle("Example", &group, &zip_path, true).unwrap();
+        let mut zip = ZipArchive::new(File::open(&zip_path).unwrap()).unwrap();
+        assert!(zip.by_name("mods/ElytrasModManager_P.pak").is_ok());
+        assert!(zip.by_name("mods/ElytrasModManager_P (2).pak").is_ok());
+        let manifest: Manifest =
+            serde_json::from_reader(zip.by_name("manifest.json").unwrap()).unwrap();
+        assert_eq!(manifest.files.len(), 2);
+        assert_eq!(
+            manifest.files[0].original_name.as_deref(),
+            Some("ElytrasModManager_P.pak")
+        );
+        assert_eq!(
+            manifest.files[1].original_name.as_deref(),
+            Some("ElytrasModManager_P.pak")
+        );
+        assert_ne!(manifest.files[0].sha256, manifest.files[1].sha256);
+        drop(zip);
+        let destination = temp.path().join("imports");
+        fs::create_dir(&destination).unwrap();
+        let restored = extract_bundle(&zip_path, &destination).unwrap();
+        assert_eq!(
+            Path::new(&restored.mods[0].spec.url)
+                .file_name()
+                .unwrap()
+                .to_string_lossy(),
+            "ElytrasModManager_P.pak"
+        );
+        assert_eq!(
+            Path::new(&restored.mods[1].spec.url)
+                .file_name()
+                .unwrap()
+                .to_string_lossy(),
+            "ElytrasModManager_P (2).pak"
+        );
+        assert_eq!(
+            fs::read(&restored.mods[0].spec.url).unwrap(),
+            b"first payload"
+        );
+        assert_eq!(
+            fs::read(&restored.mods[1].spec.url).unwrap(),
+            b"different payload"
+        );
+    }
+
+    #[test]
+    fn zip_member_paths_allow_safe_spaces_and_reject_traversal() {
+        assert!(safe_archive_path("mods/Mod With Spaces (2).pak"));
+        assert!(!safe_archive_path("mods/../escape.pak"));
+        assert!(!safe_archive_path("mods/subdirectory/escape.pak"));
+        assert!(!safe_archive_path("mods/C:evil.pak"));
     }
 }

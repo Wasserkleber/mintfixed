@@ -695,10 +695,19 @@ pub(in crate::gui) fn controls(
                 std::fs::OpenOptions::new().write(true).create_new(true).open(&path)
                     .and_then(|mut file| file.write_all(contents.as_bytes()))
                     .map_err(|e| format!("Failed to save export: {e}"))
+                    .map(|()| contents)
             });
             match result {
-                Ok(()) => {
-                    let message = format!("Exported group \"{name}\" to {}", path.display());
+                Ok(contents) => {
+                    let copied = matches!(kind, GroupExportKind::Txt);
+                    if copied {
+                        ui.ctx().copy_text(contents);
+                    }
+                    let message = if copied {
+                        format!("Exported group \"{name}\" to {} and copied TXT to clipboard", path.display())
+                    } else {
+                        format!("Exported group \"{name}\" to {}", path.display())
+                    };
                     export_editor.success = Some(message.clone());
                     export_editor.error = None;
                     success_message = Some(message);

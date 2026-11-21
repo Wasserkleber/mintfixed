@@ -49,21 +49,20 @@ struct Preview {
 /// profile actually enters state. Dropping an uncommitted result cleans them up.
 pub(super) struct ExtractedBundle {
     pub(super) json: String,
-    directory: Option<PathBuf>,
+    // Owned new files only; never delete reused mods when an import is cancelled.
+    files: Vec<PathBuf>,
     committed: bool,
 }
-
 impl ExtractedBundle {
     pub(super) fn commit(&mut self) {
         self.committed = true;
     }
 }
-
 impl Drop for ExtractedBundle {
     fn drop(&mut self) {
         if !self.committed {
-            if let Some(folder) = &self.directory {
-                let _ = fs::remove_dir_all(folder);
+            for path in self.files.iter().rev() {
+                let _ = fs::remove_file(path);
             }
         }
     }
@@ -161,6 +160,7 @@ pub(super) fn prepare_export(data: &Data, profile_name: &str) -> Result<Prepared
     valid_document(&doc)?;
     let mut sources: Vec<(PathBuf, String, u64)> = Vec::new();
     let mut seen: HashMap<String, String> = HashMap::new();
+    let mut used_members = HashSet::new();
     let mut declared_total = 0_u64;
     visit_urls_mut(&mut doc, |url| {
         if !shared::local_archive(url) {
@@ -185,7 +185,7 @@ pub(super) fn prepare_export(data: &Data, profile_name: &str) -> Result<Prepared
         if declared_total > shared::MAX_TOTAL {
             return Err("Profile bundled mods exceed the 8 GiB limit".into());
         }
-        let member = shared::bundle_filename(sources.len(), url)?;
+        let member = shared::unique_bundle_filename(url, &mut used_members)?;
         let original = url.clone();
         *url = format!("{}{}", shared::PREFIX, member);
         seen.insert(original, member.clone());
@@ -236,6 +236,13 @@ pub(super) fn export_prepared(prepared: PreparedExport, path: &Path) -> Result<(
                 path: member,
                 size,
                 sha256: checksum,
+                original_name: Some(
+                    source
+                        .file_name()
+                        .ok_or("Invalid original filename")?
+                        .to_string_lossy()
+                        .into_owned(),
+                ),
             });
         }
         let manifest = Manifest {
@@ -424,6 +431,10 @@ pub(super) fn require_mod_folder(
 
 /// Runs on a worker thread. This checks every file hash in a temporary folder
 /// before moving the folder into place. The result owns cleanup until commit.
+/// Verify the ZIP and reuse matching local mods. Only genuinely new files
+/// are staged, with the new folder owned by the pending import for rollback.
+/// Validates the portable ZIP and imports new PAK/ZIP files directly into
+/// Settings' mod folder. The pending profile owns cleanup until committed.
 pub(super) fn extract_bundle(
     path: &Path,
     configured: Option<&Path>,
@@ -432,75 +443,39 @@ pub(super) fn extract_bundle(
     if parsed.manifest.files.is_empty() {
         return Ok(ExtractedBundle {
             json: serde_json::to_string(&parsed.document).map_err(|e| e.to_string())?,
-            directory: None,
+            files: Vec::new(),
             committed: false,
         });
     }
     let folder = configured.filter(|path| path.is_dir()).ok_or(
         "Cannot import this profile: configure a valid local mods folder in Settings first.",
     )?;
-    let base = shared::safe_component(&parsed.manifest.name);
-    let mut target = None;
-    for index in 1..=10_000 {
-        let name = if index == 1 {
-            format!("{base} (mintfixed profile)")
-        } else {
-            format!("{base} (mintfixed profile {index})")
-        };
-        let candidate = folder.join(name);
-        if !candidate.exists() {
-            target = Some(candidate);
-            break;
-        }
-    }
-    let target = target.ok_or("Too many imported profile folders")?;
-    let staging = tempfile::Builder::new()
-        .prefix(".mintfixed-profile-")
-        .tempdir_in(folder)
-        .map_err(|e| format!("Cannot prepare profile extraction: {e}"))?;
     let file = File::open(path).map_err(|e| format!("Cannot reopen profile ZIP: {e}"))?;
     let mut archive =
         ZipArchive::new(file).map_err(|e| format!("Cannot reopen profile ZIP: {e}"))?;
-    let mut mapping = HashMap::new();
-    for item in &parsed.manifest.files {
-        let filename = item.path.strip_prefix("mods/").ok_or("Invalid file path")?;
-        let staged = staging.path().join(filename);
-        let mut output = OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(&staged)
-            .map_err(|e| format!("Cannot create extracted mod {}: {e}", staged.display()))?;
-        let mut source = archive
-            .by_name(&item.path)
-            .map_err(|e| format!("Cannot read bundled mod {}: {e}", item.path))?;
-        let (size, hash) = shared::copy_and_hash(&mut source, &mut output, item.size)?;
-        if size != item.size || !hash.eq_ignore_ascii_case(&item.sha256) {
-            return Err(format!(
-                "Bundled mod failed integrity verification: {}",
-                item.path
-            ));
-        }
-        output
-            .flush()
-            .map_err(|e| format!("Cannot flush extracted mod: {e}"))?;
-        mapping.insert(
-            item.path.clone(),
-            target.join(filename).to_string_lossy().into_owned(),
-        );
-    }
+    let mut installed = shared::extract_mod_files(
+        &mut archive,
+        &parsed.manifest.files,
+        folder,
+        &parsed.manifest.name,
+        "profile",
+    )?;
     let mut document = parsed.document;
     visit_urls_mut(&mut document, |url| {
         if let Some(member) = url.strip_prefix(shared::PREFIX) {
-            *url = mapping.get(member).ok_or("Missing extracted mod")?.clone();
+            *url = installed
+                .mapping
+                .get(member)
+                .ok_or("Missing extracted mod")?
+                .clone();
         }
         Ok(())
     })?;
     let json = serde_json::to_string(&document).map_err(|e| e.to_string())?;
-    fs::rename(staging.path(), &target)
-        .map_err(|e| format!("Cannot finish profile extraction: {e}"))?;
+    let files = installed.into_created();
     Ok(ExtractedBundle {
         json,
-        directory: Some(target),
+        files,
         committed: false,
     })
 }
@@ -654,5 +629,124 @@ mod profile_package_tests {
         writer.write_all(b"bad").unwrap();
         writer.finish().unwrap();
         assert!(inspect_bundle(&path).is_err());
+    }
+
+    #[test]
+    fn profile_import_reuses_existing_local_mods_without_creating_folder() {
+        let root = tempfile::tempdir().unwrap();
+        let (data, source, _) = sample(root.path());
+        let configured = root.path().join("configured");
+        fs::create_dir(&configured).unwrap();
+        let existing = configured.join("mod.pak");
+        fs::write(&existing, fs::read(&source).unwrap()).unwrap();
+        // Both source files already available: no extraction subfolder needed.
+        let other = configured.join("mod.zip");
+        fs::write(&other, b"two").unwrap();
+        let archive = root.path().join("bundle.zip");
+        export_prepared(prepare_export(&data, "Portable").unwrap(), &archive).unwrap();
+        let mut imported = extract_bundle(&archive, Some(&configured)).unwrap();
+        assert!(imported.files.is_empty());
+        let doc: ProfileDocument = serde_json::from_str(&imported.json).unwrap();
+        let urls = urls(&doc);
+        assert!(urls.iter().any(|u| Path::new(u) == existing));
+        assert!(urls.iter().any(|u| Path::new(u) == other));
+        imported.commit();
+    }
+
+    #[test]
+    fn uncommitted_flat_import_only_removes_created_files() {
+        let root = tempfile::tempdir().unwrap();
+        let (data, source, _) = sample(root.path());
+        let configured = root.path().join("configured");
+        fs::create_dir(&configured).unwrap();
+        let reused = configured.join("mod.pak");
+        fs::copy(source, &reused).unwrap();
+        let archive = root.path().join("bundle.zip");
+        export_prepared(prepare_export(&data, "Portable").unwrap(), &archive).unwrap();
+        {
+            let result = extract_bundle(&archive, Some(&configured)).unwrap();
+            let doc: ProfileDocument = serde_json::from_str(&result.json).unwrap();
+            assert!(urls(&doc).iter().any(|url| Path::new(url) == reused));
+            assert!(configured.join("mod.zip").is_file());
+        }
+        assert!(reused.is_file(), "reused local file must survive rollback");
+        assert!(
+            !configured.join("mod.zip").exists(),
+            "new file must be removed on rollback"
+        );
+    }
+    #[test]
+    fn committed_flat_profile_import_leaves_new_files() {
+        let root = tempfile::tempdir().unwrap();
+        let (data, _, _) = sample(root.path());
+        let configured = root.path().join("configured");
+        fs::create_dir(&configured).unwrap();
+        let archive = root.path().join("bundle.zip");
+        export_prepared(prepare_export(&data, "Portable").unwrap(), &archive).unwrap();
+        let mut result = extract_bundle(&archive, Some(&configured)).unwrap();
+        assert!(configured.join("mod.pak").is_file());
+        assert!(configured.join("mod.zip").is_file());
+        result.commit();
+        drop(result);
+        assert!(configured.join("mod.pak").is_file());
+        assert!(configured.join("mod.zip").is_file());
+    }
+
+    #[test]
+    fn profile_export_uses_real_pak_names() {
+        let temp = tempfile::tempdir().unwrap();
+        let (data, _, _) = sample(temp.path());
+        let dest = temp.path().join("clean-profile.zip");
+        export_prepared(prepare_export(&data, "Portable").unwrap(), &dest).unwrap();
+        let mut zip = ZipArchive::new(File::open(&dest).unwrap()).unwrap();
+        assert!(zip.by_name("mods/mod.pak").is_ok());
+        assert!(zip.by_name("mods/mod.zip").is_ok());
+        let manifest: Manifest =
+            serde_json::from_reader(zip.by_name("manifest.json").unwrap()).unwrap();
+        assert_eq!(manifest.files.len(), 2);
+        assert!(
+            manifest
+                .files
+                .iter()
+                .any(|entry| entry.original_name.as_deref() == Some("mod.pak"))
+        );
+        assert!(
+            manifest
+                .files
+                .iter()
+                .any(|entry| entry.original_name.as_deref() == Some("mod.zip"))
+        );
+        assert!(
+            manifest
+                .files
+                .iter()
+                .all(|entry| !entry.path.starts_with("mods/0000_"))
+        );
+    }
+
+    #[test]
+    fn profile_export_handles_duplicate_basename_without_numbering_all_files() {
+        let root = tempfile::tempdir().unwrap();
+        let (mut data, _original, _) = sample(root.path());
+        let folder = root.path().join("other");
+        fs::create_dir(&folder).unwrap();
+        let second = folder.join("mod.pak");
+        fs::write(&second, b"other mod contents").unwrap();
+        data.groups.get_mut("Tools").unwrap().mods[0].spec.url =
+            second.to_string_lossy().into_owned();
+        let dest = root.path().join("duplicate-names.zip");
+        export_prepared(prepare_export(&data, "Portable").unwrap(), &dest).unwrap();
+        let mut zip = ZipArchive::new(File::open(&dest).unwrap()).unwrap();
+        assert!(zip.by_name("mods/mod.pak").is_ok());
+        assert!(zip.by_name("mods/mod (2).pak").is_ok());
+        let manifest: Manifest =
+            serde_json::from_reader(zip.by_name("manifest.json").unwrap()).unwrap();
+        assert_eq!(manifest.files.len(), 2);
+        assert!(
+            manifest
+                .files
+                .iter()
+                .all(|entry| entry.original_name.as_deref() == Some("mod.pak"))
+        );
     }
 }

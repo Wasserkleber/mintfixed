@@ -727,8 +727,20 @@ pub(super) fn copy_options(
                 }
             };
             feedback = Some(contents.and_then(|contents| {
-                save_profile_export(&selected, kind, &contents)
-                    .map(|path| format!("Exported profile \"{selected}\" to {}", path.display()))
+                // Only copy after the TXT file has been saved successfully.
+                let path = save_profile_export(&selected, kind, &contents)?;
+                if matches!(kind, ProfileExportKind::Txt) {
+                    ui.ctx().copy_text(contents);
+                    Ok(format!(
+                        "Exported profile \"{selected}\" to {} and copied TXT to clipboard",
+                        path.display()
+                    ))
+                } else {
+                    Ok(format!(
+                        "Exported profile \"{selected}\" to {}",
+                        path.display()
+                    ))
+                }
             }));
         }
     }

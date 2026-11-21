@@ -14,8 +14,9 @@ In **Group Management → Import groups**, choose the ZIP. The group is previewe
 be renamed, as with JSON/TXT import. If **Settings → local mods folder** is configured,
 mintfixed automatically uses it without showing a folder picker. If the setting
 is empty or invalid, clicking Import group shows a concise error requesting a
-valid local mods folder in Settings. Files go into a new dedicated subfolder,
-never directly over existing PAKs. The importer verifies
+valid local mods folder in Settings. New mods go directly into the configured mods folder. Files with identical
+contents are reused; filename conflicts get a numbered suffix such as
+`CustomMod (2).pak`. Existing files are never overwritten. The importer verifies
 all SHA-256 checksums, then imports the group and updates its paths. If the
 configured folder is missing or inaccessible, import displays an error and keeps
 the group pending; change Settings to correct the folder and retry. Existing groups
