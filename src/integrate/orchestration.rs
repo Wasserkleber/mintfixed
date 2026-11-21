@@ -310,7 +310,9 @@ pub(crate) fn integrate_with_report<P: AsRef<Path>>(
     let mut added_paths = HashSet::new();
     let mut ops: Vec<Op> = vec![];
 
+    let mut kept_rows = 0;
     for (mod_index, m) in paks.iter().enumerate() {
+        let mod_registry = mod_inputs::ModRegistry::load(m, &asset_registry);
         for normalized in m.files.keys() {
             if blueprint_guard::rejected_sidecar(normalized.as_str(), &rejected_blueprints) {
                 continue;
@@ -343,6 +345,13 @@ pub(crate) fn integrate_with_report<P: AsRef<Path>>(
                     asset_path: normalized.to_string(),
                     mount_point: m.mount_point.clone(),
                 });
+            }
+            if mod_registry
+                .as_ref()
+                .is_some_and(|r| r.copy_rows(&mut asset_registry, asset_path.as_str()))
+            {
+                kept_rows += 1;
+                continue;
             }
             mod_inputs::populate_row(
                 &mut asset_registry,
@@ -398,6 +407,10 @@ pub(crate) fn integrate_with_report<P: AsRef<Path>>(
             });
         }
     }
+
+    info!(
+        "asset registry: {kept_rows} mod package(s) keep the rows, tags included, of their mod's AssetRegistry.bin"
+    );
 
     // Read (decompress) and hash the winners in parallel a chunk at a time, one chunk ahead
     // of this thread, which appends them in order.
