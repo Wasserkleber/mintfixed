@@ -15,6 +15,9 @@ impl UpdateCache {
         let handle = tokio::spawn(async move {
             let res = async {
                 store.update_cache().await?;
+                // A mod mod.io no longer lists, that no profile uses, is just
+                // stale cache: drop it instead of reporting it every update.
+                store.forget_unreferenced_modio_unavailable(&referenced);
                 let mut missing = referenced
                     .into_iter()
                     .filter(|spec| spec.url.starts_with("https://mod.io/g/drg/m/"))
@@ -133,12 +136,21 @@ impl UpdateCache {
                     app.last_action = Some(LastAction::failure(e.to_string()));
                 }
             }
+            for location in unavailable_details.iter().flatten() {
+                warn!(
+                    "mod.io no longer lists a mod a profile uses; integrating its cached files: {}",
+                    location.label.replace('\n', " ")
+                );
+            }
             if let (Some(details), Some(action)) = (unavailable_details, app.last_action.as_mut()) {
                 let summary = match &action.status {
                     super::LastActionStatus::Success(message)
                     | super::LastActionStatus::Failure(message) => message,
                 };
-                action.details = Some(format!("{summary}\n\n{}", super::unavailable_mods::describe(&details)));
+                action.details = Some(format!(
+                    "{summary}\n\n{}",
+                    super::unavailable_mods::describe(&details)
+                ));
                 action.unavailable_locations = details;
             }
             app.update_rid = None;
