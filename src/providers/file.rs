@@ -90,7 +90,11 @@ impl ModProvider for FileProvider {
         Ok(PathBuf::from(&res.url.0))
     }
 
-    async fn update_cache(&self, _cache: ProviderCache) -> Result<(), ProviderError> {
+    async fn update_cache(
+        &self,
+        _cache: ProviderCache,
+        _strict: bool,
+    ) -> Result<(), ProviderError> {
         Ok(())
     }
 

@@ -207,6 +207,17 @@ impl App {
                         }
                         ui.end_row();
 
+                        ui.label("Stop Update cache on mod errors:");
+                        let config = &mut self.state.config;
+                        if ui
+                            .add(toggle_switch(&mut config.strict_cache_update))
+                            .on_hover_text("When a mod can't be refreshed (network, rate limit, auth), stop Update cache with an error. Off: warn and keep using the cached version. Mods removed from mod.io never stop it.")
+                            .changed()
+                        {
+                            config.save().unwrap();
+                        }
+                        ui.end_row();
+
                         ui.label("Mod providers:");
                         ui.end_row();
 

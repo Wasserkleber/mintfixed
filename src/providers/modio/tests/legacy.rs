@@ -139,7 +139,7 @@ async fn deleted_mod_does_not_block_other_cache_updates() {
     mock.expect_fetch_dependencies()
         .returning(|_, _| Ok(Vec::new()));
     let provider = ModioProvider::new(mock);
-    provider.update_cache(cache.clone()).await.unwrap();
+    provider.update_cache(cache.clone(), false).await.unwrap();
     assert!(is_unavailable(&cache, "https://mod.io/g/drg/m/deleted#1"));
     assert!(!is_unavailable(&cache, "https://mod.io/g/drg/m/working#2"));
     let lock = cache.read().unwrap();
@@ -224,7 +224,7 @@ fn gone() -> DrgModioError {
 async fn gone_mod_keeps_cached_version() {
     let cache = cache_with_gone_mod();
     ModioProvider::new(mock_refusing(1, gone))
-        .update_cache(cache.clone())
+        .update_cache(cache.clone(), false)
         .await
         .unwrap();
     assert!(is_unavailable(&cache, "https://mod.io/g/drg/m/gone#1"));
@@ -244,7 +244,7 @@ async fn failed_refresh_keeps_cached_version_and_retries() {
     // but the mod isn't flagged, and last_update_time stays put so the next
     // update asks about it again.
     ModioProvider::new(mock_refusing(1, || DrgModioError::MissingOauthToken))
-        .update_cache(cache.clone())
+        .update_cache(cache.clone(), false)
         .await
         .unwrap();
     assert!(!is_unavailable(&cache, "https://mod.io/g/drg/m/gone#1"));
@@ -254,6 +254,30 @@ async fn failed_refresh_keeps_cached_version_and_retries() {
     assert!(c.modfile_blobs.contains_key(&10));
     assert_eq!(c.mods.get(&2).unwrap().latest_modfile, Some(20));
     assert_eq!(c.last_update_time, Some(UNIX_EPOCH));
+}
+
+#[tokio::test]
+async fn strict_update_stops_on_failed_refresh_but_not_on_gone_mod() {
+    let cache = cache_with_gone_mod();
+    let result = ModioProvider::new(mock_refusing(1, || DrgModioError::MissingOauthToken))
+        .update_cache(cache.clone(), true)
+        .await;
+    assert!(result.is_err());
+    {
+        let lock = cache.read().unwrap();
+        let c = lock.get::<ModioCache>(MODIO_PROVIDER_ID).unwrap();
+        assert_eq!(c.mods.get(&1).unwrap().latest_modfile, Some(11));
+        assert!(c.modfile_blobs.contains_key(&10));
+        assert_eq!(c.last_update_time, Some(UNIX_EPOCH));
+    }
+
+    // A mod mod.io has removed never stops the update, strict or not.
+    let cache = cache_with_gone_mod();
+    ModioProvider::new(mock_refusing(1, gone))
+        .update_cache(cache.clone(), true)
+        .await
+        .unwrap();
+    assert!(is_unavailable(&cache, "https://mod.io/g/drg/m/gone#1"));
 }
 
 #[tokio::test]

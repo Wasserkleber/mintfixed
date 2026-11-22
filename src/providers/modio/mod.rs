@@ -99,8 +99,8 @@ impl<M: DrgModio + Send + Sync> ModProvider for ModioProvider<M> {
         self.fetch_mod_impl(res, _update, cache, blob_cache, tx)
             .await
     }
-    async fn update_cache(&self, cache: ProviderCache) -> Result<(), ProviderError> {
-        self.update_cache_impl(cache).await
+    async fn update_cache(&self, cache: ProviderCache, strict: bool) -> Result<(), ProviderError> {
+        self.update_cache_impl(cache, strict).await
     }
     async fn check(&self) -> Result<(), ProviderError> {
         self.modio.check().await.map_err(Into::into)

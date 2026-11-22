@@ -63,7 +63,10 @@ pub trait ModProvider: Send + Sync {
         blob_cache: &BlobCache,
         tx: Option<Sender<FetchProgress>>,
     ) -> Result<PathBuf, ProviderError>;
-    async fn update_cache(&self, cache: ProviderCache) -> Result<(), ProviderError>;
+    /// Refresh cached metadata. With `strict`, a mod that fails to refresh
+    /// for a reason that may pass fails the whole update; otherwise it is
+    /// logged and its cached version kept.
+    async fn update_cache(&self, cache: ProviderCache, strict: bool) -> Result<(), ProviderError>;
     /// Check if provider is configured correctly
     async fn check(&self) -> Result<(), ProviderError>;
     fn get_mod_info(&self, spec: &ModSpecification, cache: ProviderCache) -> Option<ModInfo>;

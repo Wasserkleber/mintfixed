@@ -123,6 +123,7 @@ impl<M: DrgModio + Send + Sync> ModioProvider<M> {
     pub(super) async fn update_cache_impl(
         &self,
         cache: ProviderCache,
+        strict: bool,
     ) -> Result<(), ProviderError> {
         use futures::stream::{self, StreamExt};
 
@@ -238,7 +239,9 @@ impl<M: DrgModio + Send + Sync> ModioProvider<M> {
                     }
                     // Anything else (network, rate limit, auth) may pass, so
                     // the mod isn't flagged, but it must be asked again next
-                    // time, see last_update_time below.
+                    // time, see last_update_time below. The strict setting
+                    // makes it fail the update instead.
+                    Err(error) if strict => return Err(error),
                     Err(error) => {
                         warn!(
                             "could not update {}; keeping its cached version ({error})",

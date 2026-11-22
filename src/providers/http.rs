@@ -218,7 +218,11 @@ impl ModProvider for HttpProvider {
         )
     }
 
-    async fn update_cache(&self, _cache: ProviderCache) -> Result<(), ProviderError> {
+    async fn update_cache(
+        &self,
+        _cache: ProviderCache,
+        _strict: bool,
+    ) -> Result<(), ProviderError> {
         Ok(())
     }
 

@@ -12,9 +12,10 @@ impl UpdateCache {
         let ctx = ctx.clone();
         let store = app.state.store.clone();
         let referenced = crate::mod_identity::all_specs(&app.state.mod_data);
+        let strict = app.state.config.strict_cache_update;
         let handle = tokio::spawn(async move {
             let res = async {
-                store.update_cache().await?;
+                store.update_cache(strict).await?;
                 let mut missing = referenced
                     .into_iter()
                     .filter(|spec| spec.url.starts_with("https://mod.io/g/drg/m/"))
@@ -46,6 +47,7 @@ impl UpdateCache {
                             );
                             store.mark_modio_unavailable(spec);
                         }
+                        Err(error) if strict => return Err(error),
                         // Counted in `remaining` below and reported there.
                         Err(error) => {
                             warn!("could not recover metadata for {} ({error})", spec.url);
