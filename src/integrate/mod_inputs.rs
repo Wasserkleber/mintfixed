@@ -215,8 +215,9 @@ fn has_row(registry: &AssetRegistry, object_path: &str, number: Option<u32>) -> 
     })
 }
 
-/// A mod's own `AssetRegistry.bin` (issue 1 of ue-mods' `docs/notes/mint-integration.md`). For the packages the
-/// mod wins, `copy_rows` takes its rows, tags included, in place of the tagless ones `populate_row` makes.
+/// A mod's own `AssetRegistry.bin`. Without it a mod's packages get only `populate_row`'s tagless rows, and the tags
+/// it shipped never reach the merged registry. For the packages the mod wins, `copy_rows` takes its rows, tags
+/// included, in place of those.
 pub(super) struct ModRegistry {
     registry: AssetRegistry,
     /// Lowercased package name -> its rows.
@@ -352,7 +353,7 @@ impl ModRegistry {
     }
 }
 
-/// ponytail: uasset_utils keeps `NameIndex`'s field private, so one is made the way its reader makes it.
+/// uasset_utils keeps `NameIndex`'s field private, so one is made the way its reader makes it.
 fn name_index(i: u32) -> NameIndex {
     NameIndex::read(&mut Cursor::new(i.to_le_bytes())).unwrap()
 }

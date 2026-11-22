@@ -45,7 +45,7 @@ impl InstallOutput {
 
 /// Deletes staging archives that killed integrations left beside the output: `NamedTempFile` removes its file
 /// only when dropped, which a killed process never does. They are multi-GB each.
-/// ponytail: untouched for an hour means abandoned; a live one is written to throughout its integration.
+/// Untouched for an hour means abandoned; a live one is written to throughout its integration.
 fn remove_abandoned(dir: &Path) {
     let Ok(entries) = std::fs::read_dir(dir) else {
         return;

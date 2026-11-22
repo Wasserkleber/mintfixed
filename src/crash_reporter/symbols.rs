@@ -103,7 +103,7 @@ pub(super) fn exe_pdb_id(exe: &Path) -> Result<Option<PdbId>> {
         }
         let path = String::from_utf8_lossy(&cv[24..]);
         let path = path.trim_end_matches('\0');
-        // ponytail: the RSDS name can be a full build path; the store wants the file name only.
+        // The RSDS name can be a full build path; the store wants the file name only.
         let name = path.rsplit(['\\', '/']).next().unwrap_or(path).to_string();
         return Ok(Some(PdbId {
             name,

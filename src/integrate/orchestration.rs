@@ -414,7 +414,7 @@ pub(crate) fn integrate_with_report<P: AsRef<Path>>(
 
     // Read (decompress) and hash the winners in parallel a chunk at a time, one chunk ahead
     // of this thread, which appends them in order.
-    // ponytail: 3 chunks of 128 in memory at once; 384 huge textures would all sit there together.
+    // At most 3 chunks of 128 entries are in memory at once, so 384 huge textures could sit there together.
     let entry_builder = bundle.entry_builder();
     std::thread::scope(|scope| -> Result<(), IntegrationError> {
         let (tx, rx) = std::sync::mpsc::sync_channel(1);

@@ -49,6 +49,6 @@ pub(super) fn remove_dll_if_unused(bin: &Path, dir: &Path) -> Result<(), Integra
     }
     info!("bitfix: removing {}", dll.display());
     remove_if_exists(&dll)?;
-    std::fs::remove_dir(dir).ok(); // ponytail: only succeeds when empty, which is all we want
+    std::fs::remove_dir(dir).ok(); // Only succeeds when empty, which is all we want
     Ok(())
 }

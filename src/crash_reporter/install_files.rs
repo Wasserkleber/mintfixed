@@ -18,7 +18,7 @@ pub(super) fn sync_disabled_marker(dir: &Path, enabled: bool) -> Result<()> {
             _ => {}
         }
     } else if dir.is_dir() {
-        // ponytail: no folder means nothing installed, so nothing for the hook to launch.
+        // No folder means nothing installed, so nothing for the hook to launch.
         fs::write(&marker, "Disabled in Mintfixed settings.")?;
     }
     Ok(())

@@ -28,7 +28,7 @@ impl ModData_v0_1_0 {
     }
 }
 
-// ponytail: obake's versioned structs can't take #[derive(Default)] (it conflicts across versions).
+// obake's versioned structs can't take #[derive(Default)] (it conflicts across versions).
 #[allow(clippy::derivable_impls)]
 impl Default for ModProfile_v0_0_0 {
     fn default() -> Self {
