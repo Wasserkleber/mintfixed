@@ -481,6 +481,19 @@ pub(crate) fn integrate_with_report<P: AsRef<Path>>(
     let mut int_files = HashMap::new();
     collect_dir_files(&INTEGRATION_DIR, &mut int_files);
 
+    // MI_SpawnMods ships cooked; its spawn loop is patched to query the init list once.
+    let spawn_mods = RawAsset {
+        uasset: int_files
+            .remove(format!("{SPAWN_MODS_PATH}.uasset").as_str())
+            .map(<[u8]>::to_vec),
+        uexp: int_files
+            .remove(format!("{SPAWN_MODS_PATH}.uexp").as_str())
+            .map(<[u8]>::to_vec),
+    };
+    let mut spawn_mods_asset = spawn_mods.parse()?;
+    patch_spawn_mods(&mut spawn_mods_asset)?;
+    bundle.write_asset(spawn_mods_asset, SPAWN_MODS_PATH)?;
+
     for (path, data) in &int_files {
         bundle.write_file(data, path)?;
     }

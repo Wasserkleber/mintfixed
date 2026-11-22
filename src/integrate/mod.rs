@@ -16,7 +16,8 @@ use self::assets::{collect_dir_files, format_soft_class};
 pub use self::orchestration::integrate;
 pub(crate) use self::orchestration::integrate_with_report;
 use self::patches::{
-    hook_pcb, patch, patch_modding_tab, patch_modding_tab_item, patch_server_list_entry,
+    SPAWN_MODS_PATH, hook_pcb, patch, patch_modding_tab, patch_modding_tab_item,
+    patch_server_list_entry, patch_spawn_mods,
 };
 pub use self::uninstall::uninstall;
 
