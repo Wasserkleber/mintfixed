@@ -475,9 +475,6 @@ pub(super) fn bundle_destination(configured: Option<&Path>) -> Option<PathBuf> {
         .map(Path::to_path_buf)
 }
 
-/// Extract into a new dedicated subfolder inside the chosen directory.
-/// Never overwrite existing PAK files or follow ZIP paths outside the folder.
-
 /// Reconstruct the displayed/original filename, including for old bundles
 /// created before the manifest explicitly stored original_name.
 pub(crate) fn original_file_name(file: &IncludedFile) -> Result<String, String> {
