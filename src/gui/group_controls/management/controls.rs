@@ -477,7 +477,7 @@ pub(in crate::gui) fn controls(
         if import_editor.bundle_path.is_some() {
             if let Some(folder) = configured_mod_folder.filter(|folder| folder.is_dir()) {
                 ui.label(format!(
-                    "Bundled PAK/ZIP files will be saved in a new subfolder of {}.",
+                    "New bundled PAK/ZIP files will be saved directly in {}.",
                     folder.display(),
                 ));
             }
