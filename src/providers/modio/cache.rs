@@ -2,10 +2,9 @@ use super::{
     BlobRef, Deserialize, DrgModio, HashMap, HashSet, MODIO_PROVIDER_ID, ModInfo, ModProviderCache,
     ModResolution, ModResponse, ModSpecification, ModioMod, ModioProvider, ProviderCache,
     ProviderError, Serialize, SystemTime, UNIX_EPOCH, format_spec, is_unavailable_error, parse_url,
-    process_modio_tags,
+    process_modio_tags, warn,
 };
 use crate::providers::ModProvider;
-use tracing::info;
 
 /// Look up the display name directly from cached mod.io metadata.
 /// Unlike `get_mod_info`, this does not require dependency metadata.
@@ -107,96 +106,6 @@ pub(crate) fn cache_counts(cache: &ProviderCache) -> (usize, usize) {
         .unwrap_or((0, 0))
 }
 
-/// Drops every mod that mod.io reported gone and that nothing still needs:
-/// not a profile, group or bitfix entry (`referenced`), and not a cached
-/// dependency of one. Its metadata, alias, dependency list and blob refs
-/// leave cache.json, so later cache updates stop asking mod.io about it.
-/// Gone mods that are still referenced keep everything, so their profiles
-/// keep integrating from the cached files. Only names in `unavailable_names`
-/// are candidates, and those are set only by a definite "gone" answer, so a
-/// network failure can never remove anything here. Returns the dropped slugs.
-pub(crate) fn forget_unreferenced_unavailable(
-    cache: &ProviderCache,
-    referenced: &[ModSpecification],
-) -> Vec<String> {
-    let mut lock = cache.write().unwrap();
-    // get_mut would create an empty mod.io cache; only look at an existing one.
-    if lock
-        .get::<ModioCache>(MODIO_PROVIDER_ID)
-        .is_none_or(|c| c.unavailable_names.is_empty())
-    {
-        return Vec::new();
-    }
-    let c = lock.get_mut::<ModioCache>(MODIO_PROVIDER_ID);
-
-    // First collect what the profiles still need: each referenced mod, by
-    // slug, explicit ID and cached alias, then its cached dependencies.
-    let mut keep_names = HashSet::new();
-    let mut keep_ids = HashSet::new();
-    for spec in referenced {
-        if !spec.url.starts_with("https://mod.io/") {
-            continue;
-        }
-        let Ok(parsed) = parse_url(&spec.url) else {
-            // A mod.io reference we can't read might be one of these mods;
-            // keep everything rather than guess.
-            return Vec::new();
-        };
-        keep_names.insert(parsed.name_id.to_owned());
-        keep_ids.extend(parsed.mod_id);
-        keep_ids.extend(c.mod_id_map.get(parsed.name_id).copied());
-    }
-    keep_ids.extend(
-        c.mods
-            .iter()
-            .filter(|(_, m)| keep_names.contains(&m.name_id))
-            .map(|(id, _)| *id),
-    );
-    let mut pending: Vec<u32> = keep_ids.iter().copied().collect();
-    while let Some(id) = pending.pop() {
-        for dep in c.dependencies.get(&id).into_iter().flatten() {
-            if keep_ids.insert(*dep) {
-                pending.push(*dep);
-            }
-        }
-    }
-    keep_names.extend(
-        keep_ids
-            .iter()
-            .filter_map(|id| c.mods.get(id).map(|m| m.name_id.clone())),
-    );
-
-    // Then drop each gone mod outside that set, with everything keyed by it.
-    let gone: Vec<String> = c
-        .unavailable_names
-        .keys()
-        .filter(|name| !keep_names.contains(*name))
-        .cloned()
-        .collect();
-    for name in &gone {
-        let mut ids: HashSet<u32> = c
-            .mods
-            .iter()
-            .filter(|(_, m)| &m.name_id == name)
-            .map(|(id, _)| *id)
-            .collect();
-        ids.extend(c.mod_id_map.remove(name));
-        for id in ids {
-            if let Some(m) = c.mods.remove(&id) {
-                for file in m.modfiles.iter().map(|f| f.id).chain(m.latest_modfile) {
-                    c.modfile_blobs.remove(&file);
-                }
-            }
-            c.dependencies.remove(&id);
-        }
-        c.unavailable_names.remove(name);
-        info!(
-            "dropped {name} from the mod.io cache: mod.io no longer lists it and no profile uses it"
-        );
-    }
-    gone
-}
-
 #[typetag::serde]
 impl ModProviderCache for ModioCache {
     fn new() -> Self {
@@ -293,6 +202,7 @@ impl<M: DrgModio + Send + Sync> ModioProvider<M> {
         // Track attempts as well as successes: an unavailable dependency must
         // not be re-enqueued forever by the next dependency-expansion pass.
         let mut attempted = HashSet::new();
+        let mut retry_later = false;
         while !to_resolve.is_empty() {
             let batch = std::mem::take(&mut to_resolve);
             attempted.extend(batch.iter().cloned());
@@ -309,7 +219,8 @@ impl<M: DrgModio + Send + Sync> ModioProvider<M> {
             .await;
 
             // Collect the whole batch before inspecting individual outcomes.
-            // A 404 must not cancel other already-running mod updates.
+            // One mod that can't be refreshed never fails the update: its
+            // cached metadata and files stay as they are and keep being used.
             for (spec, result) in results {
                 match result {
                     Ok((original, info)) => {
@@ -317,17 +228,24 @@ impl<M: DrgModio + Send + Sync> ModioProvider<M> {
                         precise_mod_specs.insert(info.spec.clone());
                         mods_map.insert(original, info);
                     }
-                    // The provider can't tell whether a profile still uses
-                    // this mod; the caller warns for those that do and drops
-                    // the rest (see forget_unreferenced_unavailable).
+                    // mod.io says the mod is gone: flag it so the UI can show it.
                     Err(error) if is_unavailable_error(&error) => {
-                        info!(
-                            "mod.io mod unavailable; preserving cached files and metadata: {} ({error})",
+                        warn!(
+                            "mod.io mod unavailable; keeping its cached version: {} ({error})",
                             spec.url
                         );
                         mark_unavailable(&cache, &spec.url);
                     }
-                    Err(error) => return Err(error),
+                    // Anything else (network, rate limit, auth) may pass, so
+                    // the mod isn't flagged, but it must be asked again next
+                    // time, see last_update_time below.
+                    Err(error) => {
+                        warn!(
+                            "could not update {}; keeping its cached version ({error})",
+                            spec.url
+                        );
+                        retry_later = true;
+                    }
                 }
             }
             to_resolve = crate::providers::dependencies::pending_dependencies(
@@ -337,9 +255,14 @@ impl<M: DrgModio + Send + Sync> ModioProvider<M> {
             );
         }
 
-        let mut lock = cache.write().unwrap();
-        let c = lock.get_mut::<ModioCache>(MODIO_PROVIDER_ID);
-        c.last_update_time = Some(now);
+        // The next update only asks about mods changed since this time, so
+        // after a failed refresh leave it alone: the mod that failed is asked
+        // about again next time instead of silently staying stale.
+        if !retry_later {
+            let mut lock = cache.write().unwrap();
+            let c = lock.get_mut::<ModioCache>(MODIO_PROVIDER_ID);
+            c.last_update_time = Some(now);
+        }
 
         Ok(())
     }

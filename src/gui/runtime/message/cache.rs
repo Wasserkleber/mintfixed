@@ -15,9 +15,6 @@ impl UpdateCache {
         let handle = tokio::spawn(async move {
             let res = async {
                 store.update_cache().await?;
-                // A mod mod.io no longer lists, that no profile uses, is just
-                // stale cache: drop it instead of reporting it every update.
-                store.forget_unreferenced_modio_unavailable(&referenced);
                 let mut missing = referenced
                     .into_iter()
                     .filter(|spec| spec.url.starts_with("https://mod.io/g/drg/m/"))
@@ -49,7 +46,10 @@ impl UpdateCache {
                             );
                             store.mark_modio_unavailable(spec);
                         }
-                        Err(error) => return Err(error),
+                        // Counted in `remaining` below and reported there.
+                        Err(error) => {
+                            warn!("could not recover metadata for {} ({error})", spec.url);
+                        }
                     }
                     tx.send(Message::CacheRecoveryProgress {
                         rid,

@@ -220,49 +220,13 @@ fn gone() -> DrgModioError {
     }
 }
 
-fn spec(url: &str) -> ModSpecification {
-    ModSpecification::new(url.to_owned())
-}
-
 #[tokio::test]
-async fn gone_unreferenced_mod_is_dropped_from_cache() {
+async fn gone_mod_keeps_cached_version() {
     let cache = cache_with_gone_mod();
     ModioProvider::new(mock_refusing(1, gone))
         .update_cache(cache.clone())
         .await
         .unwrap();
-    assert!(is_unavailable(&cache, "https://mod.io/g/drg/m/gone#1"));
-
-    // Only "working" is in a profile; "library" stays as its dependency.
-    let dropped =
-        forget_unreferenced_unavailable(&cache, &[spec("https://mod.io/g/drg/m/working#2")]);
-    assert_eq!(dropped, vec!["gone".to_owned()]);
-    let lock = cache.read().unwrap();
-    let c = lock.get::<ModioCache>(MODIO_PROVIDER_ID).unwrap();
-    assert!(!c.mods.contains_key(&1));
-    assert!(!c.mod_id_map.contains_key("gone"));
-    assert!(!c.dependencies.contains_key(&1));
-    assert!(!c.modfile_blobs.contains_key(&10));
-    assert!(!c.modfile_blobs.contains_key(&11));
-    assert!(c.unavailable_names.is_empty());
-    assert!(c.mods.contains_key(&2) && c.mods.contains_key(&3));
-    assert!(c.modfile_blobs.contains_key(&20) && c.modfile_blobs.contains_key(&30));
-}
-
-#[tokio::test]
-async fn gone_referenced_mod_keeps_cached_files() {
-    let cache = cache_with_gone_mod();
-    ModioProvider::new(mock_refusing(1, gone))
-        .update_cache(cache.clone())
-        .await
-        .unwrap();
-
-    // Referenced by slug only, as an old profile row may be.
-    let referenced = [
-        spec("https://mod.io/g/drg/m/working#2"),
-        spec("https://mod.io/g/drg/m/gone"),
-    ];
-    assert!(forget_unreferenced_unavailable(&cache, &referenced).is_empty());
     assert!(is_unavailable(&cache, "https://mod.io/g/drg/m/gone#1"));
     let lock = cache.read().unwrap();
     let c = lock.get::<ModioCache>(MODIO_PROVIDER_ID).unwrap();
@@ -274,37 +238,21 @@ async fn gone_referenced_mod_keeps_cached_files() {
 }
 
 #[tokio::test]
-async fn gone_dependency_of_referenced_mod_is_kept() {
+async fn failed_refresh_keeps_cached_version_and_retries() {
     let cache = cache_with_gone_mod();
-    ModioProvider::new(mock_refusing(3, gone))
+    // A failure that isn't a "gone" answer doesn't fail the update either,
+    // but the mod isn't flagged, and last_update_time stays put so the next
+    // update asks about it again.
+    ModioProvider::new(mock_refusing(1, || DrgModioError::MissingOauthToken))
         .update_cache(cache.clone())
         .await
         .unwrap();
-    assert!(is_unavailable(&cache, "https://mod.io/g/drg/m/library#3"));
-    let referenced = [spec("https://mod.io/g/drg/m/working#2")];
-    assert!(forget_unreferenced_unavailable(&cache, &referenced).is_empty());
-    let lock = cache.read().unwrap();
-    let c = lock.get::<ModioCache>(MODIO_PROVIDER_ID).unwrap();
-    assert!(c.mods.contains_key(&3));
-    assert!(c.modfile_blobs.contains_key(&30));
-}
-
-#[tokio::test]
-async fn transient_error_drops_nothing() {
-    let cache = cache_with_gone_mod();
-    // A failure that isn't a definite "gone" answer fails the update as
-    // before, and nothing is flagged or dropped.
-    let result = ModioProvider::new(mock_refusing(1, || DrgModioError::MissingOauthToken))
-        .update_cache(cache.clone())
-        .await;
-    assert!(result.is_err());
     assert!(!is_unavailable(&cache, "https://mod.io/g/drg/m/gone#1"));
-    let referenced = [spec("https://mod.io/g/drg/m/working#2")];
-    assert!(forget_unreferenced_unavailable(&cache, &referenced).is_empty());
     let lock = cache.read().unwrap();
     let c = lock.get::<ModioCache>(MODIO_PROVIDER_ID).unwrap();
-    assert!(c.mods.contains_key(&1));
+    assert_eq!(c.mods.get(&1).unwrap().latest_modfile, Some(11));
     assert!(c.modfile_blobs.contains_key(&10));
+    assert_eq!(c.mods.get(&2).unwrap().latest_modfile, Some(20));
     assert_eq!(c.last_update_time, Some(UNIX_EPOCH));
 }
 

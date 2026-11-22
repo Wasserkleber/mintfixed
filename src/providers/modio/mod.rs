@@ -33,10 +33,7 @@ pub use api::DrgModio;
 use api::MockDrgModio;
 pub use cache::ModioCache;
 pub(super) use cache::cached_name;
-pub(crate) use cache::{
-    cache_counts, clear_unavailable, forget_unreferenced_unavailable, is_unavailable,
-    mark_unavailable,
-};
+pub(crate) use cache::{cache_counts, clear_unavailable, is_unavailable, mark_unavailable};
 pub use errors::DrgModioError;
 pub(crate) use errors::is_unavailable_error;
 use errors::*; // Snafu context selectors and classification helper.

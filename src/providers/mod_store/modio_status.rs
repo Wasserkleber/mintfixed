@@ -15,14 +15,6 @@ impl ModStore {
         crate::providers::modio::clear_unavailable(&self.cache, &spec.url);
     }
 
-    /// See `modio::forget_unreferenced_unavailable`.
-    pub fn forget_unreferenced_modio_unavailable(
-        &self,
-        referenced: &[ModSpecification],
-    ) -> Vec<String> {
-        crate::providers::modio::forget_unreferenced_unavailable(&self.cache, referenced)
-    }
-
     pub fn modio_cache_counts(&self) -> (usize, usize) {
         crate::providers::modio::cache_counts(&self.cache)
     }
