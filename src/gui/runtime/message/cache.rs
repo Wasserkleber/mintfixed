@@ -13,13 +13,25 @@ impl UpdateCache {
         let store = app.state.store.clone();
         let referenced = crate::mod_identity::all_specs(&app.state.mod_data);
         let strict = app.state.config.strict_cache_update;
+        let mut in_active_profile = Vec::new();
+        let data = &app.state.mod_data;
+        data.for_each_mod(&data.active_profile, |mc| {
+            in_active_profile.push(mc.spec.clone())
+        });
+        let update = crate::providers::CacheUpdate {
+            strict,
+            referenced: in_active_profile,
+        };
         let handle = tokio::spawn(async move {
             let res = async {
-                store.update_cache(strict).await?;
+                store.update_cache(&update).await?;
                 let mut missing = referenced
                     .into_iter()
                     .filter(|spec| spec.url.starts_with("https://mod.io/g/drg/m/"))
                     .filter(|spec| store.get_mod_info(spec).is_none())
+                    // An unavailable mod is asked about on the same retry
+                    // interval as in update_cache.
+                    .filter(|spec| store.modio_retry_due(spec))
                     .collect::<Vec<_>>();
                 missing.sort_by(|a, b| a.url.cmp(&b.url));
                 info!("recovering metadata for {} mod.io entries", missing.len());

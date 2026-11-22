@@ -11,6 +11,10 @@ impl ModStore {
         crate::providers::modio::mark_unavailable(&self.cache, &spec.url);
     }
 
+    pub fn modio_retry_due(&self, spec: &ModSpecification) -> bool {
+        crate::providers::modio::unavailable_retry_due(&self.cache, &spec.url)
+    }
+
     pub fn clear_modio_unavailable(&self, spec: &ModSpecification) {
         crate::providers::modio::clear_unavailable(&self.cache, &spec.url);
     }

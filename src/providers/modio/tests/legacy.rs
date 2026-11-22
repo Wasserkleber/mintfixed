@@ -1,5 +1,8 @@
 use super::*;
 use crate::state::config::ConfigWrapper;
+use std::time::Duration;
+
+use super::cache::Unavailable;
 
 #[test]
 fn test_modio_url() {
@@ -139,7 +142,10 @@ async fn deleted_mod_does_not_block_other_cache_updates() {
     mock.expect_fetch_dependencies()
         .returning(|_, _| Ok(Vec::new()));
     let provider = ModioProvider::new(mock);
-    provider.update_cache(cache.clone(), false).await.unwrap();
+    provider
+        .update_cache(cache.clone(), &CacheUpdate::default())
+        .await
+        .unwrap();
     assert!(is_unavailable(&cache, "https://mod.io/g/drg/m/deleted#1"));
     assert!(!is_unavailable(&cache, "https://mod.io/g/drg/m/working#2"));
     let lock = cache.read().unwrap();
@@ -224,7 +230,7 @@ fn gone() -> DrgModioError {
 async fn gone_mod_keeps_cached_version() {
     let cache = cache_with_gone_mod();
     ModioProvider::new(mock_refusing(1, gone))
-        .update_cache(cache.clone(), false)
+        .update_cache(cache.clone(), &CacheUpdate::default())
         .await
         .unwrap();
     assert!(is_unavailable(&cache, "https://mod.io/g/drg/m/gone#1"));
@@ -244,7 +250,7 @@ async fn failed_refresh_keeps_cached_version_and_retries() {
     // but the mod isn't flagged, and last_update_time stays put so the next
     // update asks about it again.
     ModioProvider::new(mock_refusing(1, || DrgModioError::MissingOauthToken))
-        .update_cache(cache.clone(), false)
+        .update_cache(cache.clone(), &CacheUpdate::default())
         .await
         .unwrap();
     assert!(!is_unavailable(&cache, "https://mod.io/g/drg/m/gone#1"));
@@ -260,7 +266,13 @@ async fn failed_refresh_keeps_cached_version_and_retries() {
 async fn strict_update_stops_on_failed_refresh_but_not_on_gone_mod() {
     let cache = cache_with_gone_mod();
     let result = ModioProvider::new(mock_refusing(1, || DrgModioError::MissingOauthToken))
-        .update_cache(cache.clone(), true)
+        .update_cache(
+            cache.clone(),
+            &CacheUpdate {
+                strict: true,
+                ..Default::default()
+            },
+        )
         .await;
     assert!(result.is_err());
     {
@@ -274,7 +286,13 @@ async fn strict_update_stops_on_failed_refresh_but_not_on_gone_mod() {
     // A mod mod.io has removed never stops the update, strict or not.
     let cache = cache_with_gone_mod();
     ModioProvider::new(mock_refusing(1, gone))
-        .update_cache(cache.clone(), true)
+        .update_cache(
+            cache.clone(),
+            &CacheUpdate {
+                strict: true,
+                ..Default::default()
+            },
+        )
         .await
         .unwrap();
     assert!(is_unavailable(&cache, "https://mod.io/g/drg/m/gone#1"));
@@ -500,9 +518,13 @@ fn refactor_cache_json_round_trip_preserves_numeric_ids_and_unavailable_state() 
         .insert("refactor-offline-mod".to_owned(), 7);
     original.mods.insert(7, refactor_sample_cached_mod());
     original.dependencies.insert(7, vec![9]);
+    let flag = Unavailable {
+        failures: 3,
+        last_checked: Some(UNIX_EPOCH + Duration::from_secs(1_700_000_000)),
+    };
     original
         .unavailable_names
-        .insert("refactor-offline-mod".to_owned(), true);
+        .insert("refactor-offline-mod".to_owned(), flag.clone());
     let json = serde_json::to_string(&original).unwrap();
     let loaded: ModioCache = serde_json::from_str(&json).unwrap();
     assert_eq!(loaded.mod_id_map.get("refactor-offline-mod"), Some(&7));
@@ -510,7 +532,150 @@ fn refactor_cache_json_round_trip_preserves_numeric_ids_and_unavailable_state() 
     assert_eq!(loaded.dependencies.get(&7), Some(&vec![9]));
     assert_eq!(
         loaded.unavailable_names.get("refactor-offline-mod"),
-        Some(&true)
+        Some(&flag)
+    );
+
+    // A cache written before the retry interval stored `true`: it loads as
+    // one failure that is due now.
+    let legacy = json.replace(&serde_json::to_string(&flag).unwrap(), "true");
+    let loaded: ModioCache = serde_json::from_str(&legacy).unwrap();
+    let entry = loaded
+        .unavailable_names
+        .get("refactor-offline-mod")
+        .unwrap();
+    assert_eq!(entry.failures, 1);
+    assert!(entry.retry_due(SystemTime::now()));
+}
+
+#[test]
+fn unavailable_retry_interval_doubles_up_to_a_week() {
+    let checked = UNIX_EPOCH + Duration::from_secs(1_700_000_000);
+    let hour = Duration::from_secs(60 * 60);
+    let due_after = |failures| {
+        let u = Unavailable {
+            failures,
+            last_checked: Some(checked),
+        };
+        assert!(!u.retry_due(checked));
+        (1..=24 * 8)
+            .map(|h| hour * h)
+            .find(|wait| u.retry_due(checked + *wait))
+            .unwrap()
+    };
+    assert_eq!(due_after(1), hour);
+    assert_eq!(due_after(2), hour * 2);
+    assert_eq!(due_after(4), hour * 8);
+    assert_eq!(due_after(9), hour * 24 * 7);
+    assert_eq!(due_after(u32::MAX), hour * 24 * 7);
+}
+
+/// `cache_with_gone_mod` with mod 1 flagged unavailable, checked `ago`, and a
+/// mock where mod.io reports no changes, every fetch of mod 1 answers with
+/// `error`, and `fetched` counts those fetches.
+fn flagged_gone_mod(
+    ago: Duration,
+    error: fn() -> DrgModioError,
+    fetched: Arc<std::sync::atomic::AtomicUsize>,
+) -> (ProviderCache, ModioProvider<MockDrgModio>) {
+    let cache = cache_with_gone_mod();
+    {
+        let mut lock = cache.write().unwrap();
+        lock.get_mut::<ModioCache>(MODIO_PROVIDER_ID)
+            .unavailable_names
+            .insert(
+                "gone".into(),
+                Unavailable {
+                    failures: 1,
+                    last_checked: Some(SystemTime::now() - ago),
+                },
+            );
+    }
+    let mut mock = MockDrgModio::new();
+    mock.expect_fetch_mod_updates_since()
+        .returning(|_, _| Ok(HashSet::new()));
+    mock.expect_fetch_mod().returning(move |_, id| {
+        assert_eq!(id, 1, "only the flagged mod is asked about");
+        fetched.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        Err(error())
+    });
+    mock.expect_fetch_dependencies()
+        .returning(|_, _| Ok(Vec::new()));
+    (cache, ModioProvider::new(mock))
+}
+
+fn uses_gone() -> CacheUpdate {
+    CacheUpdate {
+        strict: true,
+        referenced: vec![format_spec("gone", 1, None)],
+    }
+}
+
+#[tokio::test]
+async fn unavailable_mod_is_rechecked_only_when_used_and_due() {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    let hour = Duration::from_secs(60 * 60);
+
+    // No profile uses it: never asked about, however long ago it was checked.
+    let fetched = Arc::new(AtomicUsize::new(0));
+    let (cache, provider) = flagged_gone_mod(hour * 24 * 30, gone, fetched.clone());
+    provider
+        .update_cache(cache.clone(), &CacheUpdate::default())
+        .await
+        .unwrap();
+    assert_eq!(fetched.load(Ordering::SeqCst), 0);
+
+    // Used, but checked a minute ago: it waits.
+    let (cache, provider) = flagged_gone_mod(Duration::from_secs(60), gone, fetched.clone());
+    provider
+        .update_cache(cache.clone(), &uses_gone())
+        .await
+        .unwrap();
+    assert_eq!(fetched.load(Ordering::SeqCst), 0);
+
+    // Used and due: asked once, and still gone, so the next wait doubles.
+    let (cache, provider) = flagged_gone_mod(hour * 2, gone, fetched.clone());
+    provider
+        .update_cache(cache.clone(), &uses_gone())
+        .await
+        .unwrap();
+    assert_eq!(fetched.load(Ordering::SeqCst), 1);
+    let lock = cache.read().unwrap();
+    let entry = lock
+        .get::<ModioCache>(MODIO_PROVIDER_ID)
+        .unwrap()
+        .unavailable_names
+        .get("gone")
+        .unwrap()
+        .clone();
+    assert_eq!(entry.failures, 2);
+    assert!(!entry.retry_due(SystemTime::now() + hour));
+    assert!(entry.retry_due(SystemTime::now() + hour * 2));
+}
+
+#[tokio::test]
+async fn failed_recheck_does_not_hold_back_the_update() {
+    use std::sync::atomic::AtomicUsize;
+    // The recheck fails for a reason that may pass, with the strict setting on:
+    // the update still succeeds and moves last_update_time on, so the other
+    // mods' incremental updates are not repeated; the mod stays flagged.
+    let fetched = Arc::new(AtomicUsize::new(0));
+    let (cache, provider) = flagged_gone_mod(
+        Duration::from_secs(60 * 60 * 2),
+        || DrgModioError::MissingOauthToken,
+        fetched,
+    );
+    provider
+        .update_cache(cache.clone(), &uses_gone())
+        .await
+        .unwrap();
+    assert!(is_unavailable(&cache, "https://mod.io/g/drg/m/gone#1"));
+    let lock = cache.read().unwrap();
+    assert!(
+        lock.get::<ModioCache>(MODIO_PROVIDER_ID)
+            .unwrap()
+            .last_update_time
+            .unwrap()
+            > UNIX_EPOCH
     );
 }
 

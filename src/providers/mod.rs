@@ -63,10 +63,12 @@ pub trait ModProvider: Send + Sync {
         blob_cache: &BlobCache,
         tx: Option<Sender<FetchProgress>>,
     ) -> Result<PathBuf, ProviderError>;
-    /// Refresh cached metadata. With `strict`, a mod that fails to refresh
-    /// for a reason that may pass fails the whole update; otherwise it is
-    /// logged and its cached version kept.
-    async fn update_cache(&self, cache: ProviderCache, strict: bool) -> Result<(), ProviderError>;
+    /// Refresh cached metadata, as `update` says.
+    async fn update_cache(
+        &self,
+        cache: ProviderCache,
+        update: &CacheUpdate,
+    ) -> Result<(), ProviderError>;
     /// Check if provider is configured correctly
     async fn check(&self) -> Result<(), ProviderError>;
     fn get_mod_info(&self, spec: &ModSpecification, cache: ProviderCache) -> Option<ModInfo>;
@@ -140,6 +142,18 @@ impl ProviderError {
             _ => None,
         }
     }
+}
+
+/// How an `update_cache` call treats failures and unavailable mods.
+#[derive(Debug, Default, Clone)]
+pub struct CacheUpdate {
+    /// A mod that fails to refresh for a reason that may pass fails the whole
+    /// update; otherwise it is logged and its cached version kept.
+    pub strict: bool,
+    /// The mods the active profile lists, enabled or not. A mod.io mod
+    /// flagged unavailable is asked about again only when it is one of these
+    /// and its retry interval has passed (or mod.io reports a change to it).
+    pub referenced: Vec<ModSpecification>,
 }
 
 #[derive(Clone)]
