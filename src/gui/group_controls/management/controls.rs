@@ -95,13 +95,11 @@ pub(in crate::gui) fn controls(
         import_editor.success = None;
         ui.memory_mut(|mem| mem.toggle_popup(popup));
     }
-    egui::popup_below_widget(
+    crate::gui::management_popup::show(
         ui,
         popup,
         &button,
-        egui::PopupCloseBehavior::CloseOnClickOutside,
         |ui| {
-            ui.set_min_width(180.0);
             ui.label("New group");
             ui.text_edit_singleline(name);
             let trimmed = name.trim();
@@ -134,7 +132,7 @@ pub(in crate::gui) fn controls(
                 ui.add_enabled(false, Button::new("Add existing group"));
                 ui.label("No other groups available for this profile.");
             } else {
-                egui::CollapsingHeader::new("Add existing group")
+                let attach_section = egui::CollapsingHeader::new("Add existing group")
                     .id_salt(("attach-existing", &data.active_profile))
                     .show(ui, |ui| {
                         // Keep the expanded list compact; additional groups remain scrollable.
@@ -161,6 +159,10 @@ pub(in crate::gui) fn controls(
                             }
                         });
                     });
+                crate::gui::management_popup::scroll_expanded_header(
+                    &attach_section.header_response,
+                    attach_section.body_response.is_some(),
+                );
             }
             ui.separator();
             let rename_section = egui::CollapsingHeader::new("Rename group").show(ui, |ui| {
@@ -253,6 +255,10 @@ pub(in crate::gui) fn controls(
                     ui.colored_label(ui.visuals().warn_fg_color, error);
                 }
             });
+            crate::gui::management_popup::scroll_expanded_header(
+                &rename_section.header_response,
+                rename_section.body_response.is_some(),
+            );
             if rename_section.header_response.clicked() {
                 editor.success = None;
                 editor.picker_open = false;
@@ -349,6 +355,10 @@ pub(in crate::gui) fn controls(
                         ui.colored_label(ui.visuals().warn_fg_color, error);
                     }
                 });
+            crate::gui::management_popup::scroll_expanded_header(
+                &duplicate_section.header_response,
+                duplicate_section.body_response.is_some(),
+            );
             if duplicate_section.header_response.clicked() {
                 duplicate_editor.success = None;
                 duplicate_editor.picker_open = false;
@@ -446,6 +456,10 @@ pub(in crate::gui) fn controls(
                         }
                     }
                 });
+            crate::gui::management_popup::scroll_expanded_header(
+                &export_section.header_response,
+                export_section.body_response.is_some(),
+            );
             if export_section.header_response.clicked() {
                 export_editor.success = None;
                 export_editor.error = None;
@@ -516,6 +530,10 @@ pub(in crate::gui) fn controls(
                     });
                 }
             });
+            crate::gui::management_popup::scroll_expanded_header(
+                &import_section.header_response,
+                import_section.body_response.is_some(),
+            );
             if import_section.header_response.clicked() {
                 import_editor.success = None;
                 import_editor.error = None;
@@ -590,6 +608,10 @@ pub(in crate::gui) fn controls(
                     ui.colored_label(ui.visuals().warn_fg_color, error);
                 }
             });
+            crate::gui::management_popup::scroll_expanded_header(
+                &delete_section.header_response,
+                delete_section.body_response.is_some(),
+            );
             if delete_section.header_response.clicked() {
                 delete_editor.success = None;
                 delete_editor.picker_open = false;
