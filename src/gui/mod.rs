@@ -51,6 +51,8 @@ mod message;
 mod missing_local_files;
 #[path = "widgets/named_combobox.rs"]
 mod named_combobox;
+#[path = "widgets/management_popup.rs"]
+mod management_popup;
 #[path = "profiles/profile_import.rs"]
 mod profile_import;
 #[path = "profiles/profile_management.rs"]
