@@ -136,27 +136,14 @@ impl App {
                         if ui
                             .button("Update cache")
                             .on_hover_text(
-                                "Archives unused cache entries, checks for mod updates, then installs the active profile",
+                                "Checks every cached mod for updates, then installs the active profile",
                             )
                             .clicked()
                         {
-                            let referenced = crate::mod_identity::all_specs(&self.state.mod_data);
-                            match self.state.store.archive_unreferenced(&referenced) {
-                                Ok(archived) => {
-                                    message::UpdateCache::send(self, ctx);
-                                    if archived > 0 {
-                                        self.last_action = Some(LastAction::success(format!(
-                                            "Archived {archived} unused cached mods; updating cache"
-                                        )));
-                                    }
-                                    self.problematic_mod_id = None;
-                                }
-                                Err(error) => {
-                                    self.last_action = Some(LastAction::failure(format!(
-                                        "Cache cleanup failed: {error}"
-                                    )));
-                                }
-                            }
+                            // Mods no profile uses stay cached, so adding one back needs no download; a
+                            // failure to refresh one is only a warning (ModProvider::update_cache).
+                            message::UpdateCache::send(self, ctx);
+                            self.problematic_mod_id = None;
                         }
                     },
                 );
