@@ -140,10 +140,30 @@ impl App {
                             )
                             .clicked()
                         {
-                            // Mods no profile uses stay cached, so adding one back needs no download; a
-                            // failure to refresh one is only a warning (ModProvider::update_cache).
-                            message::UpdateCache::send(self, ctx);
-                            self.problematic_mod_id = None;
+                            // By default mods no profile uses stay cached, so adding one back needs no
+                            // download; a failure to refresh one is only a warning
+                            // (ModProvider::update_cache). Archiving them first is the opt-in setting.
+                            let mut archived = Ok(0);
+                            if self.state.config.archive_unused_on_update {
+                                let referenced = crate::mod_identity::all_specs(&self.state.mod_data);
+                                archived = self.state.store.archive_unreferenced(&referenced);
+                            }
+                            match archived {
+                                Ok(archived) => {
+                                    message::UpdateCache::send(self, ctx);
+                                    if archived > 0 {
+                                        self.last_action = Some(LastAction::success(format!(
+                                            "Archived {archived} unused cached mods; updating cache"
+                                        )));
+                                    }
+                                    self.problematic_mod_id = None;
+                                }
+                                Err(error) => {
+                                    self.last_action = Some(LastAction::failure(format!(
+                                        "Cache cleanup failed: {error}"
+                                    )));
+                                }
+                            }
                         }
                     },
                 );

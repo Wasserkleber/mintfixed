@@ -218,6 +218,17 @@ impl App {
                         }
                         ui.end_row();
 
+                        ui.label("Archive unused mods on Update cache:");
+                        let config = &mut self.state.config;
+                        if ui
+                            .add(toggle_switch(&mut config.archive_unused_on_update))
+                            .on_hover_text("Before updating, move the cached entries of mods no profile or group uses into deprecated_mods.json. Their downloads stay on disk, but adding such a mod back downloads it again. Off: every cached mod is kept and refreshed.")
+                            .changed()
+                        {
+                            config.save().unwrap();
+                        }
+                        ui.end_row();
+
                         ui.label("Mod providers:");
                         ui.end_row();
 
