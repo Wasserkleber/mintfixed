@@ -8,6 +8,7 @@ use super::State;
 use mint_lib::DRGInstallation;
 
 const MAX_REPORT_READ: u64 = 128 * 1024;
+const MAX_STARTUP_SCAN: usize = 50;
 const SEEN_FILE: &str = "bpcrash-last-acknowledged.txt";
 
 pub(super) struct RecentCrash {
@@ -30,45 +31,33 @@ pub(super) fn find_recent_unseen(state: &State) -> Option<RecentCrash> {
 }
 
 fn find_latest_unseen_report(reports_dir: &Path, seen_file: &Path) -> Option<RecentCrash> {
-    let mut latest: Option<(String, PathBuf, String)> = None;
-    for entry in std::fs::read_dir(reports_dir).ok()?.flatten() {
-        let path = entry.path();
-        if !path.is_file() {
-            continue;
-        }
-        let Some(name) = path.file_name().and_then(|s| s.to_str()) else {
-            continue;
-        };
-        if !name.starts_with("bpcrash_") || !name.ends_with(".txt") {
-            continue;
-        }
-        // Names contain the reporter's local timestamp, so lexical ordering
-        // ignores the later modification time caused by post-exit triage.
-        if latest
-            .as_ref()
-            .is_some_and(|(previous, _, _)| name <= previous.as_str())
-        {
-            continue;
-        }
-        let Ok(file) = std::fs::File::open(&path) else {
-            continue;
-        };
-        let mut bytes = Vec::new();
-        if file.take(MAX_REPORT_READ).read_to_end(&mut bytes).is_err() {
-            continue;
-        }
-        let body = String::from_utf8_lossy(&bytes);
-        if !is_crash_report(&body) {
-            continue;
-        }
-        let detail = body
-            .lines()
-            .find(|line| line.trim_start().starts_with("assert  :"))
-            .and_then(|line| line.split_once(':').map(|(_, s)| s.trim().to_owned()))
-            .filter(|line| !line.is_empty())
-            .unwrap_or_default();
-        latest = Some((name.to_owned(), path, detail));
-    }
+    // Names contain the reporter's local timestamp, so lexical ordering
+    // ignores the later modification time caused by post-exit triage. Walk
+    // newest first and stop at the first real crash: every game start writes
+    // two self-test reports, so opening the whole folder grows without bound.
+    let mut names = report_paths(reports_dir);
+    names.sort_unstable_by(|a, b| b.0.cmp(&a.0));
+    // Only the newest names count as "recent"; a crash behind more
+    // than this many later reports (about 25 clean game starts) is not shown.
+    let latest = names
+        .into_iter()
+        .take(MAX_STARTUP_SCAN)
+        .find_map(|(name, path)| {
+            let file = std::fs::File::open(&path).ok()?;
+            let mut bytes = Vec::new();
+            file.take(MAX_REPORT_READ).read_to_end(&mut bytes).ok()?;
+            let body = String::from_utf8_lossy(&bytes);
+            if !is_crash_report(&body) {
+                return None;
+            }
+            let detail = body
+                .lines()
+                .find(|line| line.trim_start().starts_with("assert  :"))
+                .and_then(|line| line.split_once(':').map(|(_, s)| s.trim().to_owned()))
+                .filter(|line| !line.is_empty())
+                .unwrap_or_default();
+            Some((name, path, detail))
+        });
     let (name, path, detail) = latest?;
     // Full path disambiguates multiple DRG installations using the same appdata.
     let id = path.to_string_lossy();
@@ -264,6 +253,39 @@ mod tests {
             "new error",
         );
         assert!(find_latest_unseen_report(&reports, &seen).is_some());
+    }
+
+    #[test]
+    fn newest_crash_behind_self_tests_is_found() {
+        let temp = tempfile::tempdir().unwrap();
+        let reports = temp.path().join("reporter");
+        std::fs::create_dir(&reports).unwrap();
+        write_report(
+            &reports,
+            "bpcrash_20261116_120000_1_01_t1.txt",
+            "first-chance exception #1",
+            "older crash",
+        );
+        write_report(
+            &reports,
+            "bpcrash_20261116_235903_2_03_t2.txt",
+            "first-chance exception #1",
+            "newest crash",
+        );
+        for day in 17..=22 {
+            for (n, reason) in [
+                (1, "load-time self test (armed, engine not resolved yet)"),
+                (2, "load-time self test (armed)"),
+            ] {
+                let name = format!("bpcrash_202611{day}_000000_{day}_0{n}_t1.txt");
+                write_report(&reports, &name, reason, "");
+            }
+        }
+        std::fs::write(reports.join("bpcrash_status.txt"), "not a report").unwrap();
+        let seen = temp.path().join("ack.txt");
+        let latest = find_latest_unseen_report(&reports, &seen).unwrap();
+        assert!(latest.name.contains("235903"));
+        assert_eq!(latest.detail.as_deref(), Some("newest crash"));
     }
 }
 
