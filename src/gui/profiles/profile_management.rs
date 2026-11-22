@@ -150,17 +150,11 @@ pub(super) fn ui<E, N>(
 
     let mut copy_ui = copy_ui;
     let mut import_ui = import_ui;
-    egui::popup_below_widget(
+    crate::gui::management_popup::show(
         ui,
         popup_id,
         &response,
-        egui::PopupCloseBehavior::CloseOnClickOutside,
         |ui| {
-            // Keep collapsed sections compact and wrap long messages instead of growing wide.
-            ui.set_width(280.0);
-            ui.spacing_mut().item_spacing.y = 3.0;
-            // Match the Groups menu: size the popup to its expanded sections.
-            // Only the JSON text editor has its own bounded scroll area.
             ui.vertical(|ui| {
                 ui.label("New profile");
                 let field = ui.text_edit_singleline(&mut editor.new_name);
@@ -232,6 +226,10 @@ pub(super) fn ui<E, N>(
                             ui.colored_label(egui::Color32::from_rgb(100, 200, 120), message);
                         }
                     });
+                crate::gui::management_popup::scroll_expanded_header(
+                    &rename_section.header_response,
+                    rename_section.body_response.is_some(),
+                );
                 if rename_section.header_response.clicked() {
                     editor.rename_picker_open = false;
                 }
@@ -291,11 +289,15 @@ pub(super) fn ui<E, N>(
                             ui.colored_label(egui::Color32::from_rgb(100, 200, 120), message);
                         }
                     });
+                crate::gui::management_popup::scroll_expanded_header(
+                    &duplicate_section.header_response,
+                    duplicate_section.body_response.is_some(),
+                );
                 if duplicate_section.header_response.clicked() {
                     editor.duplicate_picker_open = false;
                 }
                 ui.separator();
-                egui::CollapsingHeader::new("Export Profile")
+                let export_section = egui::CollapsingHeader::new("Export Profile")
                     .id_salt("manage-copy-profile")
                     .show(ui, |ui| {
                         if let Some(copy_ui) = copy_ui.take()
@@ -317,8 +319,12 @@ pub(super) fn ui<E, N>(
                             }
                         }
                     });
+                crate::gui::management_popup::scroll_expanded_header(
+                    &export_section.header_response,
+                    export_section.body_response.is_some(),
+                );
                 ui.separator();
-                egui::CollapsingHeader::new("Import Profile (JSON)")
+                let import_section = egui::CollapsingHeader::new("Import Profile (JSON)")
                     .id_salt("manage-import-profile")
                     .show(ui, |ui| {
                         // This renders the actual importer directly inside this menu;
@@ -327,8 +333,12 @@ pub(super) fn ui<E, N>(
                             import_ui(ui, entries, modified);
                         }
                     });
+                crate::gui::management_popup::scroll_expanded_header(
+                    &import_section.header_response,
+                    import_section.body_response.is_some(),
+                );
                 ui.separator();
-                egui::CollapsingHeader::new("Delete Profile")
+                let delete_section = egui::CollapsingHeader::new("Delete Profile")
                     .id_salt("manage-delete-profile")
                     .show(ui, |ui| {
                         if entries.len() <= 1 {
@@ -359,6 +369,10 @@ pub(super) fn ui<E, N>(
                             editor.delete_target = Some(entries.selected_name().to_owned());
                         }
                     });
+                crate::gui::management_popup::scroll_expanded_header(
+                    &delete_section.header_response,
+                    delete_section.body_response.is_some(),
+                );
             });
         },
     );
