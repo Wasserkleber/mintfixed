@@ -333,11 +333,9 @@ impl CrashMonitor {
                             known.insert(name);
                         }
                     }
-                    loop {
-                        match stop_rx.recv_timeout(CRASH_POLL_INTERVAL) {
-                            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
-                            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) | Ok(()) => break,
-                        }
+                    while let Err(std::sync::mpsc::RecvTimeoutError::Timeout) =
+                        stop_rx.recv_timeout(CRASH_POLL_INTERVAL)
+                    {
                         if let Some(crash) = find_new_report(&reports_dir, &seen_file, &mut known) {
                             if send_report.send(crash).is_err() {
                                 break;
@@ -385,17 +383,17 @@ impl CrashMonitor {
                 self.pending = Some(report);
             }
         }
-        if shown.is_none() {
-            if let Some(report) = self.pending.take() {
-                // The user may have dismissed this report since it was sent
-                // by the worker; check only when there is a pending report.
-                let id = report.path.to_string_lossy();
-                let acknowledged = std::fs::read_to_string(&report.seen_file)
-                    .ok()
-                    .is_some_and(|seen| seen.trim() == &*id);
-                if !acknowledged {
-                    *shown = Some(report);
-                }
+        if shown.is_none()
+            && let Some(report) = self.pending.take()
+        {
+            // The user may have dismissed this report since it was sent
+            // by the worker; check only when there is a pending report.
+            let id = report.path.to_string_lossy();
+            let acknowledged = std::fs::read_to_string(&report.seen_file)
+                .ok()
+                .is_some_and(|seen| seen.trim() == &*id);
+            if !acknowledged {
+                *shown = Some(report);
             }
         }
     }
