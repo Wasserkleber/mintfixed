@@ -12,13 +12,26 @@ impl UpdateCache {
         let ctx = ctx.clone();
         let store = app.state.store.clone();
         let referenced = crate::mod_identity::all_specs(&app.state.mod_data);
+        let strict = app.state.config.strict_cache_update;
+        let mut in_active_profile = Vec::new();
+        let data = &app.state.mod_data;
+        data.for_each_mod(&data.active_profile, |mc| {
+            in_active_profile.push(mc.spec.clone())
+        });
+        let update = crate::providers::CacheUpdate {
+            strict,
+            referenced: in_active_profile,
+        };
         let handle = tokio::spawn(async move {
             let res = async {
-                store.update_cache().await?;
+                store.update_cache(&update).await?;
                 let mut missing = referenced
                     .into_iter()
                     .filter(|spec| spec.url.starts_with("https://mod.io/g/drg/m/"))
                     .filter(|spec| store.get_mod_info(spec).is_none())
+                    // An unavailable mod is asked about on the same retry
+                    // interval as in update_cache.
+                    .filter(|spec| store.modio_retry_due(spec))
                     .collect::<Vec<_>>();
                 missing.sort_by(|a, b| a.url.cmp(&b.url));
                 info!("recovering metadata for {} mod.io entries", missing.len());
@@ -46,7 +59,11 @@ impl UpdateCache {
                             );
                             store.mark_modio_unavailable(spec);
                         }
-                        Err(error) => return Err(error),
+                        Err(error) if strict => return Err(error),
+                        // Counted in `remaining` below and reported there.
+                        Err(error) => {
+                            warn!("could not recover metadata for {} ({error})", spec.url);
+                        }
                     }
                     tx.send(Message::CacheRecoveryProgress {
                         rid,
@@ -133,12 +150,21 @@ impl UpdateCache {
                     app.last_action = Some(LastAction::failure(e.to_string()));
                 }
             }
+            for location in unavailable_details.iter().flatten() {
+                warn!(
+                    "mod.io no longer lists a mod a profile uses; integrating its cached files: {}",
+                    location.label.replace('\n', " ")
+                );
+            }
             if let (Some(details), Some(action)) = (unavailable_details, app.last_action.as_mut()) {
                 let summary = match &action.status {
                     super::LastActionStatus::Success(message)
                     | super::LastActionStatus::Failure(message) => message,
                 };
-                action.details = Some(format!("{summary}\n\n{}", super::unavailable_mods::describe(&details)));
+                action.details = Some(format!(
+                    "{summary}\n\n{}",
+                    super::unavailable_mods::describe(&details)
+                ));
                 action.unavailable_locations = details;
             }
             app.update_rid = None;

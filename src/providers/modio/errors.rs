@@ -1,19 +1,29 @@
 use super::{ProviderError, Snafu, modio};
 
-// 404 and 410 imply that a specific mod resource is unavailable.
-// 403 can also indicate insufficient API permissions, so do NOT suppress it
-// on a status code alone. A genuine 403 therefore remains an error, not an
-// assumed deletion. This prevents mistaking global authorization issues for
-// removed mods.
-pub(super) fn unavailable_modio_status(status: Option<u16>, auth_error: bool) -> bool {
-    let _ = auth_error;
-    matches!(status, Some(404 | 410))
+/// Decides whether a mod.io response means "this mod is gone" (deleted,
+/// hidden or made private), as opposed to a problem with the request or the
+/// account. 404 and 410 always mean the resource is gone. mod.io also answers
+/// 403 for a mod it no longer shows, but 403 can mean missing API permissions
+/// too, so a 403 only counts when mod.io's own message says the mod was not
+/// found or was deleted ("The mod ID you have included in your request could
+/// not be found."). Everything else, including auth and network errors, stays
+/// a real error so nothing is ever dropped on a transient failure.
+pub(super) fn unavailable_modio_status(status: Option<u16>, message: &str) -> bool {
+    match status {
+        Some(404 | 410) => true,
+        Some(403) => {
+            let message = message.to_ascii_lowercase();
+            message.contains("could not be found") || message.contains("has been deleted")
+        }
+        _ => false,
+    }
 }
 
 fn unavailable_modio_response(error: &modio::Error) -> bool {
+    // The display text carries mod.io's error message after the status line.
     unavailable_modio_status(
         error.status().map(|status| status.as_u16()),
-        error.is_auth(),
+        &error.to_string(),
     )
 }
 

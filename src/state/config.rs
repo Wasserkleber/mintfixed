@@ -121,6 +121,16 @@ pub struct Config {
     /// Install and autolaunch the pinned BP-Crash-Reporter on integrate.
     #[serde(default = "default_true")]
     pub bundled_crash_reporter: bool,
+    /// Stop Update cache when a mod can't be refreshed for a reason that may
+    /// pass (network, rate limit, auth) instead of warning and keeping its
+    /// cached version. Mods mod.io has removed never stop it.
+    #[serde(default)]
+    pub strict_cache_update: bool,
+    /// Before Update cache, move the cache entries of mods no profile or
+    /// group references into deprecated_mods.json. Off by default: those
+    /// mods stay cached and are refreshed best-effort like any other.
+    #[serde(default)]
+    pub archive_unused_on_update: bool,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -200,6 +210,8 @@ impl Default for Config!["0.0.0"] {
             confirm_deletion: true,
             show_changelog: true,
             bundled_crash_reporter: true,
+            strict_cache_update: false,
+            archive_unused_on_update: false,
         }
     }
 }

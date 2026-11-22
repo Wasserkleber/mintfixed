@@ -3,11 +3,11 @@ use super::*;
 use tracing::info;
 
 impl ModStore {
-    pub async fn update_cache(&self) -> Result<(), ProviderError> {
+    pub async fn update_cache(&self, update: &CacheUpdate) -> Result<(), ProviderError> {
         let providers = self.providers.read().unwrap().clone();
         for (name, provider) in providers.iter() {
             info!("updating cache for {name} provider");
-            provider.update_cache(self.cache.clone()).await?;
+            provider.update_cache(self.cache.clone(), update).await?;
         }
         Ok(())
     }

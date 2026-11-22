@@ -5,8 +5,8 @@ use std::sync::Arc;
 use tokio::sync::mpsc::Sender;
 
 use super::{
-    BlobCache, FetchProgress, ModInfo, ModProvider, ModResolution, ModResponse, ModSpecification,
-    ProviderCache, ProviderError,
+    BlobCache, CacheUpdate, FetchProgress, ModInfo, ModProvider, ModResolution, ModResponse,
+    ModSpecification, ProviderCache, ProviderError,
 };
 
 inventory::submit! {
@@ -90,7 +90,11 @@ impl ModProvider for FileProvider {
         Ok(PathBuf::from(&res.url.0))
     }
 
-    async fn update_cache(&self, _cache: ProviderCache) -> Result<(), ProviderError> {
+    async fn update_cache(
+        &self,
+        _cache: ProviderCache,
+        _update: &CacheUpdate,
+    ) -> Result<(), ProviderError> {
         Ok(())
     }
 

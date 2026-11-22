@@ -136,12 +136,19 @@ impl App {
                         if ui
                             .button("Update cache")
                             .on_hover_text(
-                                "Archives unused cache entries, checks for mod updates, then installs the active profile",
+                                "Checks every cached mod for updates, then installs the active profile",
                             )
                             .clicked()
                         {
-                            let referenced = crate::mod_identity::all_specs(&self.state.mod_data);
-                            match self.state.store.archive_unreferenced(&referenced) {
+                            // By default mods no profile uses stay cached, so adding one back needs no
+                            // download; a failure to refresh one is only a warning
+                            // (ModProvider::update_cache). Archiving them first is the opt-in setting.
+                            let mut archived = Ok(0);
+                            if self.state.config.archive_unused_on_update {
+                                let referenced = crate::mod_identity::all_specs(&self.state.mod_data);
+                                archived = self.state.store.archive_unreferenced(&referenced);
+                            }
+                            match archived {
                                 Ok(archived) => {
                                     message::UpdateCache::send(self, ctx);
                                     if archived > 0 {

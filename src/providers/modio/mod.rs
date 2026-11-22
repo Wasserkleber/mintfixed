@@ -33,7 +33,9 @@ pub use api::DrgModio;
 use api::MockDrgModio;
 pub use cache::ModioCache;
 pub(super) use cache::cached_name;
-pub(crate) use cache::{cache_counts, clear_unavailable, is_unavailable, mark_unavailable};
+pub(crate) use cache::{
+    cache_counts, clear_unavailable, is_unavailable, mark_unavailable, unavailable_retry_due,
+};
 pub use errors::DrgModioError;
 pub(crate) use errors::is_unavailable_error;
 use errors::*; // Snafu context selectors and classification helper.
@@ -99,8 +101,12 @@ impl<M: DrgModio + Send + Sync> ModProvider for ModioProvider<M> {
         self.fetch_mod_impl(res, _update, cache, blob_cache, tx)
             .await
     }
-    async fn update_cache(&self, cache: ProviderCache) -> Result<(), ProviderError> {
-        self.update_cache_impl(cache).await
+    async fn update_cache(
+        &self,
+        cache: ProviderCache,
+        update: &CacheUpdate,
+    ) -> Result<(), ProviderError> {
+        self.update_cache_impl(cache, update).await
     }
     async fn check(&self) -> Result<(), ProviderError> {
         self.modio.check().await.map_err(Into::into)
