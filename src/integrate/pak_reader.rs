@@ -1,5 +1,5 @@
 //! A mod file's `.pak` bytes, opened once and shared by every thread that reads entries from it.
-use std::io::{Read, SeekFrom};
+use std::io::{Read, Seek, SeekFrom};
 use std::sync::Arc;
 
 use super::*;
@@ -14,7 +14,16 @@ pub(crate) enum PakSource {
 
 impl PakSource {
     pub(crate) fn open(mut file: fs::File) -> Result<Self, IntegrationError> {
-        let Ok(mut archive) = zip::ZipArchive::new(&mut file) else {
+        // A zip starts with a "PK" record; a pak starts with its first entry's header. Only try the zip reader
+        // on a "PK" file: on anything else it searches the whole file for a zip directory, which on a large pak
+        // costs a full read.
+        let mut magic = [0; 2];
+        let maybe_zip = file.read_exact(&mut magic).is_ok() && magic == *b"PK";
+        file.seek(SeekFrom::Start(0))?;
+        let archive = maybe_zip
+            .then(|| zip::ZipArchive::new(&mut file).ok())
+            .flatten();
+        let Some(mut archive) = archive else {
             let len = file.metadata()?.len();
             return Ok(Self::File(Arc::new(file.into_parts().0), len));
         };
