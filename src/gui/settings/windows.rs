@@ -48,7 +48,13 @@ impl App {
                                 .password(true)
                                 .desired_width(200.0),
                             );
-                            if is_committed(&res) {
+                            // Validate and save when the user finishes editing (Enter, Tab,
+                            // or clicking elsewhere); never persist an unchecked token.
+                            if res.lost_focus()
+                                && !window.parameters.values().all(|value| value.is_empty())
+                                && self.state.config.provider_parameters.get(window.factory.id)
+                                    != Some(&window.parameters)
+                            {
                                 check = true;
                             }
                             ui.end_row();
@@ -68,9 +74,7 @@ impl App {
                     });
                 });
             });
-        if !open {
-            self.window_provider_parameters = None;
-        } else if check {
+        if check {
             window.check_error = None;
             let tx = window.tx.clone();
             let ctx = ctx.clone();
@@ -84,6 +88,8 @@ impl App {
                 ctx.request_repaint();
             });
             window.check_rid = Some((rid, handle));
+        } else if !open {
+            self.window_provider_parameters = None;
         }
     }
 
@@ -119,7 +125,7 @@ impl App {
                             if res.changed() {
                                 window.drg_pak_path_err = None;
                             }
-                            if is_committed(&res) {
+                            if res.lost_focus() {
                                 try_save = true;
                             }
                             if ui.button("browse").clicked()
@@ -129,6 +135,7 @@ impl App {
                                 {
                                     window.drg_pak_path = fsd_pak.to_string_lossy().to_string();
                                     window.drg_pak_path_err = None;
+                                try_save = true;
                                 }
                         });
                         ui.end_row();
@@ -158,25 +165,124 @@ impl App {
                             }
                         });
                         ui.end_row();
+
+                        // settings_modio_config_row_v7: keep the existing token dialog,
+                        // but expose only the provider users need to configure.
+                        ui.label("mod.io:");
+                        if let Some(provider_factory) = ModStore::get_provider_factories()
+                            .find(|factory| factory.id == "modio")
+                        {
+                            if ui
+                                .add_enabled(
+                                    !provider_factory.parameters.is_empty(),
+                                    egui::Button::new("⚙"),
+                                )
+                                .on_hover_text("Configure mod.io access token")
+                                .clicked()
+                            {
+                                self.window_provider_parameters = Some(
+                                    WindowProviderParameters::new(provider_factory, &self.state),
+                                );
+                            }
+                        } else {
+                            ui.label("mod.io provider unavailable");
+                        }
+                        ui.end_row();
+
                         let config_dir = &self.state.dirs.config_dir;
-                        ui.label("Config directory:");
-                        if ui.link(config_dir.display().to_string()).clicked() {
-                            opener::open(config_dir).ok();
-                        }
-                        ui.end_row();
-
                         let cache_dir = &self.state.dirs.cache_dir;
-                        ui.label("Cache directory:");
-                        if ui.link(cache_dir.display().to_string()).clicked() {
-                            opener::open(cache_dir).ok();
+                        let data_dir = &self.state.dirs.data_dir;
+                        // Determine Steam/WinGDK paths from the configured game pak.
+                        let installation = self
+                            .state
+                            .config
+                            .drg_pak_path
+                            .as_deref()
+                            .and_then(|pak| mint_lib::DRGInstallation::from_pak_path(pak).ok());
+
+                        ui.label("Logs & diagnostics:");
+                        let logs_button = ui.button("Open diagnostics");
+                        let logs_popup_id = ui.make_persistent_id("settings_logs_popup");
+                        if logs_button.clicked() {
+                            ui.memory_mut(|memory| memory.toggle_popup(logs_popup_id));
                         }
+                        egui::popup::popup_below_widget(
+                            ui,
+                            logs_popup_id,
+                            &logs_button,
+                            egui::popup::PopupCloseBehavior::CloseOnClickOutside,
+                            |ui| {
+                                egui::Grid::new("settings_log_shortcuts_grid")
+                                    .num_columns(2)
+                                    .show(ui, |ui| {
+                                        path_menu_entry(ui, "mint.log", &data_dir.join("mint.log"), false);
+                                        if let Some(installation) = &installation {
+                                            let bin = installation.binaries_directory();
+                                            let logs = installation.root.join("Saved").join("Logs");
+                                            let reporter = bin.join("mintfixed-bpcrash");
+                                            path_menu_entry(ui, "FSD.log", &logs.join("FSD.log"), false);
+                                            path_menu_entry(ui, "mint_hook.log", &bin.join("mint_hook.log"), false);
+                                            path_menu_entry(ui, "bpcrash-loader.log", &reporter.join("bpcrash-loader.log"), false);
+                                            path_menu_entry(ui, "bpcrash_status.txt", &reporter.join("bpcrash_status.txt"), false);
+                                            path_menu_entry(ui, "crash_context.json", &reporter.join("crash_context.json"), false);
+                                        }
+                                        path_menu_entry(ui, "mod_data.json", &config_dir.join("mod_data.json"), false);
+                                        path_menu_entry(ui, "cache.json", &cache_dir.join("cache.json"), false);
+                                        path_menu_entry(ui, "deprecated_mods.json", &cache_dir.join("deprecated_mods.json"), false);
+                                        // settings_lint_exports_v8: most recent completed lint run across profiles.
+                                        if let Some(report) = latest_lint_report(&data_dir.join("lint-reports")) {
+                                            path_menu_entry(ui, "lint_*.txt", &report, false);
+                                        } else {
+                                            ui.add_enabled(false, egui::Button::new("lint_*.txt"))
+                                                .on_disabled_hover_text("No saved lint reports yet");
+                                            ui.end_row();
+                                        }
+                                        if installation.is_none() {
+                                            ui.label("Configure a DRG pak to show game files");
+                                            ui.end_row();
+                                        }
+                                    });
+                            },
+                        );
                         ui.end_row();
 
-                        let data_dir = &self.state.dirs.data_dir;
-                        ui.label("Data directory:");
-                        if ui.link(data_dir.display().to_string()).clicked() {
-                            opener::open(data_dir).ok();
+                        ui.label("Directories:");
+                        let directories_button = ui.button("Open directories");
+                        let directories_popup_id = ui.make_persistent_id("settings_directories_popup");
+                        if directories_button.clicked() {
+                            ui.memory_mut(|memory| memory.toggle_popup(directories_popup_id));
                         }
+                        egui::popup::popup_below_widget(
+                            ui,
+                            directories_popup_id,
+                            &directories_button,
+                            egui::popup::PopupCloseBehavior::CloseOnClickOutside,
+                            |ui| {
+                                egui::Grid::new("settings_directory_shortcuts_grid")
+                                    .num_columns(2)
+                                    .show(ui, |ui| {
+                                        path_menu_entry(ui, "Config", config_dir, true);
+                                        path_menu_entry(ui, "Cache", cache_dir, true);
+                                        path_menu_entry(ui, "Data", data_dir, true);
+                                        path_menu_entry(ui, "Lint reports", &data_dir.join("lint-reports"), true);
+                                        // Group/profile exports are saved next to the running executable.
+                                        if let Some(exports_dir) = std::env::current_exe()
+                                            .ok()
+                                            .and_then(|exe| exe.parent().map(|parent| parent.join("mintfixed exports")))
+                                            .filter(|directory| directory.is_dir())
+                                        {
+                                            path_menu_entry(ui, "Exports", &exports_dir, true);
+                                        }
+
+                                        if let Some(installation) = &installation {
+                                            let reporter = installation.binaries_directory().join("mintfixed-bpcrash");
+                                            let logs = installation.root.join("Saved").join("Logs");
+                                            path_menu_entry(ui, "DRG logs", &logs, true);
+                                            path_menu_entry(ui, "Crash reports", &reporter, true);
+                                        }
+                                    });
+                            },
+                        );
                         ui.end_row();
 
                         ui.label("GUI theme:");
@@ -229,26 +335,10 @@ impl App {
                         }
                         ui.end_row();
 
-                        ui.label("Mod providers:");
-                        ui.end_row();
-
-                        for provider_factory in ModStore::get_provider_factories() {
-                            ui.label(provider_factory.id);
-                            if ui.add_enabled(!provider_factory.parameters.is_empty(), egui::Button::new("⚙"))
-                                    .on_hover_text(format!("Open \"{}\" settings", provider_factory.id))
-                                    .clicked() {
-                                self.window_provider_parameters = Some(
-                                    WindowProviderParameters::new(provider_factory, &self.state),
-                                );
-                            }
-                            ui.end_row();
-                        }
                     });
 
                     ui.with_layout(egui::Layout::right_to_left(Align::TOP), |ui| {
-                        if ui.add_enabled(window.drg_pak_path_err.is_none(), egui::Button::new("save")).clicked() {
-                            try_save = true;
-                        }
+
                         if let Some(error) = &window.drg_pak_path_err {
                             ui.colored_label(ui.visuals().error_fg_color, error);
                         }
@@ -274,15 +364,15 @@ impl App {
                     if let Err(e) = is_drg_pak(&window.drg_pak_path) {
                         window.drg_pak_path_err = Some(e.to_string());
                     } else {
-                        self.state.config.drg_pak_path = Some(PathBuf::from(
-                            self.settings_window.take().unwrap().drg_pak_path,
-                        ));
+                        self.state.config.drg_pak_path =
+                            Some(PathBuf::from(window.drg_pak_path.clone()));
                         self.state.config.local_mod_folder = folder_result.ok().flatten();
                         rescan_folder = true;
                         self.state.config.save().unwrap();
                     }
                 }
-            } else if !open {
+            }
+            if !open {
                 self.settings_window = None;
             }
         }
@@ -311,4 +401,80 @@ impl App {
             folder_import::reset_schedule(self);
         }
     }
+}
+
+// Open only existing log files. Paths can be copied even for absent files.
+fn path_menu_entry(ui: &mut egui::Ui, label: &str, path: &std::path::Path, directory: bool) {
+    let available = if directory {
+        path.is_dir()
+    } else {
+        path.is_file()
+    };
+    let path_text = path.display().to_string();
+    let response = ui
+        .add_enabled(available, egui::Button::new(label))
+        .on_hover_text(path_text.as_str())
+        .on_disabled_hover_text(format!("Not available: {path_text}"));
+
+    if response.clicked() {
+        let result = if directory {
+            opener::open(path).map_err(|error| std::io::Error::other(error.to_string()))
+        } else {
+            open_log_file(path)
+        };
+        if let Err(error) = result {
+            tracing::warn!("Could not open {}: {error}", path.display());
+        }
+    }
+
+    if ui
+        .button("Copy path")
+        .on_hover_text(path_text.as_str())
+        .clicked()
+    {
+        ui.ctx().copy_text(path_text);
+    }
+    ui.end_row();
+}
+
+fn open_log_file(path: &std::path::Path) -> std::io::Result<()> {
+    #[cfg(target_os = "windows")]
+    {
+        // .log, .txt, and .json do not always have working associations.
+        std::process::Command::new("notepad.exe")
+            .arg(path)
+            .spawn()
+            .map(|_| ())
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        opener::open(path).map_err(|error| std::io::Error::other(error.to_string()))
+    }
+}
+
+// Find the most recently *created* lint report, regardless of profile name.
+// Filenames are lint_<profile>_<unix_milliseconds>_<counter>.txt.
+fn latest_lint_report(directory: &std::path::Path) -> Option<std::path::PathBuf> {
+    std::fs::read_dir(directory)
+        .ok()?
+        .filter_map(|entry| {
+            let entry = entry.ok()?;
+            if !entry.file_type().ok()?.is_file() {
+                return None;
+            }
+            let path = entry.path();
+            let filename = path.file_name()?.to_str()?;
+            let trimmed = filename.strip_prefix("lint_")?.strip_suffix(".txt")?;
+            let (prefix, index) = trimmed.rsplit_once('_')?;
+            let (_, timestamp) = prefix.rsplit_once('_')?;
+            Some((
+                (
+                    timestamp.parse::<u128>().ok()?,
+                    index.parse::<usize>().ok()?,
+                ),
+                path,
+            ))
+        })
+        .max_by_key(|(sort_key, _)| *sort_key)
+        .map(|(_, path)| path)
 }

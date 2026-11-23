@@ -45,14 +45,14 @@ mod profile_ui;
 #[path = "dialogs/replacement_prompt.rs"]
 mod replacement_prompt;
 use group_controls::{Drag, Target};
+#[path = "widgets/management_popup.rs"]
+mod management_popup;
 #[path = "runtime/message.rs"]
 mod message;
 #[path = "runtime/missing_local_files.rs"]
 mod missing_local_files;
 #[path = "widgets/named_combobox.rs"]
 mod named_combobox;
-#[path = "widgets/management_popup.rs"]
-mod management_popup;
 #[path = "profiles/profile_import.rs"]
 mod profile_import;
 #[path = "profiles/profile_management.rs"]

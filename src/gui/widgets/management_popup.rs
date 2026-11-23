@@ -8,10 +8,7 @@ const PREFERRED_WIDTH: f32 = 330.0;
 const COMFORTABLE_HEIGHT: f32 = 180.0;
 
 /// Returns the preferred side and maximum inner content size in logical points.
-fn popup_geometry(
-    screen: egui::Rect,
-    button: egui::Rect,
-) -> (egui::AboveOrBelow, f32, f32) {
+fn popup_geometry(screen: egui::Rect, button: egui::Rect) -> (egui::AboveOrBelow, f32, f32) {
     let space_below = (screen.bottom() - button.bottom() - EDGE_PADDING).max(0.0);
     let space_above = (button.top() - screen.top() - EDGE_PADDING).max(0.0);
     // Prefer opening downwards unless there is too little room to work with.
@@ -68,10 +65,8 @@ pub(super) fn show<R>(
 
                     // Use an unallocated child so the parent's cached Area size
                     // cannot force a stale popup height on the visible Frame.
-                    let content_rect = egui::Rect::from_min_size(
-                        ui.cursor().min,
-                        egui::vec2(width, max_height),
-                    );
+                    let content_rect =
+                        egui::Rect::from_min_size(ui.cursor().min, egui::vec2(width, max_height));
                     let mut body = ui.new_child(
                         egui::UiBuilder::new()
                             .id_salt("management-body-v8")
