@@ -1854,6 +1854,7 @@ checksum = "843fba2746e448b37e26a819579957415c8cef339bf08564fe8b7ddbd959573c"
 dependencies = [
  "crc32fast",
  "miniz_oxide 0.8.9",
+ "zlib-rs",
 ]
 
 [[package]]
@@ -3256,6 +3257,7 @@ dependencies = [
  "egui",
  "egui_commonmark",
  "egui_extras",
+ "flate2",
  "fs-err",
  "futures",
  "hex",
@@ -7780,6 +7782,12 @@ dependencies = [
  "ed25519-dalek",
  "thiserror 1.0.66",
 ]
+
+[[package]]
+name = "zlib-rs"
+version = "0.6.8"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b268e58e7c693d7c271f93ffc4ba3b380412554231c85bf61ca7af91042a4112"
 
 [[package]]
 name = "zopfli"

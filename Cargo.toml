@@ -90,6 +90,7 @@ repak.workspace = true
 include_dir = "0.7.4"
 postcard.workspace = true
 fs-err.workspace = true
+flate2 = { version = "1.1.9", features = ["zlib-rs"] }
 snafu.workspace = true
 strum = { version = "0.27", features = ["derive"] }
 itertools.workspace = true
