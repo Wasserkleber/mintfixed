@@ -29,16 +29,16 @@ fn compact_missing_local_file_details(details: &str) -> String {
         }
         // Only suppress a bare path directly after its contextual entry,
         // allowing for a blank line between the two formats.
-        if let Some(previous) = preceding_context_path.take() {
-            if missing_local_path_key(trimmed).as_deref() == Some(previous.as_str()) {
-                if result
-                    .last()
-                    .is_some_and(|last: &&str| last.trim().is_empty())
-                {
-                    result.pop();
-                }
-                continue;
+        if let Some(previous) = preceding_context_path.take()
+            && missing_local_path_key(trimmed).as_deref() == Some(previous.as_str())
+        {
+            if result
+                .last()
+                .is_some_and(|last: &&str| last.trim().is_empty())
+            {
+                result.pop();
             }
+            continue;
         }
         preceding_context_path = trimmed
             .split_once(" — profile ")

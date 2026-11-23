@@ -115,7 +115,7 @@ mod selected_member_tests {
         let temp = tempfile::NamedTempFile::new().unwrap();
         let mut writer = zip::ZipWriter::new(temp.reopen().unwrap());
         let options = zip::write::SimpleFileOptions::default();
-        writer.start_file("first.pak", options.clone()).unwrap();
+        writer.start_file("first.pak", options).unwrap();
         writer.write_all(b"first source").unwrap();
         writer.start_file("second.pak", options).unwrap();
         writer.write_all(b"second source").unwrap();

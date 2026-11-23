@@ -59,7 +59,7 @@ fn fstring(data: &[u8], pos: &mut usize) -> Result<String, String> {
     if len < 0 {
         let bytes = slice_at(data, pos, (len.unsigned_abs() as usize) * 2)?;
         let mut chars = Vec::new();
-        for pair in bytes.chunks_exact(2) {
+        for pair in bytes.as_chunks::<2>().0 {
             let c = u16::from_le_bytes([pair[0], pair[1]]);
             if c != 0 {
                 chars.push(c);
@@ -151,7 +151,7 @@ fn parse_legacy_v8_index(
 
 fn read_pak_index<R: Read + Seek>(reader: &mut R) -> Result<ParsedPakIndex, String> {
     let size = reader.seek(SeekFrom::End(0)).map_err(|e| e.to_string())?;
-    if size < 36 || size > MAX_PAK_BYTES {
+    if !(36..=MAX_PAK_BYTES).contains(&size) {
         return Err("PAK outside supported size".into());
     }
     let tail_start = size.saturating_sub(300);
@@ -353,55 +353,54 @@ pub(super) fn index_archive(path: &Path) -> PreparedModIndex {
         result.kind = "empty_or_unreadable";
         return result;
     }
-    if let Ok(cloned) = file.try_clone() {
-        if let Ok(mut zip) = zip::ZipArchive::new(cloned) {
-            result.kind = "zip";
-            if metadata.len() > 1024 * 1024 * 1024 || zip.len() > MAX_ZIP_ENTRIES {
-                return result;
-            }
-            for i in 0..zip.len() {
-                let Ok(member) = zip.by_index(i) else {
-                    return result;
-                };
-                let installed_member = member.is_file()
-                    && member
-                        .enclosed_name()
-                        .is_some_and(|p| p.extension() == Some(std::ffi::OsStr::new("pak")));
-                if !installed_member {
-                    continue;
-                }
-                let name = member.name().to_owned();
-                let mut record = IndexedPak {
-                    member: Some(name),
-                    packages: Vec::new(),
-                    complete: false,
-                };
-                if member.size() <= MAX_PAK_BYTES {
-                    let mut bytes = Vec::new();
-                    if member
-                        .take(MAX_PAK_BYTES + 1)
-                        .read_to_end(&mut bytes)
-                        .is_ok()
-                        && bytes.len() as u64 <= MAX_PAK_BYTES
-                    {
-                        if let Ok(index) = read_pak_index(&mut std::io::Cursor::new(bytes)) {
-                            record.packages = index.packages;
-                            record.complete = index.complete;
-                        }
-                    }
-                }
-                result.index.status = if record.complete {
-                    "complete"
-                } else if record.packages.is_empty() {
-                    "unreadable"
-                } else {
-                    "partial"
-                };
-                result.index.paks.push(record);
-                break;
-            }
+    if let Ok(cloned) = file.try_clone()
+        && let Ok(mut zip) = zip::ZipArchive::new(cloned)
+    {
+        result.kind = "zip";
+        if metadata.len() > 1024 * 1024 * 1024 || zip.len() > MAX_ZIP_ENTRIES {
             return result;
         }
+        for i in 0..zip.len() {
+            let Ok(member) = zip.by_index(i) else {
+                return result;
+            };
+            let installed_member = member.is_file()
+                && member
+                    .enclosed_name()
+                    .is_some_and(|p| p.extension() == Some(std::ffi::OsStr::new("pak")));
+            if !installed_member {
+                continue;
+            }
+            let name = member.name().to_owned();
+            let mut record = IndexedPak {
+                member: Some(name),
+                packages: Vec::new(),
+                complete: false,
+            };
+            if member.size() <= MAX_PAK_BYTES {
+                let mut bytes = Vec::new();
+                if member
+                    .take(MAX_PAK_BYTES + 1)
+                    .read_to_end(&mut bytes)
+                    .is_ok()
+                    && bytes.len() as u64 <= MAX_PAK_BYTES
+                    && let Ok(index) = read_pak_index(&mut std::io::Cursor::new(bytes))
+                {
+                    record.packages = index.packages;
+                    record.complete = index.complete;
+                }
+            }
+            result.index.status = if record.complete {
+                "complete"
+            } else if record.packages.is_empty() {
+                "unreadable"
+            } else {
+                "partial"
+            };
+            result.index.paks.push(record);
+            break;
+        }
+        return result;
     }
     // This mirrors PakSource::open's fallback to direct PAK input.
     result.kind = "pak_or_unknown";

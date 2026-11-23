@@ -28,32 +28,32 @@ pub(super) struct StartupUpdate {
 impl StartupUpdate {
     pub(super) fn start(state: &State, ctx: &egui::Context) -> Self {
         let (tx, events) = mpsc::channel();
-        if state.config.bundled_crash_reporter {
-            if let Some(pak_path) = state.config.drg_pak_path.clone() {
-                let ctx = ctx.clone();
-                std::thread::spawn(move || {
-                    let notify_tx = tx.clone();
-                    let result = DRGInstallation::from_pak_path(&pak_path)
-                        .map_err(|error| error.to_string())
-                        .and_then(|installation| {
-                            crate::crash_reporter::install_with_notice(
-                                &installation.binaries_directory(),
-                                &installation.installation_type,
-                                true,
-                                || {
-                                    let _ = notify_tx.send(Event::Started);
-                                    ctx.request_repaint();
-                                },
-                            )
-                            .map_err(|error| format!("{error:#}"))
-                        });
-                    if let Err(error) = &result {
-                        tracing::warn!("BP-Crash-Reporter startup check failed: {error}");
-                    }
-                    let _ = tx.send(Event::Finished(result));
-                    ctx.request_repaint();
-                });
-            }
+        if state.config.bundled_crash_reporter
+            && let Some(pak_path) = state.config.drg_pak_path.clone()
+        {
+            let ctx = ctx.clone();
+            std::thread::spawn(move || {
+                let notify_tx = tx.clone();
+                let result = DRGInstallation::from_pak_path(&pak_path)
+                    .map_err(|error| error.to_string())
+                    .and_then(|installation| {
+                        crate::crash_reporter::install_with_notice(
+                            &installation.binaries_directory(),
+                            &installation.installation_type,
+                            true,
+                            || {
+                                let _ = notify_tx.send(Event::Started);
+                                ctx.request_repaint();
+                            },
+                        )
+                        .map_err(|error| format!("{error:#}"))
+                    });
+                if let Err(error) = &result {
+                    tracing::warn!("BP-Crash-Reporter startup check failed: {error}");
+                }
+                let _ = tx.send(Event::Finished(result));
+                ctx.request_repaint();
+            });
         }
         Self {
             events,

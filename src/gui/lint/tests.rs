@@ -42,21 +42,23 @@ mod lint_workflow_tests {
         let a = spec("a");
         let b = spec("b");
         let c = spec("c");
-        let mut report = LintReport::default();
-        report.conflicting_mods = Some(
-            [
-                (
-                    "a.uasset".to_owned(),
-                    IndexSet::from_iter([a.clone(), b.clone()]),
-                ),
-                (
-                    "c.uasset".to_owned(),
-                    IndexSet::from_iter([b.clone(), c.clone()]),
-                ),
-            ]
-            .into(),
-        );
-        report.empty_archive_mods = Some(BTreeSet::from([a.clone(), c.clone()]));
+        let mut report = LintReport {
+            conflicting_mods: Some(
+                [
+                    (
+                        "a.uasset".to_owned(),
+                        IndexSet::from_iter([a.clone(), b.clone()]),
+                    ),
+                    (
+                        "c.uasset".to_owned(),
+                        IndexSet::from_iter([b.clone(), c.clone()]),
+                    ),
+                ]
+                .into(),
+            ),
+            empty_archive_mods: Some(BTreeSet::from([a.clone(), c.clone()])),
+            ..Default::default()
+        };
         focus_only(&mut report, &a);
         assert_eq!(report.conflicting_mods.unwrap().len(), 1);
         assert_eq!(report.empty_archive_mods.unwrap(), BTreeSet::from([a]));

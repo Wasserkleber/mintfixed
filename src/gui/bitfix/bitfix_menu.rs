@@ -162,15 +162,14 @@ impl App {
                         self.resolve_mod_rid.is_none() && !self.bitfix_menu.input.trim().is_empty(),
                         Button::new("Add scripts")
                     ).clicked() { add = true; }
-                    if ui.button("Browse .lua files").clicked() {
-                        if let Some(files) = rfd::FileDialog::new()
+                    if ui.button("Browse .lua files").clicked()
+                        && let Some(files) = rfd::FileDialog::new()
                             .add_filter("Bitfix Lua scripts", &["lua"]).pick_files() {
                             self.bitfix_menu.input = files.iter()
                                 .map(|f| f.to_string_lossy().into_owned())
                                 .collect::<Vec<_>>().join("\n");
                             add = true;
                         }
-                    }
                     if ui.add_enabled(
                         self.resolve_mod_rid.is_none() && self.integrate_rid.is_none()
                             && self.update_rid.is_none()
@@ -200,13 +199,11 @@ impl App {
                 ui.small("Changes apply to every profile. Click Install mods and Bitfix to update DRG. Close DRG first.");
             });
         self.bitfix_menu.open = open;
-        if changed {
-            if let Err(error) = self.state.mod_data.save() {
-                *self.state.mod_data.deref_mut().deref_mut() = before;
-                self.last_action = Some(LastAction::failure(format!(
-                    "Unable to save Bitfix script changes: {error}"
-                )));
-            }
+        if changed && let Err(error) = self.state.mod_data.save() {
+            *self.state.mod_data.deref_mut().deref_mut() = before;
+            self.last_action = Some(LastAction::failure(format!(
+                "Unable to save Bitfix script changes: {error}"
+            )));
         }
         if add {
             let specs: Vec<_> = self
@@ -230,10 +227,8 @@ impl App {
             let pointer_in_window = ctx
                 .pointer_hover_pos()
                 .map(|pos| window.response.rect.contains(pos));
-            if hovering_files {
-                if let Some(over) = pointer_in_window {
-                    self.bitfix_menu.drop_hovered = over;
-                }
+            if hovering_files && let Some(over) = pointer_in_window {
+                self.bitfix_menu.drop_hovered = over;
             }
             // Windows native file drops may not report pointer_hover_pos().
             // While this menu is open, claim drops before the normal importer.
@@ -335,7 +330,10 @@ mod tests {
             ..Default::default()
         };
         let unsupported = egui::DroppedFile::default();
-        assert_eq!(dropped_lua_paths(&[lua.clone()]).unwrap().len(), 1);
+        assert_eq!(
+            dropped_lua_paths(std::slice::from_ref(&lua)).unwrap().len(),
+            1
+        );
         assert!(dropped_lua_paths(&[lua, pak]).is_err());
         assert!(dropped_lua_paths(&[unsupported]).is_err());
     }

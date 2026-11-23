@@ -571,9 +571,9 @@ fn finish_install(
     info!("Installation output: {}", path_mod_pak.display());
     info!("{}", report.details());
     if let Err(error) = crate::crash_context::write_installed_context(
-        &mintfixed_crash_vanilla_pak,
-        &path_mod_pak,
-        &mods,
+        mintfixed_crash_vanilla_pak,
+        path_mod_pak,
+        mods,
         prepared,
     ) {
         tracing::warn!("Mintfixed crash context export skipped: {error}");

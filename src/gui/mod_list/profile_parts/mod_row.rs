@@ -178,7 +178,7 @@
                                     .on_hover_text(msg)
                                     .clicked()
                                 {
-                                    ctx.add_deps = Some(missing_deps.into_iter()
+                                    ctx.add_deps = Some(missing_deps.iter()
                                         .map(|dep| if let Some(rule) = dep.replacement_rule() {
                                             ModSpecification::new(rule.replacement.clone())
                                         } else {
