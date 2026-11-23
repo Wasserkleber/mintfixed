@@ -586,7 +586,7 @@ fn sort_mods<'a>(
         let mut order = match config.sort_category {
             SortBy::Enabled => {
                 let enabled = |mc: &ModConfig| overrides.map_or(mc.enabled, |o| o.enabled(mc));
-                enabled(mc_b).cmp(&enabled(mc_a))
+                enabled(mc_a).cmp(&enabled(mc_b))
             }
             SortBy::Name => name_order,
             SortBy::Priority => mc_a.priority.cmp(&mc_b.priority),
