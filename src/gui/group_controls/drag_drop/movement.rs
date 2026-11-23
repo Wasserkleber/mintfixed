@@ -93,11 +93,10 @@ impl Drag {
         let current_row = painted.response.rect.min;
         let anchor_id = egui::Id::new(DRAG_PAINT_ANCHOR_ID);
         let initial_row = ui.ctx().data_mut(|data| {
-            if let Some(anchor) = data.get_temp::<DragPaintAnchor>(anchor_id) {
-                if anchor.press_origin == press_origin {
+            if let Some(anchor) = data.get_temp::<DragPaintAnchor>(anchor_id)
+                && anchor.press_origin == press_origin {
                     return anchor.row_origin;
                 }
-            }
             data.insert_temp(
                 anchor_id,
                 DragPaintAnchor {

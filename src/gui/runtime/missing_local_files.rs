@@ -456,19 +456,17 @@ pub(super) fn show(ctx: &egui::Context, data: &mut Data, configured_folder: Opti
                                 let replacement = if file_expected {
                                     let mut dialog = rfd::FileDialog::new()
                                         .add_filter("Local mods", &["pak", "zip"]);
-                                    if let Some(folder) = configured_folder {
-                                        if folder.is_dir() {
+                                    if let Some(folder) = configured_folder
+                                        && folder.is_dir() {
                                             dialog = dialog.set_directory(folder);
                                         }
-                                    }
                                     dialog.pick_file()
                                 } else {
                                     let mut dialog = rfd::FileDialog::new();
-                                    if let Some(folder) = configured_folder {
-                                        if folder.is_dir() {
+                                    if let Some(folder) = configured_folder
+                                        && folder.is_dir() {
                                             dialog = dialog.set_directory(folder);
                                         }
-                                    }
                                     dialog.pick_folder()
                                 };
                                 if let Some(replacement) = replacement {

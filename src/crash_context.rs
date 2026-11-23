@@ -230,7 +230,7 @@ fn can_reuse_installed_context(
     }
     for (i, (entry, (info, archive))) in entries.iter().zip(mods).enumerate() {
         if entry["name"].as_str() != Some(info.name.as_str())
-            || entry["provider"].as_str() != Some(info.provider.as_ref())
+            || entry["provider"].as_str() != Some(info.provider)
             || entry["integration_order"].as_u64() != Some(i as u64)
             || serde_json::to_value(metadata_for(archive)).ok().as_ref() != entry.get("archive")
         {

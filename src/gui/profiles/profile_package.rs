@@ -453,7 +453,7 @@ pub(super) fn extract_bundle(
     let file = File::open(path).map_err(|e| format!("Cannot reopen profile ZIP: {e}"))?;
     let mut archive =
         ZipArchive::new(file).map_err(|e| format!("Cannot reopen profile ZIP: {e}"))?;
-    let mut installed = shared::extract_mod_files(
+    let installed = shared::extract_mod_files(
         &mut archive,
         &parsed.manifest.files,
         folder,

@@ -41,12 +41,15 @@ impl GroupExportKind {
     }
 }
 
+/// A background export/import: empty until the worker stores its result.
+type Job<T> = std::sync::Arc<std::sync::Mutex<Option<Result<T, String>>>>;
+
 #[derive(Clone, Default)]
 struct ExportEditor {
     selected: String,
     kind: GroupExportKind,
     include_files: bool,
-    job: Option<std::sync::Arc<std::sync::Mutex<Option<Result<std::path::PathBuf, String>>>>>,
+    job: Option<Job<std::path::PathBuf>>,
     picker_open: bool,
     success: Option<String>,
     error: Option<String>,
@@ -62,7 +65,7 @@ pub(super) struct PendingGroupImport {
 struct ImportEditor {
     pending: Option<PendingGroupImport>,
     bundle_path: Option<std::path::PathBuf>,
-    job: Option<std::sync::Arc<std::sync::Mutex<Option<Result<(String, crate::state::ModGroup), String>>>>>,
+    job: Option<Job<(String, crate::state::ModGroup)>>,
     name: String,
     success: Option<String>,
     error: Option<String>,

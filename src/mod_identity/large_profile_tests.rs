@@ -186,10 +186,10 @@ fn large_profile_6000_standalone_and_shared_group_entries() {
 
     // Disabling one group entry must remove only that instance's members.
     for item in &mut data.profiles.get_mut("big").unwrap().mods {
-        if let ModOrGroup::Group { id, enabled, .. } = item {
-            if id == "second" {
-                *enabled = false;
-            }
+        if let ModOrGroup::Group { id, enabled, .. } = item
+            && id == "second"
+        {
+            *enabled = false;
         }
     }
     let changed = enabled_members(&data, "big");

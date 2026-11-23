@@ -20,7 +20,7 @@ pub(super) fn render_mod_tags(
     {
         let mut mk_searchable_modio_tag =
             |tag_str: &str, ui: &mut Ui, color: Option<egui::Color32>, hover_str: Option<&str>| {
-                let search = searchable_text(tag_str, &search_string, {
+                let search = searchable_text(tag_str, search_string, {
                     TextFormat {
                         color: if color.is_some() {
                             Color32::BLACK

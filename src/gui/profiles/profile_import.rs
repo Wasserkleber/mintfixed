@@ -274,10 +274,10 @@ pub(super) fn ui_inline(
             }
         }
     }
-    if editor.source_path.is_some() {
-        if let Ok(parsed) = parse_profile(&editor.json) {
-            ui.label(format!("Profile in file: {}", parsed.profile_name));
-        }
+    if editor.source_path.is_some()
+        && let Ok(parsed) = parse_profile(&editor.json)
+    {
+        ui.label(format!("Profile in file: {}", parsed.profile_name));
     }
     if editor.job.is_some() {
         ui.horizontal(|ui| {

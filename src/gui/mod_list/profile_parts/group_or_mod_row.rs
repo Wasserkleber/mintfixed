@@ -162,13 +162,12 @@
                                     group_description.as_deref(),
                                 );
                                 title_clicked = clicked;
-                                if let Some(color) = requested_color {
-                                    if let Some(group) = groups.get_mut(group_name) {
+                                if let Some(color) = requested_color
+                                    && let Some(group) = groups.get_mut(group_name) {
                                         group.tint_color = color;
                                         ctx.needs_save = true;
                                         ui.ctx().request_repaint();
                                     }
-                                }
                             });
                             if title_clicked {
                                 header.toggle();

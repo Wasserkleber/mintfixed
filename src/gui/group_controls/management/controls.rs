@@ -474,14 +474,13 @@ pub(in crate::gui) fn controls(
                 if import_editor.job.is_some() {
             ui.label("Verifying and extracting local mod files...");
         }
-        if import_editor.bundle_path.is_some() {
-            if let Some(folder) = configured_mod_folder.filter(|folder| folder.is_dir()) {
+        if import_editor.bundle_path.is_some()
+            && let Some(folder) = configured_mod_folder.filter(|folder| folder.is_dir()) {
                 ui.label(format!(
                     "New bundled PAK/ZIP files will be saved directly in {}.",
                     folder.display(),
                 ));
             }
-        }
         if let Some(pending) = &import_editor.pending {
 
                         if let Some(suggested) = &pending.suggested_name {
