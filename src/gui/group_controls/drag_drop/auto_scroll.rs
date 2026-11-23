@@ -121,7 +121,10 @@ pub(in crate::gui) fn auto_scroll(ui: &Ui, profile: &str, manual: bool) {
             i.pixels_per_point(),
         )
     });
+    #[cfg(target_os = "windows")]
     let mut pointer = hover;
+    #[cfg(not(target_os = "windows"))]
+    let pointer = hover;
     // Only use the OS fallback for an existing internal drag, never for an
     // ordinary hover or an external file drop.
     if internal && dragging && focused && hover.is_none() {

@@ -41,6 +41,7 @@ const MAX_EXE_BYTES: u64 = 16 * 1024 * 1024;
 // at the same time. Both paths use the same lock for the entire operation.
 static CRASH_REPORTER_INSTALL_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
+#[cfg(all(feature = "hook", target_os = "windows"))]
 pub(crate) fn version() -> &'static str {
     VERSION
 }
@@ -60,6 +61,7 @@ pub(crate) fn install(
 /// Inform the GUI before downloading; return false without any notification if
 /// the installed exe and three-line marker already match the pinned release.
 /// Preserve the existing installer (including its rollback and safety checks).
+#[cfg(all(feature = "hook", target_os = "windows"))]
 pub(crate) fn install_with_notice<F>(
     bin_dir: &Path,
     installation_type: &DRGInstallationType,
