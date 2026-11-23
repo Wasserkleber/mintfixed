@@ -13,6 +13,7 @@ $ErrorActionPreference = 'Stop'
 $repo = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 $releaseRoot = Join-Path $repo 'target\release'
 $dist = Join-Path $releaseRoot 'dist'
+$windowsSuffix = '-windows-x86_64'
 $normalTarget = Join-Path $repo 'target'
 $originalTarget = $env:CARGO_TARGET_DIR
 $originalReleaseTag = $env:MINTFIXED_RELEASE_TAG
@@ -76,7 +77,7 @@ try {
             else { Join-Path $repo $OutputDirectory }
         } else { $dist }
         New-Item -ItemType Directory -Path $destinationDirectory -Force | Out-Null
-        $destination = Join-Path $destinationDirectory ($Tag + '.exe')
+        $destination = Join-Path $destinationDirectory ($Tag + $windowsSuffix + '.exe')
         Copy-Item -LiteralPath $binary -Destination $destination -Force
         Write-Host "Verified release executable: $destination" -ForegroundColor Green
         return
@@ -127,13 +128,13 @@ try {
     New-Item -ItemType Directory -Path $releaseRoot -Force | Out-Null
     $stage = Join-Path $releaseRoot ('.mintfixed-dist-new-' + [guid]::NewGuid().ToString('N'))
     New-Item -ItemType Directory -Path $stage -Force | Out-Null
-    Package-Exe $compiledExe $latestTag $stage
-    Package-Exe $compiledExe 'mintfixed_experimental' $stage
+    Package-Exe $compiledExe ($latestTag + $windowsSuffix) $stage
+    Package-Exe $compiledExe ('mintfixed_experimental' + $windowsSuffix) $stage
 
     # Verify that the two distributable EXEs are byte-for-byte identical
     # to the newly compiled source executable (not a stale tagged build).
     $compiledHash = (Get-FileHash -LiteralPath $compiledExe -Algorithm SHA256).Hash
-    foreach ($name in @($latestTag, 'mintfixed_experimental')) {
+    foreach ($name in @(($latestTag + $windowsSuffix), ('mintfixed_experimental' + $windowsSuffix))) {
         $packagedExe = Join-Path $stage ($name + '.exe')
         $packagedHash = (Get-FileHash -LiteralPath $packagedExe -Algorithm SHA256).Hash
         if ($compiledHash -cne $packagedHash) {

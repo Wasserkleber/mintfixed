@@ -18,10 +18,10 @@ The builder:
 
 1. Fetches tags from `origin` (unless you use `-NoFetch`).
 2. Finds the highest version-numbered tag matching `mintfixed_X.Y`, `mintfixed_X.Y.Z`, or a supported prerelease suffix (for example `mintfixed_1.4-beta.1`).
-3. Builds the **actual source at that tag** from a separate, reusable Git worktree. It does not change your current branch.
-4. Builds the **current checkout** as experimental, including any local code changes.
-5. Packages each executable into a ZIP containing only that executable.
-6. Replaces the previous `target\release\dist` distribution files only after both builds and both ZIPs succeed.
+3. Builds the **current checkout once**, including any local code changes. The tag is used for naming, not for selecting the code to build.
+4. Packages the same Windows executable under release-labeled and experimental names, each with a matching ZIP.
+5. Builds and packages Linux x86_64 through WSL too (unless you pass `-SkipLinux`).
+6. Replaces the previous `target\release\dist` files only after packaging succeeds.
 
 ### Output files
 
@@ -29,13 +29,17 @@ For example, if the newest tag is `mintfixed_1.4`:
 
 ```text
 target\release\dist\
-├── mintfixed_1.4.exe
-├── mintfixed_1.4.zip
-├── mintfixed_experimental.exe
-└── mintfixed_experimental.zip
+├── mintfixed_1.4-windows-x86_64.exe
+├── mintfixed_1.4-windows-x86_64.zip
+├── mintfixed_experimental-windows-x86_64.exe
+├── mintfixed_experimental-windows-x86_64.zip
+├── mintfixed_1.4-linux-x86_64
+├── mintfixed_1.4-linux-x86_64.tar.gz
+├── mintfixed_experimental-linux-x86_64
+└── mintfixed_experimental-linux-x86_64.tar.gz
 ```
 
-The tagged `.exe` and `.zip` come from the **tagged release code**. The experimental pair comes from **your current checkout**, even when it is ahead of that tag. Renaming an experimental executable is not a release build.
+Both Windows variants contain the **same build of your current checkout**; the latest tag supplies only the release-labeled filenames. Linux variants likewise contain the same current-checkout Linux build. For an official release, build and publish from the actual tagged commit.
 
 To view the artifacts:
 
@@ -46,7 +50,7 @@ Get-ChildItem .\target\release\dist\
 To check the embedded version in the experimental build:
 
 ```powershell
-.\target\release\dist\mintfixed_experimental.exe --version
+.\target\release\dist\mintfixed_experimental-windows-x86_64.exe --version
 ```
 
 To build **offline**, using tags already present locally:
@@ -59,12 +63,11 @@ To build **offline**, using tags already present locally:
 
 | Location | Purpose |
 | --- | --- |
-| `target\release\dist\` | Four finished distributables; regenerated each successful run |
-| `target\release\mint.exe` | Cargo's experimental build output (not an export artifact) |
-| `target\mintfixed-stable-src\` | Reusable detached worktree checked out at the highest matching version tag |
-| `target\mintfixed-stable-build\release\mint.exe` | Cargo's tagged build output |
+| `target\release\dist\` | Eight finished distributables (four with `-SkipLinux`); regenerated each successful run |
+| `target\release\mint.exe` | Cargo's current-checkout Windows build output (not an export artifact) |
+| WSL `~/mintfixed-target/x86_64-unknown-linux-gnu/release/mint` | Cargo's current-checkout Linux build output |
 
-The stable worktree must have no local changes; the script stops rather than overwriting them. The two Cargo target directories help retain incremental build caches. Do not manually edit the stable worktree.
+The script uses the current checkout for both release-labeled and experimental artifacts. Windows and WSL use separate Cargo target directories to preserve build caches.
 
 ## Check the current checkout and tags
 
@@ -76,7 +79,7 @@ git tag --list 'mintfixed_*' --sort=-version:refname
 git fetch origin --tags
 ```
 
-You **do not** need to check out a tag to build its release artifacts: `build.cmd` does that in its separate worktree. You can stay on `beta` while building both versions.
+You can stay on `beta` while producing local builds. These are builds of your **current checkout**, regardless of the tag used in their filenames.
 
 ## Prepare and tag a release
 
@@ -108,7 +111,7 @@ git tag -a mintfixed_1.4-beta.1 -m "mintfixed v1.4 Beta 1"
 git push origin mintfixed_1.4-beta.1
 ```
 
-Run `build.cmd` to build the tagged release and your experimental checkout together:
+Run `build.cmd` to package your current checkout under release-labeled and experimental filenames:
 
 ```powershell
 .\build.cmd
@@ -118,7 +121,7 @@ Run `build.cmd` to build the tagged release and your experimental checkout toget
 
 ## Publish on GitHub
 
-Create/publish a release for the intended tag at [Mintfixed GitHub Releases](https://github.com/Wasserkleber/mintfixed/releases/new). Mark prereleases appropriately. Upload the tagged ZIP from `target\release\dist\` when manually distributing a release. Use `mintfixed_experimental.zip` for test builds, not as an official tagged release.
+Create/publish a release for the intended tag at [Mintfixed GitHub Releases](https://github.com/Wasserkleber/mintfixed/releases/new). Mark prereleases appropriately. Upload the tagged ZIP from `target\release\dist\` when manually distributing a release. Use `mintfixed_experimental-windows-x86_64.zip` for Windows test builds, not as an official tagged release.
 
 The GitHub Actions release workflow also uses `scripts/build_release_and_experimental.ps1` to package its already-compiled Windows executable. The legacy `build_tagged.ps1` has been removed; CI uses the packaging-only mode described below.
 
@@ -130,7 +133,7 @@ The GitHub Actions workflow first checks out the published tag and compiles the 
 .\scripts\build_release_and_experimental.ps1 -NoBuild -Tag mintfixed_1.4 -OutputDirectory dist
 ```
 
-This checks that the tag points to `HEAD`, that the checkout is clean, and that `mint.exe --version` exactly matches the requested tag. It copies the already-compiled binary to `dist\mintfixed_1.4.exe`. GitHub Actions then creates its published Windows ZIP and uploads the artifacts. This CI-only call produces the tagged EXE, **not** all four local build artifacts.
+This checks that the tag points to `HEAD`, that the checkout is clean, and that `mint.exe --version` exactly matches the requested tag. It copies the already-compiled binary to `dist\mintfixed_1.4-windows-x86_64.exe`. GitHub Actions then creates its published Windows ZIP and uploads the artifacts. This CI-only call produces the tagged EXE, **not** all four local build artifacts.
 
 `-NoBuild`, `-Tag` and `-OutputDirectory` are CI packaging arguments; they do **not** produce the experimental build. For ordinary local development and export, use only `build.cmd`.
 
