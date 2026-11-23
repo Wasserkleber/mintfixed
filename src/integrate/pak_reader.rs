@@ -14,13 +14,14 @@ pub(crate) enum PakSource {
 
 impl PakSource {
     pub(crate) fn open(mut file: fs::File) -> Result<Self, IntegrationError> {
-        // A zip starts with a "PK" record; a pak starts with its first entry's header. Only try the zip reader
-        // on a "PK" file: on anything else it searches the whole file for a zip directory, which on a large pak
-        // costs a full read.
-        let mut magic = [0; 2];
-        let maybe_zip = file.read_exact(&mut magic).is_ok() && magic == *b"PK";
+        // Check for a pak first: its footer and index are a few reads at the end of the file. The zip reader,
+        // given a file that is not a zip, searches all of it for a zip directory, a full read of a large pak.
+        // Anything that is not a pak goes to the zip reader as before, zips with leading data included.
+        let is_pak = repak::PakBuilder::new()
+            .reader(&mut std::io::BufReader::new(&mut file))
+            .is_ok();
         file.seek(SeekFrom::Start(0))?;
-        let archive = maybe_zip
+        let archive = (!is_pak)
             .then(|| zip::ZipArchive::new(&mut file).ok())
             .flatten();
         let Some(mut archive) = archive else {
@@ -135,5 +136,42 @@ mod selected_member_tests {
         let mut payload = Vec::new();
         source.reader().read_to_end(&mut payload).unwrap();
         assert_eq!(payload, b"first source");
+    }
+
+    #[test]
+    fn zip_with_leading_data_is_still_a_zip() {
+        let mut zip_bytes = std::io::Cursor::new(Vec::new());
+        let mut writer = zip::ZipWriter::new(&mut zip_bytes);
+        writer
+            .start_file("mod.pak", zip::write::SimpleFileOptions::default())
+            .unwrap();
+        writer.write_all(b"pak inside").unwrap();
+        writer.finish().unwrap();
+        // A self-extracting archive: an executable stub before the zip.
+        let mut file = tempfile::NamedTempFile::new().unwrap();
+        file.write_all(b"MZ self-extractor stub").unwrap();
+        file.write_all(zip_bytes.get_ref()).unwrap();
+
+        let source = PakSource::open(fs_err::File::open(file.path()).unwrap()).unwrap();
+        assert_eq!(source.selected_member(), Some("mod.pak"));
+        let mut payload = Vec::new();
+        source.reader().read_to_end(&mut payload).unwrap();
+        assert_eq!(payload, b"pak inside");
+    }
+
+    #[test]
+    fn plain_pak_is_read_from_the_file() {
+        let mut file = tempfile::NamedTempFile::new().unwrap();
+        let mut pak = repak::PakBuilder::new().writer(
+            &mut file,
+            repak::Version::V11,
+            "../../../".into(),
+            None,
+        );
+        pak.write_file("FSD/a.uasset", false, b"asset").unwrap();
+        pak.write_index().unwrap();
+
+        let source = PakSource::open(fs_err::File::open(file.path()).unwrap()).unwrap();
+        assert!(matches!(source, PakSource::File(..)));
     }
 }
