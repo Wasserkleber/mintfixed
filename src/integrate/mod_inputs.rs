@@ -75,15 +75,12 @@ impl<'a> ModPak<'a> {
                     && files.contains_key(&normalized.with_extension("uexp"))
             })
             .map(|(normalized, pak_path)| -> Result<_, IntegrationError> {
-                let mut reader = source.reader();
-                let mut get = |path: &str| {
-                    pak.get(path, &mut reader).with_context(|_| CtxtRepakSnafu {
+                let uasset = pak
+                    .get(pak_path, &mut std::io::BufReader::new(source.reader()))
+                    .with_context(|_| CtxtRepakSnafu {
                         mod_info: info.clone(),
-                    })
-                };
-                let uasset = get(pak_path)?;
-                let uexp = get(&files[&normalized.with_extension("uexp")])?;
-                Ok((normalized.clone(), parse(&uasset, &uexp)))
+                    })?;
+                Ok((normalized.clone(), parse(&uasset)))
             })
             .collect::<Result<HashMap<_, _>, _>>()?;
 
@@ -97,9 +94,11 @@ impl<'a> ModPak<'a> {
         })
     }
 
+    /// Buffered: repak reads an entry's header field by field, and unbuffered each field of a file-backed pak would
+    /// be its own read call.
     pub(super) fn read(&self, pak_path: &str) -> Result<Vec<u8>, IntegrationError> {
         self.pak
-            .get(pak_path, &mut self.source.reader())
+            .get(pak_path, &mut std::io::BufReader::new(self.source.reader()))
             .with_context(|_| CtxtRepakSnafu {
                 mod_info: self.info.clone(),
             })
@@ -115,9 +114,12 @@ pub(super) fn open_all(mods: &[(ModInfo, PathBuf)]) -> Result<Vec<ModPak<'_>>, I
         .collect()
 }
 
-fn parse(uasset: &[u8], uexp: &[u8]) -> Result<Package, String> {
+/// Parses the package summary, name, import and export maps, which all live in the `.uasset`. With `skip_data`
+/// nothing reads the export data in the `.uexp`, so an empty one stands in for it and the (often large) `.uexp`
+/// is never read or decompressed here.
+fn parse(uasset: &[u8]) -> Result<Package, String> {
     let asset = AssetBuilder::new(Cursor::new(uasset), EngineVersion::VER_UE4_27)
-        .bulk(Cursor::new(uexp))
+        .bulk(Cursor::new(&[][..]))
         .skip_data(true)
         .build()
         .map_err(|e| e.to_string())?;

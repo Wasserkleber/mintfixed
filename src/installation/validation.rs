@@ -177,6 +177,19 @@ pub(crate) fn prepare_packer_inputs_with_report(
             format!("install input #{} ({})", index + 1, path.display()),
         )
     }))?;
+    // Identical bytes have identical lengths, so only a local/HTTP file that shares its length with another can be
+    // a duplicate; the rest are not read here. A file whose length cannot be read is hashed, which reports why.
+    let local_len = |info: &ModInfo, path: &PathBuf| {
+        matches!(info.provider, "file" | "http")
+            .then(|| std::fs::metadata(path).ok().map(|m| m.len()))
+            .flatten()
+    };
+    let mut lengths: HashMap<u64, usize> = HashMap::new();
+    for (info, path) in &mods {
+        if let Some(len) = local_len(info, path) {
+            *lengths.entry(len).or_default() += 1;
+        }
+    }
     let mut modio_files = HashSet::new();
     let mut content = HashSet::new();
     let mut unique = Vec::with_capacity(mods.len());
@@ -194,7 +207,9 @@ pub(crate) fn prepare_packer_inputs_with_report(
                 });
                 continue;
             }
-        } else if matches!(info.provider, "file" | "http") {
+        } else if matches!(info.provider, "file" | "http")
+            && local_len(&info, &path).is_none_or(|len| lengths.get(&len) != Some(&1))
+        {
             // Compare complete downloaded bytes, not URL spelling. Distinct
             // mod.io identities stay distinct even when their bytes are alike.
             let digest = crate::mod_identity::local_digest(&path).map_err(|e| {
