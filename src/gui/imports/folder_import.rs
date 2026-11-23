@@ -101,6 +101,14 @@ fn visit(folder: &Path, paths: &mut Vec<PathBuf>) -> Result<(), String> {
     Ok(())
 }
 
+/// Only entries in the active profile (including referenced groups) are
+/// already imported there. Other profiles must not hide local import candidates.
+fn active_profile_specs(data: &crate::state::ModData_v0_1_0) -> Vec<ModSpecification> {
+    let mut specs = Vec::new();
+    data.for_each_mod(&data.active_profile, |mc| specs.push(mc.spec.clone()));
+    specs
+}
+
 fn candidates(
     folder: &Path,
     cache_dir: &Path,
@@ -173,7 +181,7 @@ fn start(app: &mut App, ctx: &egui::Context, folder: PathBuf) -> Result<(), Stri
     if !Exclusions::path(&cache_dir).exists() {
         Exclusions::default().save(&cache_dir)?;
     }
-    let existing = crate::mod_identity::all_specs(&app.state.mod_data);
+    let existing = active_profile_specs(&app.state.mod_data);
     let (tx, rx) = mpsc::channel();
     let ctx = ctx.clone();
     let worker_folder = folder.clone();
@@ -536,6 +544,93 @@ mod tests {
             .insert(path_key(&local.canonicalize().unwrap()));
         exclusions.save(&cache).unwrap();
         assert!(candidates(&folder, &cache, &[]).unwrap().is_empty());
+    }
+
+    #[test]
+    fn import_only_hides_active_profile_mods_and_its_referenced_groups() {
+        let temp = tempfile::tempdir().unwrap();
+        let folder = temp.path().join("mods");
+        let cache = temp.path().join("cache");
+        std::fs::create_dir_all(&folder).unwrap();
+        std::fs::create_dir_all(&cache).unwrap();
+
+        let active = folder.join("active.pak");
+        let other = folder.join("other-profile.pak");
+        let shared = folder.join("referenced-group.pak");
+        let unused = folder.join("unreferenced-group.pak");
+        std::fs::write(&active, b"active content").unwrap();
+        std::fs::write(&other, b"other content").unwrap();
+        std::fs::write(&shared, b"shared content").unwrap();
+        std::fs::write(&unused, b"unused content").unwrap();
+
+        let config = |path: &Path| crate::state::ModConfig {
+            id: crate::state::new_id(),
+            spec: ModSpecification::new(path.display().to_string()),
+            description: None,
+            required: false,
+            member_id: None,
+            enabled: true,
+            priority: 0,
+        };
+        let mut data = crate::state::ModData_v0_1_0::default();
+        let profile = data.profiles.get_mut("default").unwrap();
+        profile
+            .mods
+            .push(crate::state::ModOrGroup::Individual(config(&active)));
+        // Referenced shared-group members count, even when the group is disabled.
+        profile.mods.push(crate::state::ModOrGroup::Group {
+            id: crate::state::new_id(),
+            group_name: "default".into(),
+            enabled: false,
+            member_overrides: Default::default(),
+        });
+        data.groups
+            .get_mut("default")
+            .unwrap()
+            .mods
+            .push(config(&shared));
+        data.groups.insert(
+            "unused".into(),
+            crate::state::ModGroup {
+                mods: vec![config(&unused)],
+                ..Default::default()
+            },
+        );
+        data.profiles.insert("other".into(), Default::default());
+        let other_profile = data.profiles.get_mut("other").unwrap();
+        other_profile
+            .mods
+            .push(crate::state::ModOrGroup::Individual(config(&other)));
+        // The same mod is also referenced in another profile.
+        other_profile
+            .mods
+            .push(crate::state::ModOrGroup::Individual(config(&active)));
+
+        let found = candidates(&folder, &cache, &active_profile_specs(&data)).unwrap();
+        assert_eq!(
+            found,
+            vec![
+                other.canonicalize().unwrap(),
+                unused.canonicalize().unwrap()
+            ]
+        );
+
+        // Deleting the standalone row from the active profile makes it
+        // importable again, even though another profile still references it.
+        data.profiles
+            .get_mut("default")
+            .unwrap()
+            .mods
+            .retain(|item| !matches!(item, crate::state::ModOrGroup::Individual(_)));
+        let found = candidates(&folder, &cache, &active_profile_specs(&data)).unwrap();
+        assert_eq!(
+            found,
+            vec![
+                active.canonicalize().unwrap(),
+                other.canonicalize().unwrap(),
+                unused.canonicalize().unwrap(),
+            ]
+        );
     }
 
     #[test]
