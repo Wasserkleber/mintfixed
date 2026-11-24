@@ -2,14 +2,7 @@
 //! A chosen group color softly tints both glyph and background.
 use eframe::egui::{self, Color32, Ui};
 
-fn blend(base: Color32, accent: Color32, percent: u16) -> Color32 {
-    let rest = 100 - percent;
-    Color32::from_rgb(
-        ((base.r() as u16 * rest + accent.r() as u16 * percent) / 100) as u8,
-        ((base.g() as u16 * rest + accent.g() as u16 * percent) / 100) as u8,
-        ((base.b() as u16 * rest + accent.b() as u16 * percent) / 100) as u8,
-    )
-}
+use super::widget_style::blend;
 
 /// Returns the usual egui response so existing click/confirmation code stays unchanged.
 /// Always-red destructive control. Group colors intentionally do not apply.

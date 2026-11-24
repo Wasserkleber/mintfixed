@@ -55,34 +55,17 @@ where
     if response.clicked() {
         *picker_open = !*picker_open;
     }
-    // Draw the arrow in the button, as in Group Management.
-    let x = response.rect.right() - 12.0;
-    let y = response.rect.center().y;
-    let arrow = if *picker_open {
-        [
-            egui::pos2(x - 4.0, y + 2.0),
-            egui::pos2(x + 4.0, y + 2.0),
-            egui::pos2(x, y - 2.0),
-        ]
-    } else {
-        [
-            egui::pos2(x - 4.0, y - 2.0),
-            egui::pos2(x + 4.0, y - 2.0),
-            egui::pos2(x, y + 2.0),
-        ]
-    };
-    ui.painter().add(egui::Shape::convex_polygon(
-        arrow.to_vec(),
+    crate::gui::widget_style::paint_picker_arrow(
+        ui,
+        response.rect,
+        *picker_open,
         ui.visuals().text_color(),
-        egui::Stroke::NONE,
-    ));
+    );
     if !*picker_open {
         return false;
     }
     let mut chosen = None;
-    egui::ScrollArea::vertical()
-        .max_height(140.0)
-        .scroll_bar_visibility(egui::containers::scroll_area::ScrollBarVisibility::AlwaysVisible)
+    crate::gui::widget_style::picker_scroll()
         .show(ui, |ui| {
             for (name, _) in entries.entries() {
                 if profile_option_row(ui, name, target.as_str() == name.as_str()).clicked() {

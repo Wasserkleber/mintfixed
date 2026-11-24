@@ -34,15 +34,7 @@ pub(super) fn swatch_color(color: Option<&str>, dark: bool) -> Color32 {
     })
 }
 
-fn mix(base: Color32, tint: Color32, percent: u8) -> Color32 {
-    let tint_part = percent as u16;
-    let base_part = 100u16 - tint_part;
-    Color32::from_rgb(
-        ((base.r() as u16 * base_part + tint.r() as u16 * tint_part) / 100) as u8,
-        ((base.g() as u16 * base_part + tint.g() as u16 * tint_part) / 100) as u8,
-        ((base.b() as u16 * base_part + tint.b() as u16 * tint_part) / 100) as u8,
-    )
-}
+use super::widget_style::blend as mix;
 
 /// Readable group-header text and arrow accent, blended with the active theme.
 /// Uncolored groups use a quieter neutral gray instead of the bright theme foreground.
