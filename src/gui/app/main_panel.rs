@@ -55,6 +55,7 @@ impl App {
                 self.resolve_mod_rid.is_none() && self.pending_group_files == 0,
             );
             if profile_toolbar_changed || group_changed {
+                Drag::clear_history_selection(ctx);
                 self.state.mod_data.save().unwrap();
                 self.edit_history.reset(&self.state.mod_data, self.state.mod_data.revision());
             }
@@ -201,6 +202,24 @@ impl App {
                 .on_hover_text("Redo mod-list change (Ctrl+Y / Ctrl+Shift+Z)")
                 .clicked() {
                     self.apply_mod_history(ui.ctx(), true);
+                }
+
+                let selecting = self.get_sorting_config().is_none()
+                    && Drag::selection_mode(ui.ctx(), &profile);
+                // Match the 17 px history icons plus native button padding.
+                let select_height = (17.0 + 2.0 * ui.spacing().button_padding.y)
+                    .max(ui.spacing().interact_size.y);
+                let select_button = mint_text_button(if selecting { "Exit" } else { "Select" })
+                    .min_size(egui::vec2(44.0, select_height));
+                if ui
+                    .add_enabled(history_enabled, select_button)
+                    .on_hover_text("Select multiple mods. Ctrl+click toggles; Shift+click selects a range. Esc exits. Switches to Manual sorting when needed.")
+                    .clicked()
+                {
+                    if !selecting && self.get_sorting_config().is_some() {
+                        self.update_sorting_config(None, false);
+                    }
+                    Drag::set_selection_mode(ui.ctx(), &profile, !selecting);
                 }
 
                 ui.add_space(16.);

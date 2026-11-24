@@ -6,6 +6,9 @@
                  row_index: usize,
                  mc: &mut ModConfig,
                  overrides: Option<&mut MemberOverrides>| {
+                    if sorting_config.is_none() {
+                        Drag::selection_checkbox(ui, profile_name, &mc.id);
+                    }
                     let mut enabled = overrides.as_ref().map_or(mc.enabled, |o| o.enabled(mc));
                     let group_control_tint = group
                         .and_then(|name| group_tint_snapshot.get(name))
@@ -247,7 +250,7 @@
                             }
                         });
 
-                        let res = ui.hyperlink_to(search.job, &mc.spec.url);
+                        let res = Drag::select_name(ui, profile_name, &mc.id, search.job, &mc.spec.url, sorting_config.is_none());
                         if search.is_match && ctx.scroll_to_match {
                             res.scroll_to_me(None);
                             ctx.scroll_to_match = false;
@@ -283,7 +286,7 @@
                             }
                         });
 
-                        let res = ui.hyperlink_to(search.job, &mc.spec.url);
+                        let res = Drag::select_name(ui, profile_name, &mc.id, search.job, &mc.spec.url, sorting_config.is_none());
                         if search.is_match && ctx.scroll_to_match {
                             res.scroll_to_me(None);
                             ctx.scroll_to_match = false;

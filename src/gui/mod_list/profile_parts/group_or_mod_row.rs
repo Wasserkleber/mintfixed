@@ -150,6 +150,14 @@
                                 previous
                             });
                             let mut header = collapse.show_header(ui, |ui| {
+                                if sorting_config.is_none() && Drag::selection_mode(ui.ctx(), profile_name) {
+                                    if let Some(group) = groups.get(group_name) {
+                                        let ids: Vec<_> = group.mods.iter()
+                                            .filter(|mc| !bitfix_menu::is_lua_spec(&mc.spec))
+                                            .map(|mc| mc.id.clone()).collect();
+                                        Drag::group_selection_checkbox(ui, profile_name, &ids);
+                                    }
+                                }
                                 let selected_color = groups
                                     .get(group_name)
                                     .and_then(|group| group.tint_color.clone());

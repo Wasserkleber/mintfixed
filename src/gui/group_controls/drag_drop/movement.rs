@@ -66,7 +66,7 @@ impl Drag {
                 ui.ctx().layer_painter(counter_layer).text(
                     pointer + egui::vec2(16.0, 4.0),
                     egui::Align2::LEFT_TOP,
-                    format!("{count} mods"),
+                    format!("Moving {count} mods"),
                     egui::FontId::proportional(13.0),
                     ui.visuals().selection.stroke.color,
                 );
@@ -158,7 +158,7 @@ impl Drag {
         let response = if is_group {
             response
         } else {
-            response.on_hover_text("Drag to move; Ctrl+click to select; Shift+click for a range")
+            response.on_hover_text("Drag to move; Ctrl+click to select; Shift+click for a range. Use Select in the toolbar for checkboxes.")
         };
         if !is_group && response.clicked() {
             Self::selection_click(ui.ctx(), profile, key);

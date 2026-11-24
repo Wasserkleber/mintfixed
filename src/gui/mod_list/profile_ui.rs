@@ -14,6 +14,86 @@ impl App {
         }
 
         Drag::begin_selection_frame(ui, profile_name, sorting_config.is_none());
+        Drag::retain_valid_selection(ui.ctx(), profile_name, &self.state.mod_data);
+        if sorting_config.is_none() && Drag::selection_mode(ui.ctx(), profile_name) {
+            let mut bulk_enabled = None;
+            let count = Drag::selected_ids(ui.ctx(), profile_name).len();
+            ui.horizontal_wrapped(|ui| {
+                ui.strong(format!("{count} selected"));
+                if ui.button("Select all").on_hover_text("Select all mods in the expanded list (Ctrl+A)").clicked() {
+                    Drag::select_visible(ui.ctx(), profile_name);
+                }
+                if ui.add_enabled(count > 0, egui::Button::new("Clear")).clicked() {
+                    Drag::clear_selected(ui.ctx(), profile_name);
+                }
+                if ui.add_enabled(count > 0, egui::Button::new("Enable")).on_hover_text("Enable selected mods in this profile; does not enable a disabled parent group").clicked() {
+                    bulk_enabled = Some(true);
+                }
+                if ui.add_enabled(count > 0, egui::Button::new("Disable")).on_hover_text("Disable selected mods in this profile").clicked() {
+                    bulk_enabled = Some(false);
+                }
+            });
+            ui.weak(concat!(
+                "Ctrl+click: toggle individual mods. ",
+                "Shift+click: select a range. Ctrl+A: select all mods in expanded groups and the profile list.",
+            ));
+            if let Some(enabled) = bulk_enabled {
+                let ids = Drag::selected_ids(ui.ctx(), profile_name);
+                let before = self.state.mod_data.deref().deref().clone();
+                let mut changed = 0;
+                {
+                    let ModData {
+                        profiles, groups, ..
+                    } = self.state.mod_data.deref_mut().deref_mut();
+                    if let Some(profile) = profiles.get_mut(profile_name) {
+                        for item in &mut profile.mods {
+                            match item {
+                                ModOrGroup::Individual(mc)
+                                    if ids.contains(&mc.id) && mc.enabled != enabled =>
+                                {
+                                    mc.enabled = enabled;
+                                    changed += 1;
+                                }
+                                ModOrGroup::Group {
+                                    group_name,
+                                    member_overrides,
+                                    ..
+                                } => {
+                                    if let Some(group) = groups.get_mut(group_name) {
+                                        for mc in &mut group.mods {
+                                            if ids.contains(&mc.id)
+                                                && member_overrides.enabled(mc) != enabled
+                                            {
+                                                member_overrides.set(mc, enabled);
+                                                changed += 1;
+                                            }
+                                        }
+                                    }
+                                }
+                                _ => {}
+                            }
+                        }
+                    }
+                }
+                if changed > 0 {
+                    match self.state.mod_data.save() {
+                        Ok(()) => {
+                            self.last_action = Some(LastAction::success(format!(
+                                "{} {changed} mods",
+                                if enabled { "Enabled" } else { "Disabled" }
+                            )));
+                        }
+                        Err(error) => {
+                            *self.state.mod_data.deref_mut().deref_mut() = before;
+                            self.last_action = Some(LastAction::failure(format!(
+                                "Could not save selection changes: {error}"
+                            )));
+                        }
+                    }
+                    ui.ctx().request_repaint();
+                }
+            }
+        }
         let revision = (
             self.state.mod_data.revision(),
             self.state.store.metadata_revision(),

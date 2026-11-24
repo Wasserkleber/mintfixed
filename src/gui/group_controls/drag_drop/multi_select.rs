@@ -3,6 +3,7 @@
 // Shift-click and Ctrl+A respect collapsed groups and current list rendering.
 #[derive(Clone, Default)]
 struct ModMultiSelection {
+    mode: bool,
     selected: std::collections::BTreeSet<String>,
     anchor: Option<String>,
     visible: Vec<String>,
@@ -55,29 +56,129 @@ impl Drag {
         });
     }
 
+    pub(in crate::gui) fn selection_mode(ctx: &egui::Context, profile: &str) -> bool {
+        Self::read_selection(ctx, |map| map.get(profile).is_some_and(|s| s.mode))
+    }
+
+    pub(in crate::gui) fn set_selection_mode(ctx: &egui::Context, profile: &str, mode: bool) {
+        Self::update_selection(ctx, |map| {
+            let state = map.entry(profile.to_owned()).or_default();
+            state.mode = mode;
+            if !mode {
+                state.selected.clear();
+                state.anchor = None;
+                state.dragging.clear();
+            }
+        });
+        ctx.request_repaint();
+    }
+
+    pub(in crate::gui) fn selected_ids(ctx: &egui::Context, profile: &str) -> std::collections::BTreeSet<String> {
+        Self::read_selection(ctx, |map| map.get(profile).map(|s| s.selected.clone()).unwrap_or_default())
+    }
+
+    pub(in crate::gui) fn clear_selected(ctx: &egui::Context, profile: &str) {
+        Self::update_selection(ctx, |map| {
+            if let Some(state) = map.get_mut(profile) {
+                state.selected.clear();
+                state.anchor = None;
+                state.dragging.clear();
+            }
+        });
+        ctx.request_repaint();
+    }
+
+    pub(in crate::gui) fn select_visible(ctx: &egui::Context, profile: &str) {
+        Self::update_selection(ctx, |map| {
+            let state = map.entry(profile.to_owned()).or_default();
+            state.mode = true;
+            state.selected = state.previous_visible.iter().cloned().collect();
+            state.anchor = state.previous_visible.first().cloned();
+        });
+        ctx.request_repaint();
+    }
+
+    // Keep selections in collapsed groups, but never retain a removed mod.
+    pub(in crate::gui) fn retain_valid_selection(ctx: &egui::Context, profile: &str, data: &Data) {
+        Self::update_selection(ctx, |map| {
+            if let Some(state) = map.get_mut(profile) {
+                state.selected.retain(|id| Self::find_mod(data, profile, id).is_some());
+                if state.anchor.as_ref().is_some_and(|id| Self::find_mod(data, profile, id).is_none()) {
+                    state.anchor = None;
+                }
+            }
+        });
+    }
+
+    pub(in crate::gui) fn selection_checkbox(ui: &mut Ui, profile: &str, key: &str) {
+        if !Self::selection_mode(ui.ctx(), profile) {
+            return;
+        }
+        let mut selected = Self::is_selected(ui.ctx(), profile, key);
+        if ui.add(egui::Checkbox::without_text(&mut selected))
+            .on_hover_text("Select mod (Shift+click for a range)").changed()
+        {
+            Self::selection_click(ui.ctx(), profile, key);
+        }
+    }
+
+    pub(in crate::gui) fn group_selection_checkbox(ui: &mut Ui, profile: &str, ids: &[String]) {
+        if !Self::selection_mode(ui.ctx(), profile) || ids.is_empty() {
+            return;
+        }
+        let count = Self::read_selection(ui.ctx(), |map| {
+            map.get(profile).map_or(0, |s| ids.iter().filter(|id| s.selected.contains(*id)).count())
+        });
+        let mut all = count == ids.len();
+        if ui.add(egui::Checkbox::without_text(&mut all))
+            .on_hover_text("Select or deselect all group members, including collapsed mods").changed()
+        {
+            Self::update_selection(ui.ctx(), |map| {
+                let state = map.entry(profile.to_owned()).or_default();
+                if all {
+                    state.selected.extend(ids.iter().cloned());
+                } else {
+                    for id in ids { state.selected.remove(id); }
+                }
+                state.anchor = None;
+            });
+            ui.ctx().request_repaint();
+        }
+        if count > 0 {
+            ui.weak(format!("{count} selected"));
+        }
+    }
+
+    pub(in crate::gui) fn select_name(ui: &mut Ui, profile: &str, key: &str, job: egui::text::LayoutJob, url: &str, manual: bool) -> egui::Response {
+        let modifiers = ui.input(|i| i.modifiers);
+        if manual && (Self::selection_mode(ui.ctx(), profile) || modifiers.ctrl || modifiers.shift) {
+            let response = ui.add(egui::Label::new(job).sense(egui::Sense::click()))
+                .on_hover_cursor(egui::CursorIcon::PointingHand)
+                .on_hover_text("Click to select; Shift+click for a range");
+            if response.clicked() {
+                Self::selection_click(ui.ctx(), profile, key);
+            }
+            response
+        } else {
+            ui.hyperlink_to(job, url)
+        }
+    }
+
     pub(in crate::gui) fn begin_selection_frame(ui: &mut Ui, profile: &str, manual: bool) {
-        let ctrl_a = manual
-            && !ui.ctx().wants_keyboard_input()
+        let keyboard_free = !ui.ctx().wants_keyboard_input();
+        let ctrl_a = manual && keyboard_free
             && ui.input(|input| input.modifiers.ctrl && input.key_pressed(egui::Key::A));
         let escape = ui.input(|input| input.key_pressed(egui::Key::Escape));
         Self::update_selection(ui.ctx(), |map| {
             let state = map.entry(profile.to_owned()).or_default();
-            // Previous frame represents actually painted handles, not hidden
-            // group members or rows from other profiles.
             state.previous_visible = std::mem::take(&mut state.visible);
-            if !manual {
+            if !manual || escape {
+                state.mode = false;
                 state.selected.clear();
                 state.anchor = None;
                 state.dragging.clear();
-                return;
-            }
-            if !state.previous_visible.is_empty() {
-                state.selected.retain(|id| state.previous_visible.contains(id));
-            }
-            if escape {
-                state.selected.clear();
-                state.anchor = None;
             } else if ctrl_a {
+                state.mode = true;
                 state.selected = state.previous_visible.iter().cloned().collect();
                 state.anchor = state.previous_visible.first().cloned();
             }
@@ -103,6 +204,7 @@ impl Drag {
         let modifiers = ctx.input(|i| i.modifiers);
         Self::update_selection(ctx, |map| {
             let state = map.entry(profile.to_owned()).or_default();
+            state.mode |= modifiers.ctrl || modifiers.shift;
             if modifiers.shift {
                 let range = state.anchor.as_deref().and_then(|anchor| {
                     let visible = if state.previous_visible.contains(&key.to_owned()) {
@@ -123,7 +225,7 @@ impl Drag {
                     state.selected.insert(key.to_owned());
                     state.anchor = Some(key.to_owned());
                 }
-            } else if modifiers.ctrl {
+            } else if modifiers.ctrl || state.mode {
                 if !state.selected.insert(key.to_owned()) {
                     state.selected.remove(key);
                 }
@@ -134,6 +236,7 @@ impl Drag {
                 state.anchor = Some(key.to_owned());
             }
         });
+        ctx.request_repaint();
     }
 
     fn selection_drag_started(ctx: &egui::Context, profile: &str, key: &str, is_group: bool) {
@@ -158,6 +261,11 @@ impl Drag {
                 .filter(|id| state.selected.contains(*id))
                 .cloned()
                 .collect();
+            // Collapsed group members are selected too. Append them after the
+            // visible preview; apply_batch reconstructs actual profile order.
+            let hidden: Vec<_> = state.selected.iter()
+                .filter(|id| !state.dragging.contains(*id)).cloned().collect();
+            state.dragging.extend(hidden);
             if !state.dragging.iter().any(|id| id == key) {
                 state.dragging.push(key.to_owned());
             }
@@ -316,6 +424,33 @@ impl Drag {
 #[cfg(test)]
 mod history_selection_tests {
     use super::*;
+
+    #[test]
+    fn selection_mode_and_clear_are_session_only() {
+        let ctx = egui::Context::default();
+        Drag::set_selection_mode(&ctx, "A", true);
+        Drag::selection_click(&ctx, "A", "one");
+        Drag::selection_click(&ctx, "A", "two");
+        assert_eq!(Drag::selected_ids(&ctx, "A").len(), 2);
+        Drag::selection_click(&ctx, "A", "one");
+        assert_eq!(Drag::selected_ids(&ctx, "A").len(), 1);
+        Drag::clear_selected(&ctx, "A");
+        assert!(Drag::selection_mode(&ctx, "A"));
+        assert!(Drag::selected_ids(&ctx, "A").is_empty());
+        Drag::set_selection_mode(&ctx, "A", false);
+        assert!(!Drag::selection_mode(&ctx, "A"));
+    }
+
+    #[test]
+    fn dragging_includes_selected_collapsed_members() {
+        let ctx = egui::Context::default();
+        Drag::set_selection_mode(&ctx, "A", true);
+        Drag::selection_click(&ctx, "A", "visible");
+        Drag::selection_click(&ctx, "A", "hidden");
+        Drag::register_visible(&ctx, "A", "visible");
+        Drag::selection_drag_started(&ctx, "A", "visible", false);
+        assert_eq!(Drag::read_selection(&ctx, |m| m["A"].dragging.clone()), vec![String::from("visible"), String::from("hidden")]);
+    }
 
     #[test]
     fn history_restore_clears_drag_selection_across_profiles() {
