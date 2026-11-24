@@ -1,8 +1,12 @@
 //! Lint UI and scan orchestration. Low-level lint checks live in crate::mod_lints.
+#[path = "configuration/checks.rs"]
 mod checks_ui;
 mod report;
+#[path = "report/sections.rs"]
 mod report_sections;
+#[path = "report/ui.rs"]
 mod report_ui;
+#[path = "configuration/scope.rs"]
 mod scope_ui;
 #[cfg(test)]
 mod tests;

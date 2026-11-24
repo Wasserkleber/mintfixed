@@ -3,15 +3,22 @@ use super::import_export::*;
 use super::*;
 
 mod controls;
+#[path = "actions/creation.rs"]
 mod creation;
+#[path = "actions/delete.rs"]
 mod delete;
+#[path = "actions/duplicate.rs"]
 mod duplicate;
 mod editor_state;
+#[path = "transfer/export.rs"]
 mod export;
+#[path = "transfer/import.rs"]
 mod import;
+#[path = "transfer/jobs.rs"]
 mod jobs;
 mod operations;
 mod picker;
+#[path = "actions/rename.rs"]
 mod rename;
 
 pub(in crate::gui) use controls::controls;

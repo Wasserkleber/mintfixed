@@ -151,8 +151,8 @@ impl App {
                 .map(|(name, group)| (name.clone(), group.tint_color.clone()))
                 .collect();
 
-            let mut ui_mod = include!("profile_parts/mod_row.rs");
-            let mut ui_item = include!("profile_parts/group_or_mod_row.rs");
+            let mut ui_mod = include!("mod_row.rs");
+            let mut ui_item = include!("group_or_mod_row.rs");
             if sorting_config.is_some() {
                 let order = sorted_mod_indices(
                     None,

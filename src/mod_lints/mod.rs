@@ -1,12 +1,22 @@
+#[path = "archives/archive_multiple_paks.rs"]
 mod archive_multiple_paks;
+#[path = "archives/archive_only_non_pak_files.rs"]
 mod archive_only_non_pak_files;
+#[path = "assets/asset_register_bin.rs"]
 mod asset_register_bin;
+#[path = "conflicts/conflicting_mods.rs"]
 mod conflicting_mods;
+#[path = "archives/empty_archive.rs"]
 mod empty_archive;
+#[path = "assets/non_asset_files.rs"]
 mod non_asset_files;
+#[path = "archives/outdated_pak_version.rs"]
 mod outdated_pak_version;
+#[path = "assets/shader_files.rs"]
 mod shader_files;
+#[path = "assets/split_asset_pairs.rs"]
 mod split_asset_pairs;
+#[path = "assets/unmodified_game_assets.rs"]
 mod unmodified_game_assets;
 
 use std::collections::{BTreeMap, BTreeSet};
