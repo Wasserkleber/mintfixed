@@ -3,6 +3,10 @@ mod archive;
 mod extraction;
 mod filenames;
 mod hashing;
+pub(crate) mod group;
+pub(crate) mod group_document;
+pub(crate) mod profile;
+pub(crate) mod profile_document;
 
 pub(crate) use archive::{ArchiveKind, IncludedFile, Manifest, MAX_DEFINITION, MAX_FILES, MAX_MANIFEST, MAX_TOTAL, PREFIX, bounded_text, validate_entries, write_package};
 pub(crate) use extraction::extract_mod_files;

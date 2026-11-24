@@ -7,8 +7,7 @@ use std::path::{Path, PathBuf};
 
 use zip::ZipArchive;
 
-use super::import_export::{parse_mod_list_txt, parse_single_group_json};
-use super::management::PendingGroupImport;
+use super::group_document::{PendingGroupImport, parse_mod_list_txt, parse_single_group_json};
 use crate::packages::{ArchiveKind, Manifest, MAX_DEFINITION, MAX_FILES, MAX_MANIFEST, MAX_TOTAL, PREFIX, bounded_text, extract_mod_files, local_archive, safe_archive_path, unique_bundle_filename, validate_entries};
 use crate::state::ModGroup;
 
@@ -47,7 +46,7 @@ fn definition(name: &str, group: &ModGroup, json: bool) -> Result<String, String
 
 /// Create a new archive without overwriting any previous export. On a partial
 /// failure remove the incomplete archive, so it cannot later be imported.
-pub(super) fn export_bundle(
+pub(crate) fn export_bundle(
     name: &str,
     group: &ModGroup,
     destination: &Path,
@@ -194,7 +193,7 @@ fn preview(path: &Path) -> Result<Preview, String> {
 }
 
 /// Inspect only: no files are written before the user confirms group import.
-pub(super) fn inspect_bundle(path: &Path) -> Result<PendingGroupImport, String> {
+pub(crate) fn inspect_bundle(path: &Path) -> Result<PendingGroupImport, String> {
     let parsed = preview(path)?;
     Ok(PendingGroupImport {
         suggested_name: Some(parsed.manifest.name),
@@ -205,8 +204,8 @@ pub(super) fn inspect_bundle(path: &Path) -> Result<PendingGroupImport, String> 
 /// Missing *external* local references in a pending group import.
 /// A portable ZIP holds its `mintfixed-bundle:` entries inside the archive,
 /// so those references do not require finding an original machine's file.
-pub(super) fn missing_external_group_paths(group: &ModGroup, portable_zip: bool) -> Vec<String> {
-    crate::gui::missing_local_files::group_missing_paths(group)
+pub(crate) fn missing_external_group_paths(group: &ModGroup, portable_zip: bool) -> Vec<String> {
+    crate::state::local_files::group_missing_paths(group)
         .into_iter()
         .filter(|path| !(portable_zip && path.starts_with(PREFIX)))
         .collect()
@@ -214,7 +213,7 @@ pub(super) fn missing_external_group_paths(group: &ModGroup, portable_zip: bool)
 
 /// Require a valid Settings folder for missing external paths or bundled local files.
 /// Remote-only bundles and existing local references need no extraction folder.
-pub(super) fn group_import_requires_mod_folder(
+pub(crate) fn group_import_requires_mod_folder(
     group: &ModGroup,
     portable_zip: bool,
     configured_folder: Option<&Path>,
@@ -229,7 +228,7 @@ pub(super) fn group_import_requires_mod_folder(
 }
 
 /// Use Settings only; an absent/inaccessible directory is an import error.
-pub(super) fn bundle_destination(configured: Option<&Path>) -> Option<PathBuf> {
+pub(crate) fn bundle_destination(configured: Option<&Path>) -> Option<PathBuf> {
     configured
         .filter(|folder| folder.is_dir())
         .map(Path::to_path_buf)
@@ -237,7 +236,7 @@ pub(super) fn bundle_destination(configured: Option<&Path>) -> Option<PathBuf> {
 
 /// Extract validated bundle files directly into the Settings mod folder.
 /// Existing files are never overwritten; matching SHA-256 files are reused.
-pub(super) fn extract_bundle(path: &Path, folder: &Path) -> Result<ModGroup, String> {
+pub(crate) fn extract_bundle(path: &Path, folder: &Path) -> Result<ModGroup, String> {
     let parsed = preview(path)?;
     let file = File::open(path).map_err(|e| format!("Cannot reopen ZIP: {e}"))?;
     let mut archive = ZipArchive::new(file).map_err(|e| format!("Cannot reopen ZIP: {e}"))?;

@@ -15,7 +15,6 @@ mod picker;
 mod rename;
 
 pub(in crate::gui) use controls::controls;
-pub(super) use editor_state::PendingGroupImport;
 pub(in crate::gui) use operations::remove_group_member;
 pub(super) use operations::rename_group;
 

@@ -55,15 +55,9 @@ pub(super) struct ExportEditor {
     pub(super) error: Option<String>,
 }
 
-#[derive(Clone)]
-pub(in crate::gui::group_controls) struct PendingGroupImport {
-    pub(in crate::gui::group_controls) suggested_name: Option<String>,
-    pub(in crate::gui::group_controls) group: crate::state::ModGroup,
-}
-
 #[derive(Clone, Default)]
 pub(super) struct ImportEditor {
-    pub(super) pending: Option<PendingGroupImport>,
+    pub(super) pending: Option<super::PendingGroupImport>,
     pub(super) bundle_path: Option<std::path::PathBuf>,
     pub(super) job: Option<Job<(String, crate::state::ModGroup)>>,
     pub(super) name: String,

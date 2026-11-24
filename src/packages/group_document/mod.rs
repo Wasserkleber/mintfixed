@@ -1,5 +1,15 @@
-use super::management::PendingGroupImport;
-use super::*;
+//! JSON/TXT group documents, import preparation and export paths.
+use std::collections::HashSet;
+use crate::providers::ModSpecification;
+use crate::state::{ModData_v0_1_0 as Data, ModConfig, attach_group as attach};
+#[cfg(test)]
+use crate::state::ModOrGroup;
+
+#[derive(Clone)]
+pub(crate) struct PendingGroupImport {
+    pub(crate) suggested_name: Option<String>,
+    pub(crate) group: crate::state::ModGroup,
+}
 
 const GROUP_EXPORT_FORMAT: &str = "mintfixed-groups";
 const GROUP_EXPORT_VERSION: u32 = 1;
@@ -13,7 +23,7 @@ struct GroupExportFile {
     groups: std::collections::BTreeMap<String, crate::state::ModGroup>,
 }
 
-pub(super) fn serialize_single_group(data: &Data, name: &str) -> Result<String, String> {
+pub(crate) fn serialize_single_group(data: &Data, name: &str) -> Result<String, String> {
     let group = data
         .groups
         .get(name)
@@ -26,7 +36,7 @@ pub(super) fn serialize_single_group(data: &Data, name: &str) -> Result<String, 
     .map_err(|e| format!("Failed to serialize group: {e}"))
 }
 
-pub(super) fn parse_groups_json(
+pub(crate) fn parse_groups_json(
     text: &str,
 ) -> Result<std::collections::BTreeMap<String, crate::state::ModGroup>, String> {
     let export: GroupExportFile =
@@ -48,7 +58,7 @@ pub(super) fn parse_groups_json(
     Ok(export.groups)
 }
 
-pub(super) fn parse_mod_list_txt(
+pub(crate) fn parse_mod_list_txt(
     text: &str,
     group_name: &str,
 ) -> Result<std::collections::BTreeMap<String, crate::state::ModGroup>, String> {
@@ -87,7 +97,7 @@ pub(super) fn parse_mod_list_txt(
 }
 
 /// Read exactly one group and defer insertion until the user confirms its name.
-pub(super) fn parse_single_group_json(text: &str) -> Result<PendingGroupImport, String> {
+pub(crate) fn parse_single_group_json(text: &str) -> Result<PendingGroupImport, String> {
     let value: serde_json::Value =
         serde_json::from_str(text).map_err(|e| format!("Invalid JSON: {e}"))?;
 
@@ -137,7 +147,7 @@ pub(super) fn parse_single_group_json(text: &str) -> Result<PendingGroupImport, 
     })
 }
 
-pub(super) fn read_single_group_import(
+pub(crate) fn read_single_group_import(
     path: &std::path::Path,
 ) -> Result<PendingGroupImport, String> {
     if path
@@ -145,7 +155,7 @@ pub(super) fn read_single_group_import(
         .and_then(|ext| ext.to_str())
         .is_some_and(|ext| ext.eq_ignore_ascii_case("zip"))
     {
-        return super::group_package::inspect_bundle(path);
+        return super::group::inspect_bundle(path);
     }
 
     const MAX_BYTES: u64 = 8 * 1024 * 1024;
@@ -176,7 +186,7 @@ pub(super) fn read_single_group_import(
 
 /// Import never overwrites existing groups. All imported names are unique and
 /// all imported groups are attached to the active profile.
-pub(super) fn import_groups(
+pub(crate) fn import_groups(
     data: &mut Data,
     incoming: std::collections::BTreeMap<String, crate::state::ModGroup>,
 ) -> Result<Vec<String>, String> {
@@ -217,7 +227,7 @@ pub(super) fn import_groups(
     Ok(names)
 }
 
-pub(super) fn export_group_mod_list(data: &Data, name: &str) -> Result<String, String> {
+pub(crate) fn export_group_mod_list(data: &Data, name: &str) -> Result<String, String> {
     let group = data
         .groups
         .get(name)
@@ -240,7 +250,7 @@ pub(super) fn export_group_mod_list(data: &Data, name: &str) -> Result<String, S
 
 /// Save group exports beside the running mintfixed executable, not the working directory.
 /// The directory is created on the first export and existing exports are never replaced.
-pub(super) fn group_export_path(name: &str, extension: &str) -> Result<std::path::PathBuf, String> {
+pub(crate) fn group_export_path(name: &str, extension: &str) -> Result<std::path::PathBuf, String> {
     let exe = std::env::current_exe()
         .map_err(|error| format!("Cannot locate the mintfixed executable: {error}"))?;
     group_export_path_beside(&exe, name, extension)

@@ -11,7 +11,7 @@ mod settings;
 mod profiles;
 use profiles::profile_import;
 use profiles::profile_management;
-use profiles::profile_package;
+use crate::packages::profile as profile_package;
 mod imports;
 use imports::folder_import;
 mod dialogs;

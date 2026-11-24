@@ -4,7 +4,10 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
-use crate::state::{ModData_v0_1_0 as Data, ModGroup, ModOrGroup};
+use crate::state::{ModData_v0_1_0 as Data, ModOrGroup};
+pub(in crate::gui) use crate::state::local_files::{is_missing_local_path, profile_missing_paths};
+#[cfg(test)]
+use crate::state::{ModGroup, local_files::looks_like_local_path};
 
 #[derive(Clone, Debug)]
 pub(in crate::gui) enum Origin {
@@ -221,66 +224,6 @@ const NOTICE_ID: &str = "mintfixed-import-missing-local-files";
 
 // These are deliberately recognizable filesystem paths, not arbitrary invalid
 // provider strings. In particular, HTTP downloads ending in .pak are NOT local.
-fn looks_like_local_path(value: &str) -> bool {
-    let value = value.trim();
-    if value.is_empty() || value.contains("://") {
-        return false;
-    }
-    let bytes = value.as_bytes();
-    let windows_absolute = bytes.len() >= 3
-        && bytes[0].is_ascii_alphabetic()
-        && bytes[1] == b':'
-        && (bytes[2] == b'\\' || bytes[2] == b'/');
-    let rooted = value.starts_with("\\\\")
-        || value.starts_with('/')
-        || value.starts_with("./")
-        || value.starts_with("../")
-        || value.starts_with(".\\")
-        || value.starts_with("..\\");
-    let extension = Path::new(value).extension().and_then(|ext| ext.to_str());
-    let mod_file = extension
-        .is_some_and(|ext| ext.eq_ignore_ascii_case("pak") || ext.eq_ignore_ascii_case("zip"));
-    windows_absolute || rooted || mod_file
-}
-
-pub(in crate::gui) fn is_missing_local_path(value: &str) -> bool {
-    looks_like_local_path(value) && !Path::new(value).exists()
-}
-
-pub(in crate::gui) fn group_missing_paths(group: &ModGroup) -> Vec<String> {
-    group
-        .mods
-        .iter()
-        .map(|member| member.spec.url.as_str())
-        .filter(|path| is_missing_local_path(path))
-        .map(str::to_owned)
-        .collect::<BTreeSet<_>>()
-        .into_iter()
-        .collect()
-}
-
-pub(in crate::gui) fn profile_missing_paths(data: &Data, profile_name: &str) -> Vec<String> {
-    let Some(profile) = data.profiles.get(profile_name) else {
-        return Vec::new();
-    };
-    let mut missing = BTreeSet::new();
-    for entry in &profile.mods {
-        match entry {
-            ModOrGroup::Individual(member) => {
-                if is_missing_local_path(&member.spec.url) {
-                    missing.insert(member.spec.url.clone());
-                }
-            }
-            ModOrGroup::Group { group_name, .. } => {
-                if let Some(group) = data.groups.get(group_name) {
-                    missing.extend(group_missing_paths(group));
-                }
-            }
-        }
-    }
-    missing.into_iter().collect()
-}
-
 pub(in crate::gui) fn notify(ctx: &egui::Context, origin: Origin, paths: Vec<String>) {
     if paths.is_empty() {
         return;

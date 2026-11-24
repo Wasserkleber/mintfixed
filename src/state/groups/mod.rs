@@ -68,3 +68,15 @@ mod group_tint_serialization_tests {
         assert!(decoded.tint_color.is_none());
     }
 }
+
+pub(crate) fn attach_group(profile: &mut ModProfile_v0_1_0, name: &str) {
+    profile.mods.insert(
+        0,
+        ModOrGroup::Group {
+            id: crate::state::new_id(),
+            group_name: name.into(),
+            enabled: true,
+            member_overrides: Default::default(),
+        },
+    );
+}

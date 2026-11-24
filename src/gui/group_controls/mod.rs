@@ -1,24 +1,13 @@
 use super::*;
-use crate::state::{ModData_v0_1_0 as Data, ModProfile_v0_1_0 as Profile};
+use crate::state::ModData_v0_1_0 as Data;
 
 mod drag_drop;
-pub(super) mod group_package;
-mod import_export;
+pub(in crate::gui) use crate::packages::group as group_package;
+use crate::packages::group_document as import_export;
+use crate::state::attach_group as attach;
 mod management;
 
 pub(super) use drag_drop::{
     Drag, GroupDestination, Target, add_files, auto_scroll, drop_files, hover_open, row_target,
 };
 pub(super) use management::{controls, remove_group_member};
-
-fn attach(profile: &mut Profile, name: &str) {
-    profile.mods.insert(
-        0,
-        ModOrGroup::Group {
-            id: crate::state::new_id(),
-            group_name: name.into(),
-            enabled: true,
-            member_overrides: Default::default(),
-        },
-    );
-}

@@ -25,7 +25,7 @@ struct ProfileDocument {
 }
 
 
-pub(in crate::gui) struct PreparedExport {
+pub(crate) struct PreparedExport {
     text: Vec<u8>,
     name: String,
     sources: Vec<(PathBuf, String, u64)>,
@@ -38,14 +38,14 @@ struct Preview {
 
 /// Successfully extracted files are owned by the pending import until the
 /// profile actually enters state. Dropping an uncommitted result cleans them up.
-pub(in crate::gui) struct ExtractedBundle {
-    pub(in crate::gui) json: String,
+pub(crate) struct ExtractedBundle {
+    pub(crate) json: String,
     // Owned new files only; never delete reused mods when an import is cancelled.
     files: Vec<PathBuf>,
     committed: bool,
 }
 impl ExtractedBundle {
-    pub(in crate::gui) fn commit(&mut self) {
+    pub(crate) fn commit(&mut self) {
         self.committed = true;
     }
 }
@@ -146,7 +146,7 @@ fn urls(document: &ProfileDocument) -> Vec<&str> {
 
 /// Snapshot the active profile before starting the worker thread. This includes
 /// disabled mods and members, not just those enabled for installation.
-pub(in crate::gui) fn prepare_export(data: &Data, profile_name: &str) -> Result<PreparedExport, String> {
+pub(crate) fn prepare_export(data: &Data, profile_name: &str) -> Result<PreparedExport, String> {
     let mut doc = snapshot(data, profile_name)?;
     valid_document(&doc)?;
     let mut sources: Vec<(PathBuf, String, u64)> = Vec::new();
@@ -196,7 +196,7 @@ pub(in crate::gui) fn prepare_export(data: &Data, profile_name: &str) -> Result<
 
 /// Called off the GUI thread. Never overwrite a previous ZIP; partial exports
 /// are removed. Each local file is hashed as it is copied into the archive.
-pub(in crate::gui) fn export_prepared(prepared: PreparedExport, path: &Path) -> Result<(), String> {
+pub(crate) fn export_prepared(prepared: PreparedExport, path: &Path) -> Result<(), String> {
     shared::write_package(
         path,
         Manifest {
@@ -290,7 +290,7 @@ fn preview(path: &Path) -> Result<Preview, String> {
 }
 
 /// Read a ZIP preview without extracting any mod files.
-pub(in crate::gui) fn inspect_bundle(path: &Path) -> Result<(String, String, bool), String> {
+pub(crate) fn inspect_bundle(path: &Path) -> Result<(String, String, bool), String> {
     let parsed = preview(path)?;
     let text = serde_json::to_string_pretty(&parsed.document).map_err(|e| e.to_string())?;
     Ok((
@@ -303,7 +303,7 @@ pub(in crate::gui) fn inspect_bundle(path: &Path) -> Result<(String, String, boo
 /// Both packages and legacy JSON must require Settings when they refer to
 /// missing external local paths. A self-contained bundle still needs a folder
 /// to receive its embedded PAKs. Remote-only profiles need neither.
-pub(in crate::gui) fn require_mod_folder(
+pub(crate) fn require_mod_folder(
     json: &str,
     portable: bool,
     configured: Option<&Path>,
@@ -314,7 +314,7 @@ pub(in crate::gui) fn require_mod_folder(
     let need_folder = urls(&doc).into_iter().any(|url| {
         (portable && url.starts_with(shared::PREFIX))
             || (!url.starts_with(shared::PREFIX)
-                && crate::gui::missing_local_files::is_missing_local_path(url))
+                && crate::state::local_files::is_missing_local_path(url))
             || (!portable && url.starts_with(shared::PREFIX))
     });
     if need_folder && !configured.is_some_and(Path::is_dir) {
@@ -332,7 +332,7 @@ pub(in crate::gui) fn require_mod_folder(
 /// are staged, with the new folder owned by the pending import for rollback.
 /// Validates the portable ZIP and imports new PAK/ZIP files directly into
 /// Settings' mod folder. The pending profile owns cleanup until committed.
-pub(in crate::gui) fn extract_bundle(
+pub(crate) fn extract_bundle(
     path: &Path,
     configured: Option<&Path>,
 ) -> Result<ExtractedBundle, String> {
