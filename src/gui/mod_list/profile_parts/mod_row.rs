@@ -68,21 +68,36 @@
                         icon_buttons::mod_error_badge(ui).on_hover_text(message);
                     }
                     if enabled && let Some(req) = &self.integrate_rid {
-                        match req.state.get(&mc.spec) {
-                            Some(SpecFetchProgress::Progress { progress, size }) => {
-                                ui.add(
-                                    egui::ProgressBar::new(*progress as f32 / *size as f32)
-                                        .show_percentage()
-                                        .desired_width(100.0),
-                                );
+                        let (accent, track) = if ui.visuals().dark_mode {
+                            (egui::Color32::from_rgb(49, 126, 89), egui::Color32::from_rgb(65, 68, 72))
+                        } else {
+                            (egui::Color32::from_rgb(45, 119, 82), egui::Color32::from_rgb(220, 223, 225))
+                        };
+                        ui.scope(|ui| {
+                            ui.visuals_mut().extreme_bg_color = track;
+                            let bar = |fraction| {
+                                egui::ProgressBar::new(fraction)
+                                    .desired_width(100.0)
+                                    .fill(accent)
+                                    .corner_radius(4_u8)
+                            };
+                            match req.state.get(&mc.spec) {
+                                Some(SpecFetchProgress::Progress { progress, size }) => {
+                                    let fraction = if *size == 0 {
+                                        0.0
+                                    } else {
+                                        *progress as f32 / *size as f32
+                                    };
+                                    ui.add(bar(fraction).show_percentage());
+                                }
+                                Some(SpecFetchProgress::Complete) => {
+                                    ui.add(bar(1.0));
+                                }
+                                None => {
+                                    ui.add(egui::Spinner::new().color(accent));
+                                }
                             }
-                            Some(SpecFetchProgress::Complete) => {
-                                ui.add(egui::ProgressBar::new(1.0).desired_width(100.0));
-                            }
-                            None => {
-                                ui.spinner();
-                            }
-                        }
+                        });
                     }
 
                     if let Some(info) = &info {
