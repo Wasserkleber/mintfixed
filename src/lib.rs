@@ -1,3 +1,4 @@
+#![feature(if_let_guard)]
 mod bitfix;
 mod crash_context;
 mod crash_reporter;
