@@ -9,6 +9,20 @@ impl App {
             {
                 ui.disable();
             }
+            // Reserve a background shape before the controls so it paints behind
+            // them without introducing another UI scope or changing widget IDs.
+            let toolbar_bounds = ui.available_rect_before_wrap();
+            let toolbar_background = ui.painter().add(egui::Shape::Noop);
+            let panel_fill = ui.visuals().panel_fill;
+            let text_color = ui.visuals().text_color();
+            let blend = |base: u8, text: u8| ((9 * u16::from(base) + u16::from(text)) / 10) as u8;
+            let toolbar_fill = egui::Color32::from_rgb(
+                blend(panel_fill.r(), text_color.r()),
+                blend(panel_fill.g(), text_color.g()),
+                blend(panel_fill.b(), text_color.b()),
+            );
+            ui.add_space(4.0);
+
             // profile selection
 
             let mut group_changed = false;
@@ -71,8 +85,6 @@ impl App {
                     Err(message) => LastAction::failure(message),
                 });
             }
-
-            ui.separator();
 
             let mut open_local_folder_import = false;
             ui.allocate_ui_with_layout(
@@ -314,7 +326,23 @@ impl App {
                     self.focus_search = false;
                 }
             });
-            ui.add_space(4.);
+            let toolbar_rect = egui::Rect::from_min_max(
+                egui::pos2(toolbar_bounds.left() - 4.0, toolbar_bounds.top()),
+                egui::pos2(toolbar_bounds.right() + 4.0, ui.cursor().top()),
+            );
+            ui.painter().set(
+                toolbar_background,
+                egui::Shape::rect_filled(toolbar_rect, egui::CornerRadius::same(4), toolbar_fill),
+            );
+            // A restrained divider and breathing room before the scrollable mod list.
+            ui.painter().line_segment(
+                [
+                    egui::pos2(toolbar_bounds.left(), toolbar_rect.bottom()),
+                    egui::pos2(toolbar_bounds.right(), toolbar_rect.bottom()),
+                ],
+                egui::Stroke::new(1.0, ui.visuals().widgets.noninteractive.bg_stroke.color),
+            );
+            ui.add_space(6.0);
 
             Drag::cancel_if_invalid(ctx, &profile, self.get_sorting_config().is_none());
             let file_group = self.ui_profile(ui, &profile);
