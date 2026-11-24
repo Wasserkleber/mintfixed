@@ -131,7 +131,7 @@ pub(super) fn ui<E, N>(
     N: NamedEntries<E>,
 {
     let response = ui
-        .button("Profile Management")
+        .add(crate::gui::mint_text_button("Profile Management"))
         .on_hover_text("Create, rename, duplicate, copy, import or delete a profile");
     let popup_id = ui.make_persistent_id(format!("manage-{name}"));
     let state_id = popup_id.with("fields");
@@ -163,7 +163,7 @@ pub(super) fn ui<E, N>(
                 );
             }
             let clicked = ui
-                .add_enabled(valid, egui::Button::new("Create profile"))
+                .add_enabled(valid, crate::gui::mint_text_button("Create profile"))
                 .clicked();
             if valid && (clicked || is_committed(&field)) {
                 entries.add_new(&candidate);
@@ -205,7 +205,7 @@ pub(super) fn ui<E, N>(
                         );
                     }
                     let clicked = ui
-                        .add_enabled(valid, egui::Button::new("Rename Profile"))
+                        .add_enabled(valid, crate::gui::mint_text_button("Rename Profile"))
                         .clicked();
                     if valid && (clicked || is_committed(&field)) {
                         entries.rename_named(&current, candidate.clone());
@@ -266,7 +266,7 @@ pub(super) fn ui<E, N>(
                         && !requested.is_empty()
                         && !exists;
                     let clicked = ui
-                        .add_enabled(valid, egui::Button::new("Duplicate Profile"))
+                        .add_enabled(valid, crate::gui::mint_text_button("Duplicate Profile"))
                         .clicked();
                     if valid && (clicked || is_committed(&field)) {
                         entries.duplicate_named(&target, requested.clone());
@@ -339,12 +339,15 @@ pub(super) fn ui<E, N>(
                             format!("Delete profile \"{target}\"? This cannot be undone."),
                         );
                         ui.horizontal(|ui| {
-                            if ui.button("Cancel").clicked() {
+                            if ui.add(crate::gui::mint_text_button("Cancel")).clicked() {
                                 editor.delete_target = None;
                             }
                             let can_delete = entries.selected_name() == target && entries.len() > 1;
                             if ui
-                                .add_enabled(can_delete, egui::Button::new("Confirm Delete"))
+                                .add_enabled(
+                                    can_delete,
+                                    crate::gui::mint_text_button("Confirm Delete"),
+                                )
                                 .clicked()
                             {
                                 entries.remove_selected();
@@ -353,7 +356,10 @@ pub(super) fn ui<E, N>(
                                 ui.memory_mut(|mem| mem.close_popup());
                             }
                         });
-                    } else if ui.button("Delete active profile...").clicked() {
+                    } else if ui
+                        .add(crate::gui::mint_text_button("Delete active profile..."))
+                        .clicked()
+                    {
                         // Capture the name so switching profiles cannot delete another one.
                         editor.delete_target = Some(entries.selected_name().to_owned());
                     }
@@ -668,7 +674,7 @@ pub(super) fn copy_options(
     if ui
         .add_enabled(
             job.is_none() && !selected.is_empty(),
-            egui::Button::new("Export profile"),
+            crate::gui::mint_text_button("Export profile"),
         )
         .clicked()
     {

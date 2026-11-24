@@ -80,7 +80,7 @@ where
                 );
             });
 
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::TOP), |ui| {
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 if let Some(additional_ui) = additional_ui {
                     additional_ui(ui, entries);
                 }

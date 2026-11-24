@@ -72,15 +72,15 @@ impl App {
                 ui.add_space(8.0);
                 ui.horizontal_wrapped(|ui| {
                     if ui
-                        .button(format!("Use {} (recommended)", rule.replacement_name))
+                        .add(crate::gui::mint_text_button(format!("Use {} (recommended)", rule.replacement_name)))
                         .clicked()
                     {
                         choice = Some(Choice::UseReplacement);
                     }
-                    if ui.button(format!("Keep {}", rule.original_name)).clicked() {
+                    if ui.add(crate::gui::mint_text_button(format!("Keep {}", rule.original_name))).clicked() {
                         choice = Some(Choice::KeepOriginal);
                     }
-                    if ui.button("Cancel").clicked() {
+                    if ui.add(crate::gui::mint_text_button("Cancel")).clicked() {
                         choice = Some(Choice::Cancel);
                     }
                 });

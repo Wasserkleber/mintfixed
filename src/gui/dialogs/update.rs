@@ -26,24 +26,46 @@ impl App {
                     .resizable(false)
                     .show(ctx, |ui| {
                         ui.with_layout(egui::Layout::top_down_justified(Align::Center), |ui| {
+                            // Match the mod installation progress palette.
+                            let (accent, track) = if ui.visuals().dark_mode {
+                                (
+                                    egui::Color32::from_rgb(49, 126, 89),
+                                    egui::Color32::from_rgb(65, 68, 72),
+                                )
+                            } else {
+                                (
+                                    egui::Color32::from_rgb(45, 119, 82),
+                                    egui::Color32::from_rgb(220, 223, 225),
+                                )
+                            };
+                            ui.visuals_mut().extreme_bg_color = track;
+                            let update_bar = |fraction| {
+                                egui::ProgressBar::new(fraction)
+                                    .fill(accent)
+                                    .corner_radius(4_u8)
+                            };
                             match state {
                                 SelfUpdateProgress::Pending => {
-                                    ui.add(egui::ProgressBar::new(0.0).show_percentage());
+                                    ui.add(update_bar(0.0).show_percentage());
                                 }
                                 SelfUpdateProgress::Progress { progress, size } => {
                                     ui.add(
-                                        egui::ProgressBar::new(*progress as f32 / *size as f32)
-                                            .show_percentage(),
+                                        update_bar(if *size == 0 {
+                                            0.0
+                                        } else {
+                                            *progress as f32 / *size as f32
+                                        })
+                                        .show_percentage(),
                                     );
                                 }
                                 SelfUpdateProgress::Complete => {
-                                    ui.add(egui::ProgressBar::new(1.0).show_percentage());
+                                    ui.add(update_bar(1.0).show_percentage());
                                     ui.label(
                                         egui::RichText::new("Update successful.")
                                             .color(Color32::LIGHT_GREEN),
                                     );
 
-                                    if ui.button("Restart").clicked() {
+                                    if ui.add(crate::gui::mint_text_button("Restart")).clicked() {
                                         self.needs_restart = true;
                                     }
                                 }
@@ -61,28 +83,32 @@ impl App {
                             &mut self.cache,
                             &update.body,
                         );
-                        ui.with_layout(egui::Layout::right_to_left(Align::TOP), |ui| {
-                            if ui
-                                .add(egui::Button::new("Install update"))
-                                .on_hover_text("Download and install the update.")
-                                .clicked()
-                            {
-                                self.self_update_rid = Some(message::SelfUpdate::send(
-                                    &mut self.request_counter,
-                                    self.tx.clone(),
-                                    ctx.clone(),
-                                ));
-                            }
-
-                            let elapsed = now.duration_since(update_time).unwrap_or_default();
-                            if elapsed > wait_time {
-                                if ui.button("Close").clicked() {
-                                    self.show_update_time = None;
+                        ui.allocate_ui_with_layout(
+                            egui::vec2(ui.available_width().max(0.0), ui.spacing().interact_size.y),
+                            egui::Layout::right_to_left(Align::Center),
+                            |ui| {
+                                if ui
+                                    .add(crate::gui::mint_text_button("Install update"))
+                                    .on_hover_text("Download and install the update.")
+                                    .clicked()
+                                {
+                                    self.self_update_rid = Some(message::SelfUpdate::send(
+                                        &mut self.request_counter,
+                                        self.tx.clone(),
+                                        ctx.clone(),
+                                    ));
                                 }
-                            } else {
-                                ui.spinner();
-                            }
-                        });
+
+                                let elapsed = now.duration_since(update_time).unwrap_or_default();
+                                if elapsed > wait_time {
+                                    if ui.add(crate::gui::mint_text_button("Close")).clicked() {
+                                        self.show_update_time = None;
+                                    }
+                                } else {
+                                    ui.spinner();
+                                }
+                            },
+                        );
                     });
             }
         }

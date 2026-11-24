@@ -74,7 +74,10 @@ impl App {
             ui.separator();
 
             let mut open_local_folder_import = false;
-            ui.with_layout(egui::Layout::right_to_left(Align::TOP), |ui| {
+            ui.allocate_ui_with_layout(
+                egui::vec2(ui.available_width(), ui.spacing().interact_size.y),
+                egui::Layout::right_to_left(Align::Center),
+                |ui| {
                 if self.resolve_mod_rid.is_some() {
                     ui.spinner();
                 }

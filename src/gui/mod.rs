@@ -736,3 +736,8 @@ mod gui_profile_windows;
 mod gui_settings_windows;
 #[path = "dialogs/update.rs"]
 mod gui_update_dialog;
+
+// Shared styling for ordinary text buttons; icon buttons retain their own rendering.
+fn mint_text_button(text: impl Into<egui::WidgetText>) -> egui::Button<'static> {
+    egui::Button::new(text).corner_radius(4_u8)
+}

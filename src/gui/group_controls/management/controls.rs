@@ -8,7 +8,7 @@ pub(in crate::gui) fn controls(
 ) -> (bool, Option<String>) {
     let profile = data.profiles.get_mut(&data.active_profile).unwrap();
     let mut changed = false;
-    let button = ui.button("Group Management").on_hover_text("Manage groups");
+    let button = ui.add(crate::gui::mint_text_button("Group Management")).on_hover_text("Manage groups");
     let popup = button.id.with("groups-menu");
     let editor_id = popup.with("rename-editor");
     let duplicate_id = popup.with("duplicate-editor");
@@ -106,7 +106,7 @@ pub(in crate::gui) fn controls(
             if ui
                 .add_enabled(
                     !trimmed.is_empty() && !data.groups.contains_key(trimmed),
-                    Button::new("Create group"),
+                    crate::gui::mint_text_button("Create group"),
                 )
                 .clicked()
             {
@@ -129,7 +129,7 @@ pub(in crate::gui) fn controls(
                 })
                 .collect();
             if eligible.is_empty() {
-                ui.add_enabled(false, Button::new("Add existing group"));
+                ui.add_enabled(false, crate::gui::mint_text_button("Add existing group"));
                 ui.label("No other groups available for this profile.");
             } else {
                 let attach_section = egui::CollapsingHeader::new("Add existing group")
@@ -480,7 +480,7 @@ pub(in crate::gui) fn controls(
                 if files_pending {
                     ui.label("Wait for dropped files to finish before importing.");
                 }
-                if ui.add_enabled(!files_pending, Button::new("Choose file to import...")).clicked() {
+                if ui.add_enabled(!files_pending, crate::gui::mint_text_button("Choose file to import...")).clicked() {
                     requested_import = rfd::FileDialog::new()
                         .add_filter("Group exports, mod lists and packages", &["json", "txt", "zip"])
                         .pick_file();
@@ -513,7 +513,7 @@ pub(in crate::gui) fn controls(
                         );
                     }
                     ui.horizontal(|ui| {
-                        if ui.add_enabled(import_editor.job.is_none(), Button::new("Cancel")).clicked() {
+                        if ui.add_enabled(import_editor.job.is_none(), crate::gui::mint_text_button("Cancel")).clicked() {
             import_editor.pending = None;
             import_editor.bundle_path = None;
                             import_editor.name.clear();
@@ -522,7 +522,7 @@ pub(in crate::gui) fn controls(
                         if ui.add_enabled(
                             !files_pending && import_editor.job.is_none() && !candidate.is_empty()
                                 && !data.groups.contains_key(candidate.as_str()),
-                            Button::new("Import group"),
+                            crate::gui::mint_text_button("Import group"),
                         ).clicked() {
                             requested_import_name = Some(candidate);
                         }
@@ -588,10 +588,10 @@ pub(in crate::gui) fn controls(
                     ui.colored_label(ui.visuals().warn_fg_color,
                         format!("Delete \"{}\" from every profile? All mods within this shared group will be removed from the profiles.", delete_editor.selected));
                     ui.horizontal(|ui| {
-                        if ui.button("Cancel").clicked() {
+                        if ui.add(crate::gui::mint_text_button("Cancel")).clicked() {
                             delete_editor.confirming = false;
                         }
-                        if ui.add_enabled(!files_pending, Button::new("Confirm delete").fill(colors::DARK_RED)).clicked() {
+                        if ui.add_enabled(!files_pending, crate::gui::mint_text_button("Confirm delete").fill(colors::DARK_RED)).clicked() {
                             requested_delete = Some(delete_editor.selected.clone());
                         }
                     });

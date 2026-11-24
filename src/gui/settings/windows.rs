@@ -61,17 +61,21 @@ impl App {
                         }
                     });
 
-                    ui.with_layout(Layout::right_to_left(Align::TOP), |ui| {
-                        if ui.button("Save").clicked() {
-                            check = true;
-                        }
-                        if window.check_rid.is_some() {
-                            ui.spinner();
-                        }
-                        if let Some(error) = &window.check_error {
-                            ui.colored_label(ui.visuals().error_fg_color, error);
-                        }
-                    });
+                    ui.allocate_ui_with_layout(
+                        egui::vec2(ui.available_width().max(0.0), ui.spacing().interact_size.y),
+                        Layout::right_to_left(Align::Center),
+                        |ui| {
+                            if ui.add(crate::gui::mint_text_button("Save")).clicked() {
+                                check = true;
+                            }
+                            if window.check_rid.is_some() {
+                                ui.spinner();
+                            }
+                            if let Some(error) = &window.check_error {
+                                ui.colored_label(ui.visuals().error_fg_color, error);
+                            }
+                        },
+                    );
                 });
             });
         if check {
@@ -128,7 +132,7 @@ impl App {
                             if res.lost_focus() {
                                 try_save = true;
                             }
-                            if ui.button("browse").clicked()
+                            if ui.add(crate::gui::mint_text_button("browse")).clicked()
                                 && let Some(fsd_pak) = rfd::FileDialog::new()
                                     .add_filter("DRG Pak", &["pak"])
                                     .pick_file()
@@ -153,7 +157,7 @@ impl App {
                             if is_committed(&res) {
                                 auto_save_local_folder = Some((window.local_mod_folder.clone(), true));
                             }
-                            if ui.button("browse").clicked()
+                            if ui.add(crate::gui::mint_text_button("browse")).clicked()
                                 && let Some(folder) = rfd::FileDialog::new().pick_folder()
                             {
                                 window.local_mod_folder = folder.display().to_string();
@@ -201,7 +205,7 @@ impl App {
                             .and_then(|pak| mint_lib::DRGInstallation::from_pak_path(pak).ok());
 
                         ui.label("Logs & diagnostics:");
-                        let logs_button = ui.button("Open diagnostics");
+                        let logs_button = ui.add(crate::gui::mint_text_button("Open diagnostics"));
                         let logs_popup_id = ui.make_persistent_id("settings_logs_popup");
                         if logs_button.clicked() {
                             ui.memory_mut(|memory| memory.toggle_popup(logs_popup_id));
@@ -233,7 +237,7 @@ impl App {
                                         if let Some(report) = latest_lint_report(&data_dir.join("lint-reports")) {
                                             path_menu_entry(ui, "lint_*.txt", &report, false);
                                         } else {
-                                            ui.add_enabled(false, egui::Button::new("lint_*.txt"))
+                                            ui.add_enabled(false, crate::gui::mint_text_button("lint_*.txt"))
                                                 .on_disabled_hover_text("No saved lint reports yet");
                                             ui.end_row();
                                         }
@@ -247,7 +251,7 @@ impl App {
                         ui.end_row();
 
                         ui.label("Directories:");
-                        let directories_button = ui.button("Open directories");
+                        let directories_button = ui.add(crate::gui::mint_text_button("Open directories"));
                         let directories_popup_id = ui.make_persistent_id("settings_directories_popup");
                         if directories_button.clicked() {
                             ui.memory_mut(|memory| memory.toggle_popup(directories_popup_id));
@@ -428,7 +432,7 @@ fn path_menu_entry(ui: &mut egui::Ui, label: &str, path: &std::path::Path, direc
     }
 
     if ui
-        .button("Copy path")
+        .add(crate::gui::mint_text_button("Copy path"))
         .on_hover_text(path_text.as_str())
         .clicked()
     {

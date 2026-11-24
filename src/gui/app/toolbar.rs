@@ -14,7 +14,7 @@ impl App {
                         && self.state.config.drg_pak_path.is_some(),
                     |ui| {
                         if ui
-                            .button("Start DRG")
+                            .add(crate::gui::mint_text_button("Start DRG"))
                             .on_hover_text(if self.args.is_some() {
                                 "Launch using Mintfixed's custom launch command"
                             } else {
@@ -49,7 +49,7 @@ impl App {
                 if bitfix_menu::toolbar_button(ui) {
                     self.bitfix_menu.open = true;
                 }
-            ui.with_layout(egui::Layout::right_to_left(Align::TOP), |ui| {
+            ui.with_layout(egui::Layout::right_to_left(Align::Center), |ui| {
                 ui.add_enabled_ui(
                     self.integrate_rid.is_none()
                         && self.update_rid.is_none()
@@ -58,7 +58,7 @@ impl App {
                         && self.state.config.drg_pak_path.is_some(),
                     |ui| {
                         ui.add_enabled_ui(self.state.config.drg_pak_path.is_some(), |ui| {
-                            let mut button = ui.button("Install mods");
+                            let mut button = ui.add(crate::gui::mint_text_button("Install mods"));
                             if self.state.config.drg_pak_path.is_none() {
                                 button = button.on_disabled_hover_text(
                                     "DRG install not found. Configure it in the settings menu.",
@@ -95,7 +95,7 @@ impl App {
                         });
 
                         ui.add_enabled_ui(self.state.config.drg_pak_path.is_some(), |ui| {
-                            let mut button = ui.button("Uninstall mods");
+                            let mut button = ui.add(crate::gui::mint_text_button("Uninstall mods"));
                             if self.state.config.drg_pak_path.is_none() {
                                 button = button.on_disabled_hover_text(
                                     "DRG install not found. Configure it in the settings menu.",
@@ -134,7 +134,7 @@ impl App {
                         });
 
                         if ui
-                            .button("Update cache")
+                            .add(crate::gui::mint_text_button("Update cache"))
                             .on_hover_text(
                                 "Checks every cached mod for updates, then installs the active profile",
                             )
@@ -168,7 +168,7 @@ impl App {
                     },
                 );
                 if self.integrate_rid.is_some() {
-                    if ui.button("Cancel").clicked() {
+                    if ui.add(crate::gui::mint_text_button("Cancel")).clicked() {
                         self.integrate_rid.take().unwrap().handle.abort();
                         self.install_phase = message::InstallPhase::Resolving;
                         if self.cache_install_rid.take().is_some() {
@@ -186,7 +186,7 @@ impl App {
                     ui.spinner();
                 }
                 if self.update_rid.is_some() {
-                    if ui.button("Cancel").clicked() {
+                    if ui.add(crate::gui::mint_text_button("Cancel")).clicked() {
                         self.update_rid.take().unwrap().handle.abort();
                         self.cache_recovery_progress = None;
                         self.cache_recovery_last_advance = None;
@@ -195,7 +195,7 @@ impl App {
                     ui.spinner();
                 }
                 if ui
-                    .button("Lint mods")
+                    .add(crate::gui::mint_text_button("Lint mods"))
                     .on_hover_text("Lint mods in the current profile")
                     .clicked()
                 {

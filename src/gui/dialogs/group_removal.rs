@@ -30,11 +30,14 @@ impl App {
                 ui.label("Other mods in the group will not be affected.");
                 ui.add_space(8.0);
                 ui.horizontal(|ui| {
-                    if ui.button("Cancel").clicked() {
+                    if ui.add(crate::gui::mint_text_button("Cancel")).clicked() {
                         cancelled = true;
                     }
                     if ui
-                        .add(Button::new("Remove from group").fill(colors::DARK_RED))
+                        .add(
+                            crate::gui::mint_text_button("Remove from group")
+                                .fill(colors::DARK_RED),
+                        )
                         .clicked()
                     {
                         confirmed = true;
