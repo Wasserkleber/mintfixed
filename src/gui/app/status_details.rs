@@ -14,7 +14,8 @@ fn missing_local_path_key(raw: &str) -> Option<String> {
 
 fn compact_missing_local_file_details(details: &str) -> String {
     if !details.starts_with("Installation blocked:")
-        || !details.contains("enabled local files are missing")
+        || !(details.contains("enabled local file is missing")
+            || details.contains("enabled local files are missing"))
     {
         return details.to_owned();
     }
@@ -294,9 +295,25 @@ mod missing_local_status_compaction_tests {
     }
 
     #[test]
+    fn removes_duplicate_for_single_missing_local_file() {
+        let original = concat!(
+            "Installation blocked: 1 enabled local file is missing.\n\n",
+            "Relocate, disable or replace these local mod entries, then retry. Your saved entries and existing installation have not been changed.\n\n",
+            "\\\\?\\C:\\mods\\CustomMissionSelector_S6.pak — profile \"test3\"\n\n",
+            "\\\\?\\C:\\mods\\CustomMissionSelector_S6.pak"
+        );
+        let expected = concat!(
+            "Installation blocked: 1 enabled local file is missing.\n\n",
+            "Relocate, disable or replace these local mod entries, then retry. Your saved entries and existing installation have not been changed.\n\n",
+            "\\\\?\\C:\\mods\\CustomMissionSelector_S6.pak — profile \"test3\""
+        );
+        assert_eq!(compact_missing_local_file_details(original), expected);
+    }
+
+    #[test]
     fn also_removes_duplicate_without_blank_line() {
-        let original = "Installation blocked: 1 enabled local files are missing.\n\nC:\\mods\\a.pak — profile \"x\"\nC:\\mods\\a.pak";
-        let expected = "Installation blocked: 1 enabled local files are missing.\n\nC:\\mods\\a.pak — profile \"x\"";
+        let original = "Installation blocked: 1 enabled local file is missing.\n\nC:\\mods\\a.pak — profile \"x\"\nC:\\mods\\a.pak";
+        let expected = "Installation blocked: 1 enabled local file is missing.\n\nC:\\mods\\a.pak — profile \"x\"";
         assert_eq!(compact_missing_local_file_details(original), expected);
     }
 
@@ -308,7 +325,7 @@ mod missing_local_status_compaction_tests {
 
     #[test]
     fn is_idempotent() {
-        let original = "Installation blocked: 1 enabled local files are missing.\n\nC:\\mods\\a.pak — profile \"x\"\n\nC:\\mods\\a.pak";
+        let original = "Installation blocked: 1 enabled local file is missing.\n\nC:\\mods\\a.pak — profile \"x\"\n\nC:\\mods\\a.pak";
         let compacted = compact_missing_local_file_details(original);
         assert_eq!(compact_missing_local_file_details(&compacted), compacted);
     }
