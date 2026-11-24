@@ -1,3 +1,5 @@
+pub(in crate::providers) mod cleanup;
+
 use std::collections::HashMap;
 use std::ops::{Deref, DerefMut};
 use std::path::{Path, PathBuf};

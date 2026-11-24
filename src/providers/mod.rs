@@ -3,7 +3,6 @@ pub mod http;
 pub mod modio;
 #[macro_use]
 pub mod cache;
-mod cache_cleanup;
 mod dependencies;
 pub mod mod_store;
 

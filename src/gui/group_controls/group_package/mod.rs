@@ -261,5 +261,4 @@ pub(super) fn extract_bundle(path: &Path, folder: &Path) -> Result<ModGroup, Str
 }
 
 #[cfg(test)]
-#[path = "group_package/group_package_tests.rs"]
 mod group_package_tests;

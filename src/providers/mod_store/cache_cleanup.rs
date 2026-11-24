@@ -37,7 +37,7 @@ impl ModStore {
             .map(|entries| entries.len())
             .sum::<usize>();
         info!("Cache cleanup: {checked} cached mods checked");
-        let moved = crate::providers::cache_cleanup::prune(
+        let moved = crate::providers::cache::cleanup::prune(
             &mut current_json,
             &mut archived_json,
             live_specs,

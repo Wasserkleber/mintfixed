@@ -424,5 +424,4 @@ pub(super) fn index_archive(path: &Path) -> PreparedModIndex {
 }
 
 #[cfg(test)]
-#[path = "crash_context_index/tests.rs"]
 mod tests;

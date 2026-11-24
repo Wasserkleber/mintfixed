@@ -10,7 +10,7 @@ use crate::state::{
     ModProfile_v0_1_0 as ModProfile,
 };
 
-const EMBEDDED_PRESET: &str = include_str!("../assets/preinstall.json");
+const EMBEDDED_PRESET: &str = include_str!("../../assets/preinstall.json");
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -135,7 +135,7 @@ fn apply_json(raw: &str, data: &mut ModData) -> Result<bool, String> {
                     return Err(format!("invalid or duplicate preset group: {name:?}"));
                 }
                 if let Some(color) = color
-                    && !crate::group_palette::COLOR_OPTIONS
+                    && !crate::state::group_palette::COLOR_OPTIONS
                         .iter()
                         .any(|(key, _)| *key == color.as_str())
                 {

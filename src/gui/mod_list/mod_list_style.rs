@@ -2,7 +2,7 @@
 //! Tint selection is stored with each ModGroup; no automatic per-name colors.
 use eframe::egui::{self, Color32, Ui};
 
-pub(in crate::gui) use crate::group_palette::COLOR_OPTIONS;
+pub(in crate::gui) use crate::state::group_palette::COLOR_OPTIONS;
 
 fn accent(color: &str) -> Option<Color32> {
     Some(match color {

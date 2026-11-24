@@ -12,7 +12,6 @@ use crate::providers::ModInfo;
 use serde::Serialize;
 
 const SCHEMA_VERSION: u32 = 2;
-#[path = "crash_context_index.rs"]
 mod index;
 pub(crate) use index::PreparedModIndex;
 

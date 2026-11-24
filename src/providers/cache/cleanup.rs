@@ -4,7 +4,7 @@ use std::collections::HashSet;
 
 use serde_json::{Map, Value};
 
-use super::ModSpecification;
+use crate::providers::ModSpecification;
 
 // Match the provider URL syntax without modifying modio.rs.
 // If a mod.io reference cannot be recognised, refuse to prune that cache.
@@ -89,7 +89,7 @@ fn archive_provider<'a>(
 /// Returns the number of archived mod records (mod.io mods plus HTTP URLs).
 /// This only mutates the two JSON values supplied; the caller validates and
 /// saves the archive before committing the new active cache.
-pub(super) fn prune(
+pub(in crate::providers) fn prune(
     active: &mut Value,
     archive: &mut Value,
     live_specs: &[ModSpecification],

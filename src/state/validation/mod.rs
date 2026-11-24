@@ -68,13 +68,10 @@ pub(super) fn validate_links(data: &ModData_v0_1_0) -> Result<(), StateError> {
 }
 
 #[cfg(test)]
-#[path = "validation/mod_data_tests.rs"]
 mod mod_data_tests;
 
 #[cfg(test)]
-#[path = "validation/effective_selection_tests.rs"]
 mod effective_selection_tests;
 
 #[cfg(test)]
-#[path = "validation/state_reliability_tests.rs"]
 mod state_reliability_tests;

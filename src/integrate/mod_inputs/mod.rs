@@ -361,5 +361,4 @@ fn name_index(i: u32) -> NameIndex {
 }
 
 #[cfg(test)]
-#[path = "mod_inputs/tests.rs"]
 mod tests;

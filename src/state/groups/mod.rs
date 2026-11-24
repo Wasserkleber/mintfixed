@@ -1,3 +1,5 @@
+pub(crate) mod palette;
+
 use super::*;
 
 impl MemberOverrides {
