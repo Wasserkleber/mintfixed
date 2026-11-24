@@ -28,10 +28,19 @@ use mint_lib::error::GenericError;
 use mint_lib::mod_info::MetaConfig;
 use mint_lib::update::GitHubRelease;
 
-include!("message/dispatch.rs");
-include!("message/resolve.rs");
-include!("message/integrate.rs");
-include!("message/cache.rs");
-include!("message/check_updates.rs");
-include!("message/lint.rs");
-include!("message/self_update.rs");
+mod dispatch;
+mod resolve;
+mod integrate;
+mod cache;
+mod check_updates;
+mod lint;
+mod self_update;
+
+pub(in crate::gui) use dispatch::{InstallPhase, Message, MessageHandle};
+pub(in crate::gui) use resolve::ResolveMods;
+pub(in crate::gui) use integrate::{Integrate, FetchModProgress};
+pub(in crate::gui) use cache::UpdateCache;
+pub(in crate::gui) use check_updates::CheckUpdates;
+pub(in crate::gui) use lint::LintMods;
+pub(in crate::gui) use self_update::{SelfUpdate, FetchSelfUpdateProgress};
+use check_updates::integrate_async;

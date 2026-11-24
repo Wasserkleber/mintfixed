@@ -1,3 +1,5 @@
+use super::*;
+
 #[derive(Debug)]
 pub struct UpdateCache {
     rid: RequestID,
@@ -98,7 +100,7 @@ impl UpdateCache {
         });
     }
 
-    fn receive(self, app: &mut App) {
+    pub(super) fn receive(self, app: &mut App) {
         if Some(self.rid) == app.update_rid.as_ref().map(|r| r.rid) {
             let unavailable_details = match &self.result {
                 Ok((_, _, unavailable)) if *unavailable > 0 => {

@@ -1,3 +1,5 @@
+use super::*;
+
 impl Drag {
 
     // multi-preview-v3: preview every selected row, not just the grabbed row.
@@ -366,4 +368,3 @@ impl Drag {
         Ok(())
     }
 }
-

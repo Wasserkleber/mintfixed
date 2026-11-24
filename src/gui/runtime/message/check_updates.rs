@@ -1,3 +1,5 @@
+use super::*;
+
 #[derive(Debug)]
 pub struct CheckUpdates {
     rid: RequestID,
@@ -26,7 +28,7 @@ impl CheckUpdates {
         });
     }
 
-    fn receive(self, app: &mut App) {
+    pub(super) fn receive(self, app: &mut App) {
         if Some(self.rid) == app.check_updates_rid.as_ref().map(|r| r.rid) {
             app.check_updates_rid = None;
             match self.result {
@@ -49,7 +51,7 @@ impl CheckUpdates {
     }
 }
 
-async fn integrate_async(
+pub(super) async fn integrate_async(
     store: Arc<ModStore>,
     ctx: egui::Context,
     entries: Vec<crate::state::InstallEntry>,
@@ -152,4 +154,3 @@ async fn integrate_async(
     })
     .await?
 }
-

@@ -1,3 +1,5 @@
+use super::*;
+
 // Session-only drag selection. It is never written to mod_data.json.
 // The handles of visible mods register themselves every frame, which makes
 // Shift-click and Ctrl+A respect collapsed groups and current list rendering.
@@ -185,7 +187,7 @@ impl Drag {
         });
     }
 
-    fn register_visible(ctx: &egui::Context, profile: &str, key: &str) {
+    pub(super) fn register_visible(ctx: &egui::Context, profile: &str, key: &str) {
         Self::update_selection(ctx, |map| {
             let state = map.entry(profile.to_owned()).or_default();
             if !state.visible.iter().any(|id| id == key) {
@@ -200,7 +202,7 @@ impl Drag {
         })
     }
 
-    fn selection_click(ctx: &egui::Context, profile: &str, key: &str) {
+    pub(super) fn selection_click(ctx: &egui::Context, profile: &str, key: &str) {
         let modifiers = ctx.input(|i| i.modifiers);
         Self::update_selection(ctx, |map| {
             let state = map.entry(profile.to_owned()).or_default();
@@ -239,7 +241,7 @@ impl Drag {
         ctx.request_repaint();
     }
 
-    fn selection_drag_started(ctx: &egui::Context, profile: &str, key: &str, is_group: bool) {
+    pub(super) fn selection_drag_started(ctx: &egui::Context, profile: &str, key: &str, is_group: bool) {
         Self::update_selection(ctx, |map| {
             let state = map.entry(profile.to_owned()).or_default();
             if is_group {

@@ -1,13 +1,15 @@
+use super::*;
+
 /// Hover timers are scoped to the rendered group header, including its window.
 /// Requiring a recent observation prevents an old timer surviving a profile switch.
 #[derive(Clone, Copy, Default)]
-struct HoverOpen {
+pub(super) struct HoverOpen {
     started: Option<f64>,
     last_seen: f64,
 }
 
 impl HoverOpen {
-    fn update(&mut self, now: f64, active: bool) -> bool {
+    pub(super) fn update(&mut self, now: f64, active: bool) -> bool {
         if !active {
             self.started = None;
             self.last_seen = now;
@@ -53,7 +55,7 @@ pub(in crate::gui) fn hover_open(
 const EDGE_SCROLL_ZONE: f32 = 80.0;
 const EDGE_SCROLL_MAX_SPEED: f32 = 2_400.0;
 
-fn edge_scroll_delta(view: egui::Rect, pointer: egui::Pos2, dt: f32) -> f32 {
+pub(super) fn edge_scroll_delta(view: egui::Rect, pointer: egui::Pos2, dt: f32) -> f32 {
     if view.height() <= 0.0 || pointer.x < view.left() || pointer.x > view.right() {
         return 0.0;
     }
@@ -149,4 +151,3 @@ pub(in crate::gui) fn auto_scroll(ui: &Ui, profile: &str, manual: bool) {
             .request_repaint_after(std::time::Duration::from_millis(16));
     }
 }
-

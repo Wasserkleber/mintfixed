@@ -1,3 +1,5 @@
+use super::*;
+
 #[derive(Debug)]
 pub struct ResolveMods {
     rid: RequestID,
@@ -130,7 +132,7 @@ impl ResolveMods {
         });
     }
 
-    fn receive(mut self, app: &mut App) {
+    pub(super) fn receive(mut self, app: &mut App) {
         if Some(self.rid) == app.resolve_mod_rid.as_ref().map(|r| r.rid) {
             if self.from_bitfix {
                 // Bitfix additions are global; they must not depend on a profile still existing.
@@ -335,3 +337,6 @@ impl ResolveMods {
     }
 }
 
+#[cfg(test)]
+#[path = "addition_destination_tests.rs"]
+mod addition_destination_tests;

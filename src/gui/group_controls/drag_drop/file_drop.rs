@@ -1,3 +1,5 @@
+use super::*;
+
 /// Capture object identities, never fall back to a newly-created namesake.
 #[derive(Debug)]
 pub(in crate::gui) struct GroupDestination {
@@ -6,7 +8,7 @@ pub(in crate::gui) struct GroupDestination {
     reference_id: String,
 }
 impl GroupDestination {
-    fn capture(data: &Data, profile: &str, group: &str) -> Option<Self> {
+    pub(super) fn capture(data: &Data, profile: &str, group: &str) -> Option<Self> {
         let profile = data.profiles.get(profile)?;
         let reference = profile.mods.iter().find(
             |row| matches!(row, ModOrGroup::Group { group_name, .. } if group_name == group),
@@ -167,4 +169,3 @@ pub(in crate::gui) fn add_files(
         Err(message) => LastAction::failure(message),
     });
 }
-

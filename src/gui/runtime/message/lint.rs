@@ -1,3 +1,5 @@
+use super::*;
+
 #[derive(Debug)]
 pub struct LintMods {
     rid: RequestID,
@@ -55,7 +57,7 @@ impl LintMods {
         }
     }
 
-    fn receive(self, app: &mut App) {
+    pub(super) fn receive(self, app: &mut App) {
         if Some(self.rid) == app.lint_rid.as_ref().map(|r| r.rid) {
             match self.result {
                 Ok(mut report) => {
@@ -148,4 +150,3 @@ async fn resolve_async_ordered(
 
     Ok(store.fetch_mods_ordered(&urls, update, Some(tx)).await?)
 }
-

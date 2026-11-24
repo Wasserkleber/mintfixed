@@ -1,3 +1,5 @@
+use super::*;
+
 #[derive(Debug, Clone, Copy)]
 pub(in crate::gui) enum InstallPhase {
     Resolving,
@@ -89,4 +91,3 @@ impl Message {
         }
     }
 }
-

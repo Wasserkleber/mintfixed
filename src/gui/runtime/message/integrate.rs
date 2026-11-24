@@ -1,3 +1,5 @@
+use super::*;
+
 #[derive(Debug)]
 pub struct Integrate {
     rid: RequestID,
@@ -37,7 +39,7 @@ impl Integrate {
         }
     }
 
-    fn receive(self, app: &mut App) {
+    pub(super) fn receive(self, app: &mut App) {
         if Some(self.rid) == app.integrate_rid.as_ref().map(|r| r.rid) {
             match self.result {
                 Ok(report) => {
@@ -66,13 +68,13 @@ impl Integrate {
 
 #[derive(Debug)]
 pub struct FetchModProgress {
-    rid: RequestID,
-    spec: ModSpecification,
-    progress: SpecFetchProgress,
+    pub(super) rid: RequestID,
+    pub(super) spec: ModSpecification,
+    pub(super) progress: SpecFetchProgress,
 }
 
 impl FetchModProgress {
-    fn receive(self, app: &mut App) {
+    pub(super) fn receive(self, app: &mut App) {
         if let Some(MessageHandle { rid, state, .. }) = &mut app.integrate_rid
             && *rid == self.rid
         {
@@ -80,4 +82,3 @@ impl FetchModProgress {
         }
     }
 }
-
