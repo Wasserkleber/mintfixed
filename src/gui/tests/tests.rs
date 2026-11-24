@@ -126,11 +126,14 @@ fn all_sort_categories_support_both_directions_and_missing_metadata() {
                     calls.set(calls.get() + 1);
                     metadata(spec)
                 });
-            assert_eq!(
-                order,
-                if direction { [0, 1] } else { [1, 0] },
-                "{category:?}"
-            );
+            // The default Enabled direction (true) puts enabled mods first.
+            let expected = match (category, direction) {
+                (SortBy::Enabled, true) => [1, 0],
+                (SortBy::Enabled, false) => [0, 1],
+                (_, true) => [0, 1],
+                (_, false) => [1, 0],
+            };
+            assert_eq!(order, expected, "{category:?}, direction={direction}");
             assert_eq!(calls.get(), 2);
             let order = sorted_mod_indices(
                 None,
@@ -180,7 +183,7 @@ fn adjacent_mods_sort_with_one_missing_metadata() {
         }),
     };
     for (category, normal, reversed) in [
-        (SortBy::Enabled, ["alpha", "zulu"], ["zulu", "alpha"]),
+        (SortBy::Enabled, ["zulu", "alpha"], ["alpha", "zulu"]),
         (SortBy::Name, ["zulu", "alpha"], ["alpha", "zulu"]),
         (SortBy::Priority, ["alpha", "zulu"], ["zulu", "alpha"]),
         (SortBy::Provider, ["zulu", "alpha"], ["alpha", "zulu"]),
@@ -221,7 +224,7 @@ fn adjacent_mods_sort_with_both_missing_metadata() {
     zulu.enabled = false;
     zulu.priority = 20;
     for (category, normal, reversed) in [
-        (SortBy::Enabled, ["alpha", "zulu"], ["zulu", "alpha"]),
+        (SortBy::Enabled, ["zulu", "alpha"], ["alpha", "zulu"]),
         (SortBy::Name, ["alpha", "zulu"], ["zulu", "alpha"]),
         (SortBy::Priority, ["alpha", "zulu"], ["zulu", "alpha"]),
         (SortBy::Provider, ["alpha", "zulu"], ["alpha", "zulu"]),
@@ -460,16 +463,29 @@ fn sorted_group_toggle_preserves_identical_standalone_entry() {
         0,
         "An identical standalone entry and group member should not warn"
     );
+    // The toggle now paints a rounded rectangular track and a square thumb.
+    // Locate the enabled track on zulu's row, not the old circular thumb.
     let toggle_pos = output
         .shapes
         .iter()
-        .find_map(|shape| match &shape.shape {
-            egui::Shape::Circle(circle) if (circle.center.y - zulu_rect.center().y).abs() < 2.0 => {
-                Some(circle.center)
+        .filter_map(|shape| match &shape.shape {
+            egui::Shape::Rect(shape)
+                if (shape.fill == egui::Color32::from_rgb(49, 126, 89)
+                    || shape.fill == egui::Color32::from_rgb(45, 119, 82))
+                    && shape.rect.width() > shape.rect.height() * 1.5
+                    && (shape.rect.center().y - zulu_rect.center().y).abs() < 12.0
+                    && shape.rect.right() < zulu_rect.left() =>
+            {
+                Some(shape.rect.center())
             }
             _ => None,
         })
-        .expect("Group member toggle is rendered");
+        .min_by(|a, b| {
+            (a.y - zulu_rect.center().y)
+                .abs()
+                .total_cmp(&(b.y - zulu_rect.center().y).abs())
+        })
+        .expect("Group member toggle track is rendered");
     test.click(toggle_pos);
     assert!(test.app.state.mod_data.groups["Group"].mods[0].enabled);
     assert!(test.app.state.mod_data.groups["Group"].mods[1].enabled);
