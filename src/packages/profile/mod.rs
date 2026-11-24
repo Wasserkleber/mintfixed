@@ -376,4 +376,5 @@ pub(crate) fn extract_bundle(
 }
 
 #[cfg(test)]
+#[path = "tests/profile_package_tests.rs"]
 mod profile_package_tests;

@@ -374,7 +374,7 @@ pub fn resolve(
 /// `built` may emit its own directives; these add the missing Git invalidation.
 pub fn emit_rerun_directives(working_dir: &Path) {
     println!("cargo:rerun-if-env-changed=MINTFIXED_RELEASE_TAG");
-    println!("cargo:rerun-if-changed=build_version.rs");
+    println!("cargo:rerun-if-changed=build/version.rs");
     println!("cargo:rerun-if-changed=build.rs");
     let Some(repo) = git_repo_root(working_dir) else {
         return;

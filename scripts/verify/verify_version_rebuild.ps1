@@ -1,7 +1,7 @@
 # Runs a dependency-free Cargo smoke test of version stamping and incremental
 # reruns. Does NOT build DRG/mintfixed itself. Requires Git and Rust stable.
 $ErrorActionPreference = 'Stop'
-$source = (Resolve-Path (Join-Path $PSScriptRoot '..\mint_lib\build_version.rs')).Path
+$source = (Resolve-Path (Join-Path $PSScriptRoot '..\..\mint_lib\build\version.rs')).Path
 $dir = Join-Path ([IO.Path]::GetTempPath()) ("mintfixed-version-check-" + [guid]::NewGuid().ToString('N'))
 $originalTarget = $env:CARGO_TARGET_DIR
 
@@ -21,7 +21,8 @@ function Check-Title([string] $expectation) {
 
 try {
     New-Item -ItemType Directory -Force -Path (Join-Path $dir 'src') | Out-Null
-    Copy-Item $source (Join-Path $dir 'build_version.rs')
+    New-Item -ItemType Directory -Force -Path (Join-Path $dir 'build') | Out-Null
+    Copy-Item $source (Join-Path $dir 'build/version.rs')
     Write-Utf8 -path (Join-Path $dir 'Cargo.toml') -content @'
 [package]
 name = "mintfixed-version-check"
@@ -30,6 +31,7 @@ edition = "2024"
 build = "build.rs"
 '@
     Write-Utf8 -path (Join-Path $dir 'build.rs') -content @'
+#[path = "build/version.rs"]
 mod build_version;
 use std::{env, path::PathBuf};
 fn main() {

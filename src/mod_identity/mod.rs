@@ -358,9 +358,11 @@ impl ProfileIssues {
 }
 
 #[cfg(test)]
+#[path = "tests/dependency_cache_tests.rs"]
 mod dependency_cache_tests;
 
 #[cfg(test)]
 mod tests;
 #[cfg(test)]
+#[path = "tests/large_profile_tests.rs"]
 mod large_profile_tests;

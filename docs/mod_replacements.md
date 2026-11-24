@@ -12,7 +12,7 @@ a user's profiles.
 
 ## Configure replacements
 
-1. Edit `assets/mod_replacements.json` **before building**. The shipped
+1. Edit `assets/config/mod_replacements.json` **before building**. The shipped
    configuration contains the ModHub-to-UUI rule. For example:
 
    ```json

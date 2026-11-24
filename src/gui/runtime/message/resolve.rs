@@ -336,5 +336,5 @@ impl ResolveMods {
 }
 
 #[cfg(test)]
-#[path = "addition_destination_tests.rs"]
+#[path = "tests/addition_destination_tests.rs"]
 mod addition_destination_tests;

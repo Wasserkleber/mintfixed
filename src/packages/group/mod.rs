@@ -260,4 +260,5 @@ pub(crate) fn extract_bundle(path: &Path, folder: &Path) -> Result<ModGroup, Str
 }
 
 #[cfg(test)]
+#[path = "tests/group_package_tests.rs"]
 mod group_package_tests;

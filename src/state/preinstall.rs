@@ -1,5 +1,5 @@
 //! Build-time, mod.io-only first-run preset.
-//! Change assets/preinstall.json and rebuild to ship a different preset.
+//! Change assets/config/preinstall.json and rebuild to ship a different preset.
 use std::collections::HashSet;
 
 use serde::Deserialize;
@@ -10,7 +10,7 @@ use crate::state::{
     ModProfile_v0_1_0 as ModProfile,
 };
 
-const EMBEDDED_PRESET: &str = include_str!("../../assets/preinstall.json");
+const EMBEDDED_PRESET: &str = include_str!("../../assets/config/preinstall.json");
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]

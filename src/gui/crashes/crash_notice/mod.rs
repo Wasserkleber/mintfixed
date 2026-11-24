@@ -413,4 +413,5 @@ fn find_new_report(
 }
 
 #[cfg(test)]
+#[path = "tests/live_crash_monitor_tests.rs"]
 mod live_crash_monitor_tests;

@@ -10,7 +10,7 @@ param(
     [string] $OutputDirectory = ''
 )
 $ErrorActionPreference = 'Stop'
-$repo = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
+$repo = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
 $releaseRoot = Join-Path $repo 'target\release'
 $dist = Join-Path $releaseRoot 'dist'
 $windowsSuffix = '-windows-x86_64'
@@ -146,7 +146,7 @@ try {
         if (-not (Get-Command wsl.exe -ErrorAction SilentlyContinue)) {
             throw 'wsl.exe is unavailable. Install WSL, or use .\build.cmd -SkipLinux.'
         }
-        $linuxHelper = Join-Path $repo 'scripts\build_linux_wsl.sh'
+        $linuxHelper = Join-Path $repo 'scripts\build\build_linux_wsl.sh'
         if (-not (Test-Path -LiteralPath $linuxHelper -PathType Leaf)) {
             throw "Linux build helper not found: $linuxHelper"
         }

@@ -21,8 +21,11 @@ use auto_scroll::{HoverOpen, edge_scroll_delta};
 use super::management::rename_group;
 
 #[cfg(test)]
+#[path = "tests/drag_polish_tests.rs"]
 mod drag_polish_tests;
 #[cfg(test)]
+#[path = "tests/move_switch_tests.rs"]
 mod move_switch_tests;
 #[cfg(test)]
+#[path = "tests/multi_drag_tests.rs"]
 mod multi_drag_tests;

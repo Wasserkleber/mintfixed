@@ -30,4 +30,5 @@ use picker::{group_action_button, group_option_row, group_picker_button, group_p
 use rename::show_rename;
 
 #[cfg(test)]
+#[path = "tests/rename_tests.rs"]
 mod rename_tests;
