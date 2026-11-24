@@ -62,7 +62,7 @@ impl App {
         );
 
         if removed.is_err() {
-            self.last_action = Some(LastAction::failure(
+            self.status_state.last_action = Some(LastAction::failure(
                 "The mod or group changed before removal. Nothing was deleted.".into(),
             ));
             return;
@@ -70,14 +70,14 @@ impl App {
         match self.state.mod_data.save() {
             Ok(()) => {
                 self.profile_issues.clear();
-                self.last_action = Some(LastAction::success(format!(
+                self.status_state.last_action = Some(LastAction::success(format!(
                     "Removed '{}' from shared group '{}'",
                     pending.mod_name, pending.group_name,
                 )));
             }
             Err(error) => {
                 *self.state.mod_data.deref_mut().deref_mut() = before;
-                self.last_action = Some(LastAction::failure(format!(
+                self.status_state.last_action = Some(LastAction::failure(format!(
                     "Could not save group removal: {error}",
                 )));
             }

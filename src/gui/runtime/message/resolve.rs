@@ -20,14 +20,14 @@ impl ResolveMods {
         is_dependency: bool,
     ) {
         if !is_dependency && specs.iter().any(|spec| spec.replacement_rule().is_some()) {
-            if app.resolve_mod_rid.is_some() || app.pending_replacement_addition.is_some() {
-                app.last_action = Some(LastAction::failure(
+            if app.resolve_state.resolve_mod_rid.is_some() || app.resolve_state.pending_replacement_addition.is_some() {
+                app.status_state.last_action = Some(LastAction::failure(
                     "Finish the pending mod addition first.".into(),
                 ));
                 return;
             }
             let active = &app.state.mod_data.active_profile;
-            app.pending_replacement_addition = Some(crate::gui::PendingReplacementAddition {
+            app.resolve_state.pending_replacement_addition = Some(crate::gui::PendingReplacementAddition {
                 specs,
                 is_dependency,
                 profile_id: app.state.mod_data.profiles[active].id.clone(),
@@ -59,7 +59,7 @@ impl ResolveMods {
     ) {
         // Reject even mixed lists before inserting anything into the active profile.
         if !from_bitfix && specs.iter().any(crate::gui::bitfix_menu::is_lua_spec) {
-            app.last_action = Some(LastAction::failure(
+            app.status_state.last_action = Some(LastAction::failure(
                 crate::gui::bitfix_menu::REDIRECT_HINT.into(),
             ));
             return;
@@ -67,14 +67,14 @@ impl ResolveMods {
         if from_bitfix
             && (specs.is_empty() || specs.iter().any(|s| !crate::gui::bitfix_menu::is_lua_spec(s)))
         {
-            app.last_action = Some(LastAction::failure(
+            app.status_state.last_action = Some(LastAction::failure(
                 "The Bitfix menu only accepts .lua script paths or URLs.".into(),
             ));
             return;
         }
 
-        if app.resolve_mod_rid.is_some() {
-            app.last_action = Some(LastAction::failure(
+        if app.resolve_state.resolve_mod_rid.is_some() {
+            app.status_state.last_action = Some(LastAction::failure(
                 "An addition is already running. Wait for it to finish, then try again.".into(),
             ));
             return;
@@ -84,7 +84,7 @@ impl ResolveMods {
         let input = if from_bitfix {
             app.bitfix_menu.input.clone()
         } else {
-            app.resolve_mod.clone()
+            app.resolve_state.resolve_mod.clone()
         };
         let rid = app.request_counter.next();
         let store = app.state.store.clone();
@@ -124,8 +124,8 @@ impl ResolveMods {
             .unwrap();
             ctx.request_repaint();
         });
-        app.last_action = None;
-        app.resolve_mod_rid = Some(MessageHandle {
+        app.status_state.last_action = None;
+        app.resolve_state.resolve_mod_rid = Some(MessageHandle {
             rid,
             handle,
             state: (),
@@ -133,7 +133,7 @@ impl ResolveMods {
     }
 
     pub(super) fn receive(mut self, app: &mut App) {
-        if Some(self.rid) == app.resolve_mod_rid.as_ref().map(|r| r.rid) {
+        if Some(self.rid) == app.resolve_state.resolve_mod_rid.as_ref().map(|r| r.rid) {
             if self.from_bitfix {
                 // Bitfix additions are global; they must not depend on a profile still existing.
                 match self.result {
@@ -159,14 +159,14 @@ impl ResolveMods {
                         }
                         if let Err(error) = app.state.mod_data.save() {
                             *app.state.mod_data.deref_mut().deref_mut() = before;
-                            app.last_action = Some(LastAction::failure(format!(
+                            app.status_state.last_action = Some(LastAction::failure(format!(
                                 "Could not save global Bitfix scripts: {error}"
                             )));
                         } else {
                             if app.bitfix_menu.input == self.input {
                                 app.bitfix_menu.input.clear();
                             }
-                            app.last_action = Some(LastAction::success(format!(
+                            app.status_state.last_action = Some(LastAction::success(format!(
                                 "Added {added} global Bitfix script(s)"
                             )));
                         }
@@ -174,14 +174,14 @@ impl ResolveMods {
                     Err(ProviderError::NoProvider { factory, .. }) => {
                         app.window_provider_parameters =
                             Some(WindowProviderParameters::new(factory, &app.state));
-                        app.last_action = Some(LastAction::failure("no provider".into()));
+                        app.status_state.last_action = Some(LastAction::failure("no provider".into()));
                     }
                     Err(error) => {
-                        app.problematic_mod_id = error.opt_mod_id();
-                        app.last_action = Some(LastAction::failure(error.to_string()));
+                        app.status_state.problematic_mod_id = error.opt_mod_id();
+                        app.status_state.last_action = Some(LastAction::failure(error.to_string()));
                     }
                 }
-                app.resolve_mod_rid = None;
+                app.resolve_state.resolve_mod_rid = None;
                 return;
             }
             let destination = app
@@ -192,8 +192,8 @@ impl ResolveMods {
                 .find(|(_, profile)| profile.id == self.profile_id)
                 .map(|(name, _)| name.clone());
             let Some(destination) = destination else {
-                app.resolve_mod_rid = None;
-                app.last_action = Some(LastAction::failure(
+                app.resolve_state.resolve_mod_rid = None;
+                app.status_state.last_action = Some(LastAction::failure(
                     "Addition cancelled: the original profile no longer exists.".into(),
                 ));
                 return;
@@ -297,8 +297,8 @@ impl ResolveMods {
                     }
                     if let Err(error) = app.state.mod_data.save() {
                         *app.state.mod_data.deref_mut().deref_mut() = before;
-                        app.resolve_mod_rid = None;
-                        app.last_action = Some(LastAction::failure(format!(
+                        app.resolve_state.resolve_mod_rid = None;
+                        app.status_state.last_action = Some(LastAction::failure(format!(
                             "Could not save additions: {error}"
                         )));
                         return;
@@ -307,10 +307,10 @@ impl ResolveMods {
                         if app.bitfix_menu.input == self.input {
                             app.bitfix_menu.input.clear();
                         }
-                    } else if app.resolve_mod == self.input {
-                        app.resolve_mod.clear();
+                    } else if app.resolve_state.resolve_mod == self.input {
+                        app.resolve_state.resolve_mod.clear();
                     }
-                    app.last_action = Some(LastAction::success(format!(
+                    app.status_state.last_action = Some(LastAction::success(format!(
                         "Added {} mod{} to {}",
                         explicit_inserted + dependencies_inserted,
                         if explicit_inserted + dependencies_inserted == 1 {
@@ -324,15 +324,15 @@ impl ResolveMods {
                 Err(ProviderError::NoProvider { url: _, factory }) => {
                     app.window_provider_parameters =
                         Some(WindowProviderParameters::new(factory, &app.state));
-                    app.last_action = Some(LastAction::failure("no provider".to_string()));
+                    app.status_state.last_action = Some(LastAction::failure("no provider".to_string()));
                 }
                 Err(e) => {
                     error!("{}", e);
-                    app.problematic_mod_id = e.opt_mod_id();
-                    app.last_action = Some(LastAction::failure(e.to_string()));
+                    app.status_state.problematic_mod_id = e.opt_mod_id();
+                    app.status_state.last_action = Some(LastAction::failure(e.to_string()));
                 }
             }
-            app.resolve_mod_rid = None;
+            app.resolve_state.resolve_mod_rid = None;
         }
     }
 }

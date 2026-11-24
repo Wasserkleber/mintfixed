@@ -6,3 +6,4 @@ pub(in crate::gui) mod main_panel;
 pub(in crate::gui) mod overlays;
 pub(in crate::gui) mod status_details;
 pub(in crate::gui) mod toolbar;
+pub(in crate::gui) mod state;

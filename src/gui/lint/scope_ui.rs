@@ -6,27 +6,27 @@ impl App {
         ui.label("What should be scanned?");
         ui.horizontal_wrapped(|ui| {
             ui.selectable_value(
-                &mut self.lint_scope,
+                &mut self.lint_state.lint_scope,
                 super::LintScope::All,
                 "All enabled",
             );
             ui.selectable_value(
-                &mut self.lint_scope,
+                &mut self.lint_state.lint_scope,
                 super::LintScope::Selected,
                 "Selected mods",
             );
             ui.selectable_value(
-                &mut self.lint_scope,
+                &mut self.lint_state.lint_scope,
                 super::LintScope::Focus,
                 "Compare one mod",
             );
         });
-        match self.lint_scope {
+        match self.lint_state.lint_scope {
             super::LintScope::Selected => {
                 ui.horizontal(|ui| {
                     if ui.small_button("Select all").clicked() {
-                        let filter = self.lint_filter.trim().to_lowercase();
-                        self.lint_selected_mods = available_mods
+                        let filter = self.lint_state.lint_filter.trim().to_lowercase();
+                        self.lint_state.lint_selected_mods = available_mods
                             .iter()
                             .filter(|spec| {
                                 if filter.is_empty() {
@@ -45,18 +45,18 @@ impl App {
                             .collect();
                     }
                     if ui.small_button("Clear selection").clicked() {
-                        self.lint_selected_mods.clear();
+                        self.lint_state.lint_selected_mods.clear();
                     }
                     ui.label(format!(
                         "{} selected",
                         available_mods
                             .iter()
-                            .filter(|s| self.lint_selected_mods.contains(*s))
+                            .filter(|s| self.lint_state.lint_selected_mods.contains(*s))
                             .count()
                     ));
                 });
                 ui.add(
-                    egui::TextEdit::singleline(&mut self.lint_filter)
+                    egui::TextEdit::singleline(&mut self.lint_state.lint_filter)
                         .hint_text("Filter mod list..."),
                 );
                 egui::ScrollArea::vertical()
@@ -71,25 +71,25 @@ impl App {
                                 .unwrap_or_else(|| spec.url.clone());
                             if !label
                                 .to_lowercase()
-                                .contains(&self.lint_filter.to_lowercase())
+                                .contains(&self.lint_state.lint_filter.to_lowercase())
                                 && !spec
                                     .url
                                     .to_lowercase()
-                                    .contains(&self.lint_filter.to_lowercase())
+                                    .contains(&self.lint_state.lint_filter.to_lowercase())
                             {
                                 continue;
                             }
                             let mut checked =
-                                self.lint_selected_mods.contains(spec);
+                                self.lint_state.lint_selected_mods.contains(spec);
                             if ui
                                 .checkbox(&mut checked, label)
                                 .on_hover_text(&spec.url)
                                 .changed()
                             {
                                 if checked {
-                                    self.lint_selected_mods.insert(spec.clone());
+                                    self.lint_state.lint_selected_mods.insert(spec.clone());
                                 } else {
-                                    self.lint_selected_mods.remove(spec);
+                                    self.lint_state.lint_selected_mods.remove(spec);
                                 }
                             }
                         }
@@ -97,27 +97,27 @@ impl App {
             }
             super::LintScope::Focus => {
                 if self
-                    .lint_focus
+                    .lint_state.lint_focus
                     .as_ref()
                     .is_none_or(|f| !available_mods.contains(f))
                 {
-                    self.lint_focus = available_mods.first().cloned();
+                    self.lint_state.lint_focus = available_mods.first().cloned();
                 }
                 ui.horizontal(|ui| {
                     ui.add(
-                        egui::TextEdit::singleline(&mut self.lint_focus_filter)
+                        egui::TextEdit::singleline(&mut self.lint_state.lint_focus_filter)
                             .hint_text("Search mod name or URL...")
                             .desired_width(360.0),
                     );
-                    if !self.lint_focus_filter.is_empty()
+                    if !self.lint_state.lint_focus_filter.is_empty()
                         && ui.small_button("Clear").clicked()
                     {
-                        self.lint_focus_filter.clear();
+                        self.lint_state.lint_focus_filter.clear();
                     }
                 });
-                let filter = self.lint_focus_filter.trim().to_lowercase();
+                let filter = self.lint_state.lint_focus_filter.trim().to_lowercase();
                 let selected_label = self
-                    .lint_focus
+                    .lint_state.lint_focus
                     .as_ref()
                     .map(|spec| {
                         self.state
@@ -141,7 +141,7 @@ impl App {
                                     .map(|info| info.name)
                                     .unwrap_or_else(|| spec.url.clone());
                                 ui.selectable_value(
-                                    &mut self.lint_focus,
+                                    &mut self.lint_state.lint_focus,
                                     Some(spec.clone()),
                                     label,
                                 )
@@ -182,14 +182,14 @@ impl App {
                                     .map(|info| info.name)
                                     .unwrap_or_else(|| spec.url.clone());
                                 let selected =
-                                    self.lint_focus.as_ref() == Some(spec);
+                                    self.lint_state.lint_focus.as_ref() == Some(spec);
                                 if ui
                                     .selectable_label(selected, label)
                                     .on_hover_text(&spec.url)
                                     .clicked()
                                 {
-                                    self.lint_focus = Some(spec.clone());
-                                    self.lint_focus_filter.clear();
+                                    self.lint_state.lint_focus = Some(spec.clone());
+                                    self.lint_state.lint_focus_filter.clear();
                                 }
                             }
                         });

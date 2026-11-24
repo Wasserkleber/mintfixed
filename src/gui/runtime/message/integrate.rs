@@ -40,12 +40,12 @@ impl Integrate {
     }
 
     pub(super) fn receive(self, app: &mut App) {
-        if Some(self.rid) == app.integrate_rid.as_ref().map(|r| r.rid) {
+        if Some(self.rid) == app.install_state.integrate_rid.as_ref().map(|r| r.rid) {
             match self.result {
                 Ok(report) => {
                     let mut action = LastAction::success(report.summary());
                     action.details = Some(report.details());
-                    app.last_action = Some(action);
+                    app.status_state.last_action = Some(action);
                 }
                 Err(ref e)
                     if let IntegrationError::ProviderError { source } = e
@@ -53,15 +53,15 @@ impl Integrate {
                 {
                     app.window_provider_parameters =
                         Some(WindowProviderParameters::new(factory, &app.state));
-                    app.last_action = Some(LastAction::failure("no provider".to_string()));
+                    app.status_state.last_action = Some(LastAction::failure("no provider".to_string()));
                 }
                 Err(e) => {
                     error!("{}", e);
-                    app.problematic_mod_id = e.opt_mod_id();
-                    app.last_action = Some(LastAction::failure(e.to_string()));
+                    app.status_state.problematic_mod_id = e.opt_mod_id();
+                    app.status_state.last_action = Some(LastAction::failure(e.to_string()));
                 }
             }
-            app.integrate_rid = None;
+            app.install_state.integrate_rid = None;
         }
     }
 }
@@ -75,7 +75,7 @@ pub struct FetchModProgress {
 
 impl FetchModProgress {
     pub(super) fn receive(self, app: &mut App) {
-        if let Some(MessageHandle { rid, state, .. }) = &mut app.integrate_rid
+        if let Some(MessageHandle { rid, state, .. }) = &mut app.install_state.integrate_rid
             && *rid == self.rid
         {
             state.insert(self.spec, self.progress);

@@ -394,7 +394,7 @@ impl App {
                         if let Some(window) = &mut self.settings_window {
                             window.local_mod_folder_err = Some(error.clone());
                         }
-                        self.last_action = Some(LastAction::failure(error));
+                        self.status_state.last_action = Some(LastAction::failure(error));
                     }
                 }
             } else if committed && let Some(window) = &mut self.settings_window {

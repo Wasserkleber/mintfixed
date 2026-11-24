@@ -19,7 +19,7 @@ fn app() -> (tempfile::TempDir, App) {
 
 fn result(app: &mut App) -> ResolveMods {
     let rid = app.request_counter.next();
-    app.resolve_mod_rid = Some(MessageHandle {
+    app.resolve_state.resolve_mod_rid = Some(MessageHandle {
         rid,
         handle: tokio::spawn(async {}),
         state: (),
@@ -57,12 +57,12 @@ async fn profile_switch_does_not_redirect_result_or_clear_new_input() {
         .profiles
         .insert("Other".into(), Default::default());
     app.state.mod_data.active_profile = "Other".into();
-    app.resolve_mod = "new input".into();
+    app.resolve_state.resolve_mod = "new input".into();
     result.receive(&mut app);
     assert_eq!(app.state.mod_data.profiles["default"].mods.len(), 1);
     assert!(app.state.mod_data.profiles["Other"].mods.is_empty());
-    assert_eq!(app.resolve_mod, "new input");
-    assert!(app.resolve_mod_rid.is_none());
+    assert_eq!(app.resolve_state.resolve_mod, "new input");
+    assert!(app.resolve_state.resolve_mod_rid.is_none());
 }
 
 #[tokio::test]
@@ -70,7 +70,7 @@ async fn second_request_does_not_replace_pending_result() {
     let (_dir, mut app) = app();
     let result = result(&mut app);
     ResolveMods::send(&mut app, &egui::Context::default(), vec![], false);
-    assert_eq!(app.resolve_mod_rid.as_ref().unwrap().rid, result.rid);
+    assert_eq!(app.resolve_state.resolve_mod_rid.as_ref().unwrap().rid, result.rid);
     result.receive(&mut app);
     assert_eq!(app.state.mod_data.profiles["default"].mods.len(), 1);
 }
@@ -87,7 +87,7 @@ async fn missing_original_profile_cancels_without_fallback() {
     app.state.mod_data.profiles.remove("default");
     result.receive(&mut app);
     assert!(app.state.mod_data.profiles["Other"].mods.is_empty());
-    assert!(app.resolve_mod_rid.is_none());
+    assert!(app.resolve_state.resolve_mod_rid.is_none());
 }
 #[tokio::test]
 async fn renamed_profile_receives_pending_addition_by_id() {
@@ -113,5 +113,5 @@ async fn replacement_profile_with_same_name_does_not_receive_old_request() {
         .insert("default".into(), Default::default());
     result.receive(&mut app);
     assert!(app.state.mod_data.profiles["default"].mods.is_empty());
-    assert!(app.resolve_mod_rid.is_none());
+    assert!(app.resolve_state.resolve_mod_rid.is_none());
 }

@@ -21,7 +21,7 @@ impl CheckUpdates {
             .unwrap();
             ctx.request_repaint();
         });
-        app.check_updates_rid = Some(MessageHandle {
+        app.update_state.check_updates_rid = Some(MessageHandle {
             rid,
             handle,
             state: (),
@@ -29,8 +29,8 @@ impl CheckUpdates {
     }
 
     pub(super) fn receive(self, app: &mut App) {
-        if Some(self.rid) == app.check_updates_rid.as_ref().map(|r| r.rid) {
-            app.check_updates_rid = None;
+        if Some(self.rid) == app.update_state.check_updates_rid.as_ref().map(|r| r.rid) {
+            app.update_state.check_updates_rid = None;
             match self.result {
                 Ok(release) => {
                     if let (Ok(version), Some(Ok(release_version))) = (
@@ -41,8 +41,8 @@ impl CheckUpdates {
                             .map(semver::Version::parse),
                     ) && release_version > version
                     {
-                        app.available_update = Some(release);
-                        app.show_update_time = Some(SystemTime::now());
+                        app.update_state.available_update = Some(release);
+                        app.update_state.show_update_time = Some(SystemTime::now());
                     }
                 }
                 Err(e) => tracing::warn!("failed to fetch update {e}"),

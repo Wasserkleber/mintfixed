@@ -49,13 +49,13 @@ pub(in crate::gui) fn drop_files(
         path.extension()
             .is_some_and(|ext| ext.eq_ignore_ascii_case("lua"))
     }) {
-        app.last_action = Some(LastAction::failure(
+        app.status_state.last_action = Some(LastAction::failure(
             crate::gui::bitfix_menu::REDIRECT_HINT.into(),
         ));
         return;
     }
     let Some(target) = GroupDestination::capture(&app.state.mod_data, &profile, &group) else {
-        app.last_action = Some(LastAction::failure(
+        app.status_state.last_action = Some(LastAction::failure(
             "The group destination no longer exists.".into(),
         ));
         return;
@@ -164,7 +164,7 @@ pub(in crate::gui) fn add_files(
         app.groups_to_open.insert((profile, group));
         Ok(message)
     });
-    app.last_action = Some(match result {
+    app.status_state.last_action = Some(match result {
         Ok(message) => LastAction::success(message),
         Err(message) => LastAction::failure(message),
     });

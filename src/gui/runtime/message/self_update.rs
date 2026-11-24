@@ -27,21 +27,21 @@ impl SelfUpdate {
     }
 
     pub(super) fn receive(self, app: &mut App) {
-        if Some(self.rid) == app.self_update_rid.as_ref().map(|r| r.rid) {
+        if Some(self.rid) == app.update_state.self_update_rid.as_ref().map(|r| r.rid) {
             match self.result {
                 Ok(original_exe_path) => {
                     info!("self update complete");
-                    app.original_exe_path = Some(original_exe_path);
-                    app.last_action = Some(LastAction::success("self update complete".to_string()));
+                    app.update_state.original_exe_path = Some(original_exe_path);
+                    app.status_state.last_action = Some(LastAction::success("self update complete".to_string()));
                 }
                 Err(e) => {
                     error!("self update failed");
                     error!("{:#?}", e);
-                    app.self_update_rid = None;
-                    app.last_action = Some(LastAction::failure("self update failed".to_string()));
+                    app.update_state.self_update_rid = None;
+                    app.status_state.last_action = Some(LastAction::failure("self update failed".to_string()));
                 }
             }
-            app.integrate_rid = None;
+            app.install_state.integrate_rid = None;
         }
     }
 }
@@ -54,7 +54,7 @@ pub struct FetchSelfUpdateProgress {
 
 impl FetchSelfUpdateProgress {
     pub(super) fn receive(self, app: &mut App) {
-        if let Some(MessageHandle { rid, state, .. }) = &mut app.self_update_rid
+        if let Some(MessageHandle { rid, state, .. }) = &mut app.update_state.self_update_rid
             && *rid == self.rid
         {
             *state = self.progress;

@@ -11,7 +11,7 @@ enum Choice {
 
 impl App {
     pub(in crate::gui) fn show_replacement_prompt(&mut self, ctx: &egui::Context) {
-        let Some(mut pending) = self.pending_replacement_addition.take() else {
+        let Some(mut pending) = self.resolve_state.pending_replacement_addition.take() else {
             return;
         };
         let Some(rule) = pending
@@ -86,7 +86,7 @@ impl App {
                 });
             });
         match choice {
-            None => self.pending_replacement_addition = Some(pending),
+            None => self.resolve_state.pending_replacement_addition = Some(pending),
             Some(Choice::Cancel) => {}
             Some(selected) => {
                 let same_profile = self
@@ -96,7 +96,7 @@ impl App {
                     .get(&self.state.mod_data.active_profile)
                     .is_some_and(|p| p.id == pending.profile_id);
                 if !same_profile {
-                    self.last_action = Some(LastAction::failure(
+                    self.status_state.last_action = Some(LastAction::failure(
                         "Mod addition cancelled: the active profile changed.".into(),
                     ));
                     return;
@@ -113,7 +113,7 @@ impl App {
                     pending.specs.retain(|spec| seen.insert(spec.clone()));
                 }
                 pending.decided.insert(rule.original);
-                self.pending_replacement_addition = Some(pending);
+                self.resolve_state.pending_replacement_addition = Some(pending);
                 ctx.request_repaint();
             }
         }

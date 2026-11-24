@@ -78,14 +78,14 @@ impl App {
                 if changed > 0 {
                     match self.state.mod_data.save() {
                         Ok(()) => {
-                            self.last_action = Some(LastAction::success(format!(
+                            self.status_state.last_action = Some(LastAction::success(format!(
                                 "{} {changed} mods",
                                 if enabled { "Enabled" } else { "Disabled" }
                             )));
                         }
                         Err(error) => {
                             *self.state.mod_data.deref_mut().deref_mut() = before;
-                            self.last_action = Some(LastAction::failure(format!(
+                            self.status_state.last_action = Some(LastAction::failure(format!(
                                 "Could not save selection changes: {error}"
                             )));
                         }
@@ -135,10 +135,10 @@ impl App {
         let mut ctx = Ctx {
             needs_save: false,
             show_target: self
-                .show_mod_target
+                .status_state.show_mod_target
                 .clone()
                 .filter(|target| target.profile == profile_name),
-            scroll_to_match: self.scroll_to_match,
+            scroll_to_match: self.search.scroll_to_match,
             btn_remove: None,
             add_deps: None,
             drag: None,
@@ -382,7 +382,7 @@ impl App {
             match result {
                 Ok((moved, skipped)) => {
                     if skipped > 0 {
-                        self.last_action = Some(LastAction::success(format!(
+                        self.status_state.last_action = Some(LastAction::success(format!(
                             "Moved {moved} mods; skipped {skipped} duplicate(s)"
                         )));
                     }
@@ -397,27 +397,27 @@ impl App {
                         }
                         Err(error) => {
                             *self.state.mod_data.deref_mut().deref_mut() = before;
-                            self.last_action =
+                            self.status_state.last_action =
                                 Some(LastAction::failure(format!("Could not save move: {error}")));
                         }
                     }
                 }
-                Err(error) => self.last_action = Some(LastAction::failure(error.into())),
+                Err(error) => self.status_state.last_action = Some(LastAction::failure(error.into())),
             }
         }
 
         if let Some(add_deps) = ctx.add_deps {
             message::ResolveMods::send(self, ui.ctx(), add_deps, true);
-            self.problematic_mod_id = None;
+            self.status_state.problematic_mod_id = None;
         }
 
-        self.scroll_to_match = ctx.scroll_to_match;
+        self.search.scroll_to_match = ctx.scroll_to_match;
         if self
-            .show_mod_target
+            .status_state.show_mod_target
             .as_ref()
             .is_some_and(|target| target.profile == profile_name)
         {
-            self.show_mod_target = ctx.show_target;
+            self.status_state.show_mod_target = ctx.show_target;
         }
 
         if ctx.needs_save {

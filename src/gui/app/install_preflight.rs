@@ -34,11 +34,11 @@ impl App {
             );
             let mut action = LastAction::failure(summary);
             action.details = Some(details.clone());
-            self.last_action = Some(action);
-            self.status_details = Some(details);
-            self.status_locations.clear();
-            self.live_unavailable_details = false;
-            self.problematic_mod_id = None;
+            self.status_state.last_action = Some(action);
+            self.status_state.status_details = Some(details);
+            self.status_state.status_locations.clear();
+            self.status_state.live_unavailable_details = false;
+            self.status_state.problematic_mod_id = None;
             return false;
         }
         let locations = unavailable_mods::install_blockers(
@@ -65,7 +65,7 @@ impl App {
             }
         );
         let previous = if after_cache_update {
-            self.last_action.as_ref().map(|action| {
+            self.status_state.last_action.as_ref().map(|action| {
                 action
                     .details
                     .clone()
@@ -88,11 +88,11 @@ impl App {
         let mut action = LastAction::failure(summary);
         action.details = Some(details.clone());
         action.unavailable_locations = locations.clone();
-        self.last_action = Some(action);
-        self.status_details = Some(details);
-        self.status_locations = locations;
-        self.live_unavailable_details = false;
-        self.problematic_mod_id = None;
+        self.status_state.last_action = Some(action);
+        self.status_state.status_details = Some(details);
+        self.status_state.status_locations = locations;
+        self.status_state.live_unavailable_details = false;
+        self.status_state.problematic_mod_id = None;
         false
     }
 }

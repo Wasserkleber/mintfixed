@@ -57,7 +57,7 @@
                     let problematic = info
                         .as_ref()
                         .and_then(|info| info.modio_id)
-                        .is_some_and(|id| self.problematic_mod_id == Some(id));
+                        .is_some_and(|id| self.status_state.problematic_mod_id == Some(id));
 
                     // Display one error icon even when both conditions apply. Keep the distinction
                     // in the tooltip and leave duplicate/dependency warnings unchanged.
@@ -70,7 +70,7 @@
                         };
                         icon_buttons::mod_error_badge(ui).on_hover_text(message);
                     }
-                    if enabled && let Some(req) = &self.integrate_rid {
+                    if enabled && let Some(req) = &self.install_state.integrate_rid {
                         let (accent, track) = if ui.visuals().dark_mode {
                             (egui::Color32::from_rgb(49, 126, 89), egui::Color32::from_rgb(65, 68, 72))
                         } else {
@@ -243,7 +243,7 @@
                             _ => unimplemented!("unimplemented provider kind"),
                         }
 
-                        let search = searchable_text(&info.name, &self.search_string, {
+                        let search = searchable_text(&info.name, &self.search.search_string, {
                             TextFormat {
                                 color: ui.visuals().hyperlink_color,
                                 ..Default::default()
@@ -267,7 +267,7 @@
                             mod_tags::render_mod_tags(
                                 ui,
                                 info,
-                                &self.search_string,
+                                &self.search.search_string,
                                 &mut ctx.scroll_to_match,
                             );
                         });
@@ -279,7 +279,7 @@
                             ui.ctx().copy_text(mc.spec.url.to_string());
                         }
 
-                        let search = searchable_text(&mc.spec.url, &self.search_string, {
+                        let search = searchable_text(&mc.spec.url, &self.search.search_string, {
                             TextFormat {
                                 color: ui.visuals().hyperlink_color,
                                 ..Default::default()

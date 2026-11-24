@@ -196,14 +196,14 @@ fn start(app: &mut App, ctx: &egui::Context, folder: PathBuf) -> Result<(), Stri
 
 pub(in crate::gui) fn open_preview(app: &mut App, ctx: &egui::Context, folder: PathBuf) {
     if !folder.is_dir() {
-        app.last_action = Some(LastAction::failure(format!(
+        app.status_state.last_action = Some(LastAction::failure(format!(
             "Not a folder: {}",
             folder.display()
         )));
         return;
     }
     if app.folder_import.scan.is_some() {
-        app.last_action = Some(LastAction::success(
+        app.status_state.last_action = Some(LastAction::success(
             "A local-mod scan is already running".into(),
         ));
         return;
@@ -212,9 +212,9 @@ pub(in crate::gui) fn open_preview(app: &mut App, ctx: &egui::Context, folder: P
     app.folder_import.preview = None;
     match start(app, ctx, folder) {
         Ok(()) => {
-            app.last_action = Some(LastAction::success("Scanning local mods folder...".into()))
+            app.status_state.last_action = Some(LastAction::success("Scanning local mods folder...".into()))
         }
-        Err(e) => app.last_action = Some(LastAction::failure(e)),
+        Err(e) => app.status_state.last_action = Some(LastAction::failure(e)),
     }
 }
 
@@ -237,10 +237,10 @@ pub(in crate::gui) fn tick(app: &mut App, _ctx: &egui::Context) {
                     });
                 }
             }
-            Ok(Err(error)) => app.last_action = Some(LastAction::failure(error)),
+            Ok(Err(error)) => app.status_state.last_action = Some(LastAction::failure(error)),
             Err(TryRecvError::Empty) => app.folder_import.scan = Some(job),
             Err(TryRecvError::Disconnected) => {
-                app.last_action = Some(LastAction::failure(
+                app.status_state.last_action = Some(LastAction::failure(
                     "The local-mod folder scan stopped unexpectedly".into(),
                 ))
             }
@@ -310,7 +310,7 @@ pub(in crate::gui) fn show_preview(app: &mut App, ctx: &egui::Context) {
                     action = Action::ExcludeUnchecked;
                 }
                 if ui.add_enabled(
-                    app.resolve_mod_rid.is_none(),
+                    app.resolve_state.resolve_mod_rid.is_none(),
                     egui::Button::new("Import selected"),
                 ).clicked() { action = Action::Import; }
                 if ui.button("Cancel").clicked() { action = Action::Cancel; }
@@ -331,7 +331,7 @@ pub(in crate::gui) fn show_preview(app: &mut App, ctx: &egui::Context) {
                 Ok(()) => {
                     preview.mods.remove(index);
                 }
-                Err(e) => app.last_action = Some(LastAction::failure(e)),
+                Err(e) => app.status_state.last_action = Some(LastAction::failure(e)),
             }
         }
         Action::ExcludeUnchecked => {
@@ -349,10 +349,10 @@ pub(in crate::gui) fn show_preview(app: &mut App, ctx: &egui::Context) {
             match result {
                 Ok(()) => {
                     preview.mods.retain(|item| item.selected);
-                    app.last_action =
+                    app.status_state.last_action =
                         Some(LastAction::success("Local mod exclusions saved".into()));
                 }
-                Err(error) => app.last_action = Some(LastAction::failure(error)),
+                Err(error) => app.status_state.last_action = Some(LastAction::failure(error)),
             }
         }
         Action::Import => {
@@ -435,14 +435,14 @@ fn show_inline_exclusions(app: &mut App, ui: &mut egui::Ui) -> bool {
                 if exclusions.excluded_paths.insert(key.clone()) {
                     if let Err(error) = exclusions.save(cache_dir) {
                         exclusions.excluded_paths.remove(&key);
-                        app.last_action = Some(LastAction::failure(error));
+                        app.status_state.last_action = Some(LastAction::failure(error));
                     } else {
                         changed = true;
                     }
                 }
             }
             Err(error) => {
-                app.last_action = Some(LastAction::failure(format!("Cannot exclude file: {error}")))
+                app.status_state.last_action = Some(LastAction::failure(format!("Cannot exclude file: {error}")))
             }
         }
     }
@@ -451,7 +451,7 @@ fn show_inline_exclusions(app: &mut App, ui: &mut egui::Ui) -> bool {
     {
         if let Err(error) = exclusions.save(cache_dir) {
             exclusions.excluded_paths.insert(key);
-            app.last_action = Some(LastAction::failure(error));
+            app.status_state.last_action = Some(LastAction::failure(error));
         } else {
             changed = true;
         }

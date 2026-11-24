@@ -14,7 +14,7 @@ impl App {
         self.last_ui_frame_start = Some(Instant::now());
 
         if self.needs_restart
-            && let Some(original_exe_path) = &self.original_exe_path
+            && let Some(original_exe_path) = &self.update_state.original_exe_path
         {
             debug!("needs restart");
             self.needs_restart = false;
@@ -41,32 +41,32 @@ impl App {
         // message handling
         while let Ok(msg) = self.rx.try_recv() {
             // Only act on the completion of the currently running cache update.
-            let cache_was_running = self.update_rid.is_some();
+            let cache_was_running = self.install_state.update_rid.is_some();
             let is_cache_result = matches!(&msg, message::Message::UpdateCache(_));
             // Match the exact automatic installation that is completing.
             let finishing_cache_install = matches!(&msg, message::Message::Integrate(_))
-                && self.cache_install_rid.is_some()
-                && self.cache_install_rid == self.integrate_rid.as_ref().map(|r| r.rid);
+                && self.install_state.cache_install_rid.is_some()
+                && self.install_state.cache_install_rid == self.install_state.integrate_rid.as_ref().map(|r| r.rid);
             msg.handle(self);
             // The shared store already contains the recovered metadata; invalidate
             // cached profile warnings and redraw names/tags immediately.
-            if is_cache_result && cache_was_running && self.update_rid.is_none() {
+            if is_cache_result && cache_was_running && self.install_state.update_rid.is_none() {
                 self.profile_issues.clear();
-                self.cache_recovery_progress = None;
-                self.cache_recovery_last_advance = None;
+                self.install_state.cache_recovery_progress = None;
+                self.install_state.cache_recovery_last_advance = None;
                 ctx.request_repaint();
             }
-            if finishing_cache_install && self.integrate_rid.is_none() {
-                self.cache_install_rid = None;
+            if finishing_cache_install && self.install_state.integrate_rid.is_none() {
+                self.install_state.cache_install_rid = None;
                 let notice = self
-                    .cache_install_notice
+                    .install_state.cache_install_notice
                     .take()
                     .unwrap_or_else(|| "Cache updated".to_string());
                 let cache_details = self
-                    .cache_install_details
+                    .install_state.cache_install_details
                     .take()
                     .unwrap_or_else(|| notice.clone());
-                if let Some(action) = self.last_action.as_mut() {
+                if let Some(action) = self.status_state.last_action.as_mut() {
                     let install_details =
                         action
                             .details
@@ -79,7 +79,7 @@ impl App {
                             });
                     action.details = Some(format!("{cache_details}\n\n{install_details}"));
                     action.unavailable_locations =
-                        std::mem::take(&mut self.cache_install_locations);
+                        std::mem::take(&mut self.install_state.cache_install_locations);
                     match &mut action.status {
                         LastActionStatus::Success(message) => {
                             *message = format!("{notice}; {message}");
@@ -92,10 +92,10 @@ impl App {
             }
             if is_cache_result
                 && cache_was_running
-                && self.update_rid.is_none()
-                && self.integrate_rid.is_none()
+                && self.install_state.update_rid.is_none()
+                && self.install_state.integrate_rid.is_none()
                 && self
-                    .last_action
+                    .status_state.last_action
                     .as_ref()
                     .is_some_and(|action| matches!(&action.status, LastActionStatus::Success(_)))
             {
@@ -109,7 +109,7 @@ impl App {
                     }
                     let data = &self.state.mod_data;
                     let mods = data.ordered_install_entries(&data.active_profile);
-                    self.integrate_rid = Some(message::Integrate::send(
+                    self.install_state.integrate_rid = Some(message::Integrate::send(
                         &mut self.request_counter,
                         self.state.store.clone(),
                         mods,
@@ -120,29 +120,29 @@ impl App {
                     ));
                     // Retain the cache result before the installation clears the status.
                     // It may contain warnings about unavailable mod.io mods.
-                    self.cache_install_notice = self.last_action.as_ref().and_then(|action| {
+                    self.install_state.cache_install_notice = self.status_state.last_action.as_ref().and_then(|action| {
                         if let LastActionStatus::Success(message) = &action.status {
                             Some(message.clone())
                         } else {
                             None
                         }
                     });
-                    self.cache_install_details = self
-                        .last_action
+                    self.install_state.cache_install_details = self
+                        .status_state.last_action
                         .as_ref()
                         .and_then(|action| action.details.clone());
-                    self.cache_install_locations = self
-                        .last_action
+                    self.install_state.cache_install_locations = self
+                        .status_state.last_action
                         .as_ref()
                         .map(|action| action.unavailable_locations.clone())
                         .unwrap_or_default();
-                    self.cache_install_rid = self.integrate_rid.as_ref().map(|r| r.rid);
-                    self.install_phase = message::InstallPhase::Resolving;
-                    self.problematic_mod_id = None;
+                    self.install_state.cache_install_rid = self.install_state.integrate_rid.as_ref().map(|r| r.rid);
+                    self.install_state.install_phase = message::InstallPhase::Resolving;
+                    self.status_state.problematic_mod_id = None;
                     // The install is not yet successful; the live phase label is shown below.
-                    self.last_action = None;
+                    self.status_state.last_action = None;
                 } else {
-                    self.last_action = Some(LastAction::failure(
+                    self.status_state.last_action = Some(LastAction::failure(
                         "cache updated, but DRG install not found".to_string(),
                     ));
                 }
@@ -156,9 +156,9 @@ impl App {
         }
         // Preserve native text-edit undo while the user is typing.
         if !ctx.wants_keyboard_input()
-            && self.integrate_rid.is_none()
-            && self.update_rid.is_none()
-            && self.lint_rid.is_none()
+            && self.install_state.integrate_rid.is_none()
+            && self.install_state.update_rid.is_none()
+            && self.lint_state.lint_rid.is_none()
         {
             let shortcut = ctx.input(|i| {
                 if !i.modifiers.command {

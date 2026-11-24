@@ -9,19 +9,19 @@ impl App {
                 Drag::clear_history_selection(ctx);
                 self.profile_issues.clear();
                 ctx.request_repaint();
-                self.last_action = Some(LastAction::success(if redo {
+                self.status_state.last_action = Some(LastAction::success(if redo {
                     "Redid mod-list change".into()
                 } else {
                     "Undid mod-list change".into()
                 }));
             }
             Ok(false) => {}
-            Err(error) => self.last_action = Some(LastAction::failure(error)),
+            Err(error) => self.status_state.last_action = Some(LastAction::failure(error)),
         }
     }
 
     pub(in crate::gui) fn parse_mods(&self) -> Vec<ModSpecification> {
-        self.resolve_mod
+        self.resolve_state.resolve_mod
             .lines()
             .map(|l| l.trim())
             .filter(|l| !l.is_empty())

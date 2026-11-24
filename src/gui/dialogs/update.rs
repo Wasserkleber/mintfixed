@@ -4,7 +4,7 @@ use crate::gui::*;
 impl App {
     pub(in crate::gui) fn show_update_window(&mut self, ctx: &egui::Context) {
         if let (Some(update), Some(update_time)) =
-            (self.available_update.as_ref(), self.show_update_time)
+            (self.update_state.available_update.as_ref(), self.update_state.show_update_time)
         {
             let now = SystemTime::now();
             let wait_time = Duration::from_secs(10);
@@ -19,7 +19,7 @@ impl App {
                             ui.allocate_space(ui.available_size());
                         })
                 });
-            if let Some(MessageHandle { state, .. }) = &self.self_update_rid {
+            if let Some(MessageHandle { state, .. }) = &self.update_state.self_update_rid {
                 egui::Window::new("Update progress")
                     .collapsible(false)
                     .anchor(Align2::CENTER_CENTER, Vec2::ZERO)
@@ -92,7 +92,7 @@ impl App {
                                     .on_hover_text("Download and install the update.")
                                     .clicked()
                                 {
-                                    self.self_update_rid = Some(message::SelfUpdate::send(
+                                    self.update_state.self_update_rid = Some(message::SelfUpdate::send(
                                         &mut self.request_counter,
                                         self.tx.clone(),
                                         ctx.clone(),
@@ -102,7 +102,7 @@ impl App {
                                 let elapsed = now.duration_since(update_time).unwrap_or_default();
                                 if elapsed > wait_time {
                                     if ui.add(crate::gui::mint_text_button("Close")).clicked() {
-                                        self.show_update_time = None;
+                                        self.update_state.show_update_time = None;
                                     }
                                 } else {
                                     ui.spinner();

@@ -54,7 +54,7 @@ impl Message {
                         crate::gui::group_controls::add_files(app, profile, group, prepend, files)
                     }
                     None => {
-                        app.last_action = Some(LastAction::failure(
+                        app.status_state.last_action = Some(LastAction::failure(
                             "Addition cancelled: the original group destination no longer exists."
                                 .into(),
                         ))
@@ -65,8 +65,8 @@ impl Message {
             Self::Integrate(msg) => msg.receive(app),
             Self::FetchModProgress(msg) => msg.receive(app),
             Self::InstallPhase { rid, phase } => {
-                if app.integrate_rid.as_ref().is_some_and(|h| h.rid == rid) {
-                    app.install_phase = phase;
+                if app.install_state.integrate_rid.as_ref().is_some_and(|h| h.rid == rid) {
+                    app.install_state.install_phase = phase;
                 }
             }
             Self::CacheRecoveryProgress {
@@ -74,13 +74,13 @@ impl Message {
                 completed,
                 total,
             } => {
-                if app.update_rid.as_ref().is_some_and(|h| h.rid == rid) {
+                if app.install_state.update_rid.as_ref().is_some_and(|h| h.rid == rid) {
                     // Only successful counter advances reset the inactivity timer.
                     // Retries and duplicate progress messages do not count as progress.
-                    if app.cache_recovery_progress.map(|(n, _)| n) != Some(completed) {
-                        app.cache_recovery_last_advance = Some(std::time::Instant::now());
+                    if app.install_state.cache_recovery_progress.map(|(n, _)| n) != Some(completed) {
+                        app.install_state.cache_recovery_last_advance = Some(std::time::Instant::now());
                     }
-                    app.cache_recovery_progress = Some((completed, total));
+                    app.install_state.cache_recovery_progress = Some((completed, total));
                 }
             }
             Self::UpdateCache(msg) => msg.receive(app),

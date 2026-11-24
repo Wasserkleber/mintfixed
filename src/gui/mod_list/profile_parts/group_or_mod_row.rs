@@ -92,7 +92,7 @@
                                 )
                             });
                         // Match children even when the collapsing group does not render their rows.
-                        let search_needle = self.search_string.to_lowercase();
+                        let search_needle = self.search.search_string.to_lowercase();
                         let matching_mod_in_group = !search_needle.trim().is_empty()
                             && groups.get(group_name).is_some_and(|group| {
                                 group.mods.iter().any(|mc| {

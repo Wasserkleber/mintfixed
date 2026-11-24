@@ -7,10 +7,10 @@ impl App {
             ui.horizontal(|ui| {
                 // Keep launching DRG next to the Crash Logger on the left.
                 ui.add_enabled_ui(
-                    self.integrate_rid.is_none()
-                        && self.update_rid.is_none()
-                        && self.lint_rid.is_none()
-                        && self.self_update_rid.is_none()
+                    self.install_state.integrate_rid.is_none()
+                        && self.install_state.update_rid.is_none()
+                        && self.lint_state.lint_rid.is_none()
+                        && self.update_state.self_update_rid.is_none()
                         && self.state.config.drg_pak_path.is_some(),
                     |ui| {
                         if ui
@@ -36,7 +36,7 @@ impl App {
                                     .map_err(|err| err.to_string())
                             };
                             if let Err(err) = result {
-                                self.last_action = Some(LastAction::failure(format!(
+                                self.status_state.last_action = Some(LastAction::failure(format!(
                                     "Failed to launch DRG: {err}"
                                 )));
                             }
@@ -51,10 +51,10 @@ impl App {
                 }
             ui.with_layout(egui::Layout::right_to_left(Align::Center), |ui| {
                 ui.add_enabled_ui(
-                    self.integrate_rid.is_none()
-                        && self.update_rid.is_none()
-                        && self.lint_rid.is_none()
-                        && self.self_update_rid.is_none()
+                    self.install_state.integrate_rid.is_none()
+                        && self.install_state.update_rid.is_none()
+                        && self.lint_state.lint_rid.is_none()
+                        && self.update_state.self_update_rid.is_none()
                         && self.state.config.drg_pak_path.is_some(),
                     |ui| {
                         ui.add_enabled_ui(self.state.config.drg_pak_path.is_some(), |ui| {
@@ -75,13 +75,13 @@ impl App {
                                 let data = &self.state.mod_data;
                                 let mods = data.ordered_install_entries(&data.active_profile);
 
-                                self.last_action = None;
-                                self.cache_install_rid = None;
-                                self.cache_install_notice = None;
-                                self.cache_install_details = None;
-                                self.cache_install_locations.clear();
-                                self.install_phase = message::InstallPhase::Resolving;
-                                self.integrate_rid = Some(message::Integrate::send(
+                                self.status_state.last_action = None;
+                                self.install_state.cache_install_rid = None;
+                                self.install_state.cache_install_notice = None;
+                                self.install_state.cache_install_details = None;
+                                self.install_state.cache_install_locations.clear();
+                                self.install_state.install_phase = message::InstallPhase::Resolving;
+                                self.install_state.integrate_rid = Some(message::Integrate::send(
                                     &mut self.request_counter,
                                     self.state.store.clone(),
                                     mods,
@@ -90,7 +90,7 @@ impl App {
                                     self.tx.clone(),
                                     ctx.clone(),
                                 ));
-                                self.problematic_mod_id = None;
+                                self.status_state.problematic_mod_id = None;
                             }
                         });
 
@@ -102,7 +102,7 @@ impl App {
                                 );
                             }
                             if button.clicked() {
-                                self.last_action = None;
+                                self.status_state.last_action = None;
                                 if let Some(pak_path) = &self.state.config.drg_pak_path {
                                     let mut mods = HashSet::default();
                                     let active_profile = self.state.mod_data.active_profile.clone();
@@ -121,7 +121,7 @@ impl App {
                                     );
 
                                     debug!("uninstalling mods: pak_path = {}", pak_path.display());
-                                    self.last_action = Some(match uninstall(pak_path, mods) {
+                                    self.status_state.last_action = Some(match uninstall(pak_path, mods) {
                                         Ok(()) => LastAction::success(
                                             "Successfully uninstalled mods".to_string(),
                                         ),
@@ -152,14 +152,14 @@ impl App {
                                 Ok(archived) => {
                                     message::UpdateCache::send(self, ctx);
                                     if archived > 0 {
-                                        self.last_action = Some(LastAction::success(format!(
+                                        self.status_state.last_action = Some(LastAction::success(format!(
                                             "Archived {archived} unused cached mods; updating cache"
                                         )));
                                     }
-                                    self.problematic_mod_id = None;
+                                    self.status_state.problematic_mod_id = None;
                                 }
                                 Err(error) => {
-                                    self.last_action = Some(LastAction::failure(format!(
+                                    self.status_state.last_action = Some(LastAction::failure(format!(
                                         "Cache cleanup failed: {error}"
                                     )));
                                 }
@@ -167,30 +167,30 @@ impl App {
                         }
                     },
                 );
-                if self.integrate_rid.is_some() {
+                if self.install_state.integrate_rid.is_some() {
                     if ui.add(crate::gui::mint_text_button("Cancel")).clicked() {
-                        self.integrate_rid.take().unwrap().handle.abort();
-                        self.install_phase = message::InstallPhase::Resolving;
-                        if self.cache_install_rid.take().is_some() {
-                            let notice = self.cache_install_notice.take()
+                        self.install_state.integrate_rid.take().unwrap().handle.abort();
+                        self.install_state.install_phase = message::InstallPhase::Resolving;
+                        if self.install_state.cache_install_rid.take().is_some() {
+                            let notice = self.install_state.cache_install_notice.take()
                                 .unwrap_or_else(|| "Cache updated".to_string());
                             let mut action = LastAction::failure(format!(
                                 "{notice}; installation cancelled"
                             ));
-                            action.details = self.cache_install_details.take()
+                            action.details = self.install_state.cache_install_details.take()
                                 .map(|details| format!("{details}\n\nInstallation cancelled"));
-                            action.unavailable_locations = std::mem::take(&mut self.cache_install_locations);
-                            self.last_action = Some(action);
+                            action.unavailable_locations = std::mem::take(&mut self.install_state.cache_install_locations);
+                            self.status_state.last_action = Some(action);
                         }
                     }
                     ui.spinner();
                 }
-                if self.update_rid.is_some() {
+                if self.install_state.update_rid.is_some() {
                     if ui.add(crate::gui::mint_text_button("Cancel")).clicked() {
-                        self.update_rid.take().unwrap().handle.abort();
-                        self.cache_recovery_progress = None;
-                        self.cache_recovery_last_advance = None;
-                        self.last_action = Some(LastAction::failure("Cache update cancelled".to_string()));
+                        self.install_state.update_rid.take().unwrap().handle.abort();
+                        self.install_state.cache_recovery_progress = None;
+                        self.install_state.cache_recovery_last_advance = None;
+                        self.status_state.last_action = Some(LastAction::failure("Cache update cancelled".to_string()));
                     }
                     ui.spinner();
                 }
@@ -200,10 +200,10 @@ impl App {
                     .clicked()
                 {
                     let mods = self.enabled_lint_specs();
-                    self.lint_selected_mods = mods.iter().cloned().collect();
-                    self.lint_focus = mods.first().cloned();
-                    self.lint_filter.clear();
-                    self.lints_toggle_window = Some(WindowLintsToggle);
+                    self.lint_state.lint_selected_mods = mods.iter().cloned().collect();
+                    self.lint_state.lint_focus = mods.first().cloned();
+                    self.lint_state.lint_filter.clear();
+                    self.lint_state.lints_toggle_window = Some(WindowLintsToggle);
                 }
                 let settings_icon = egui::Image::new(egui::include_image!("../../../assets/icons/settings.svg"))
                     .fit_to_exact_size(egui::vec2(14.0, 14.0))
@@ -215,7 +215,7 @@ impl App {
                 {
                     self.settings_window = Some(WindowSettings::new(&self.state));
                 }
-                if let Some(available_update) = &self.available_update
+                if let Some(available_update) = &self.update_state.available_update
                     && ui
                         .button(egui::RichText::new("\u{26A0}").color(ui.visuals().warn_fg_color))
                         .on_hover_text(format!(
@@ -235,12 +235,12 @@ impl App {
                         egui::vec2(status_width, ui.spacing().interact_size.y),
                         egui::Layout::left_to_right(Align::Center),
                         |ui| {
-                            if self.update_rid.is_some() {
-                                let progress = if let Some((completed, total)) = self.cache_recovery_progress {
+                            if self.install_state.update_rid.is_some() {
+                                let progress = if let Some((completed, total)) = self.install_state.cache_recovery_progress {
                                     // Repaint when the inactivity threshold expires, even if
                                     // mod.io hasn't sent another progress event.
                                     let waiting = completed < total
-                                        && self.cache_recovery_last_advance.is_some_and(|last| {
+                                        && self.install_state.cache_recovery_last_advance.is_some_and(|last| {
                                             let elapsed = last.elapsed();
                                             let threshold = Duration::from_secs(10);
                                             if elapsed < threshold {
@@ -258,22 +258,22 @@ impl App {
                                     "Updating provider caches...".to_owned()
                                 };
                                 if status_message(ui, &progress) {
-                                    self.status_details = Some(progress);
-                                    self.status_locations.clear();
-                                    self.live_unavailable_details = false;
+                                    self.status_state.status_details = Some(progress);
+                                    self.status_state.status_locations.clear();
+                                    self.status_state.live_unavailable_details = false;
                                 }
-                            } else if self.integrate_rid.is_some() {
-                                let progress = match self.install_phase {
+                            } else if self.install_state.integrate_rid.is_some() {
+                                let progress = match self.install_state.install_phase {
                                     message::InstallPhase::Resolving => "mod.io rate limits may slow version / dependency checks...",
                                     message::InstallPhase::Downloading => "mod.io rate limits may slow downloads / cache checks...",
                                     message::InstallPhase::Integrating => "Writing mods_P.pak...",
                                 };
                                 if status_message(ui, progress) {
-                                    self.status_details = Some(progress.to_owned());
-                                    self.status_locations.clear();
-                                    self.live_unavailable_details = false;
+                                    self.status_state.status_details = Some(progress.to_owned());
+                                    self.status_state.status_locations.clear();
+                                    self.status_state.live_unavailable_details = false;
                                 }
-                            } else if let Some(last_action) = &self.last_action {
+                            } else if let Some(last_action) = &self.status_state.last_action {
                                 // Hide the badge as well if no room remains for it.
                                 if ui.available_width() >= 64.0 {
                                     let (color, message, outcome) = match &last_action.status {
@@ -288,9 +288,9 @@ impl App {
                                     ui.ctx().request_repaint_after(Duration::from_secs(1));
                                     let summary = format!("({}): {}", last_action.timeago(), message);
                                     if status_message(ui, &summary) {
-                                        self.live_unavailable_details = false;
-                                        self.status_locations = last_action.unavailable_locations.clone();
-                                        self.status_details = Some(last_action.details.clone().unwrap_or_else(|| format!("{outcome} {summary}")));
+                                        self.status_state.live_unavailable_details = false;
+                                        self.status_state.status_locations = last_action.unavailable_locations.clone();
+                                        self.status_state.status_details = Some(last_action.details.clone().unwrap_or_else(|| format!("{outcome} {summary}")));
                                     }
                                 }
                             }

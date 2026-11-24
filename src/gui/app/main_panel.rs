@@ -4,7 +4,7 @@ use crate::gui::*;
 impl App {
     pub(in crate::gui) fn frame_main_panel(&mut self, ctx: &egui::Context) {
         egui::CentralPanel::default().show(ctx, |ui| {
-            if self.integrate_rid.is_some() || self.update_rid.is_some() || self.lint_rid.is_some()
+            if self.install_state.integrate_rid.is_some() || self.install_state.update_rid.is_some() || self.lint_state.lint_rid.is_some()
             {
                 ui.disable();
             }
@@ -65,7 +65,7 @@ impl App {
                 Some(buttons),
                 Some(profile_import_button),
                 Some(profile_copy_button),
-                self.resolve_mod_rid.is_none() && self.pending_group_files == 0,
+                self.resolve_state.resolve_mod_rid.is_none() && self.pending_group_files == 0,
             );
             if profile_toolbar_changed || group_changed {
                 Drag::clear_history_selection(ctx);
@@ -73,13 +73,13 @@ impl App {
                 self.edit_history.reset(&self.state.mod_data, self.state.mod_data.revision());
             }
             if let Some(message) = group_success {
-                self.last_action = Some(LastAction::success(message));
+                self.status_state.last_action = Some(LastAction::success(message));
             }
             if let Some(message) = imported_profile {
-                self.last_action = Some(LastAction::success(message));
+                self.status_state.last_action = Some(LastAction::success(message));
             }
             if let Some(result) = copy_feedback {
-                self.last_action = Some(match result {
+                self.status_state.last_action = Some(match result {
                     Ok(message) => LastAction::success(message),
                     Err(message) => LastAction::failure(message),
                 });
@@ -90,12 +90,12 @@ impl App {
                 egui::vec2(ui.available_width(), ui.spacing().interact_size.y),
                 egui::Layout::right_to_left(Align::Center),
                 |ui| {
-                if self.resolve_mod_rid.is_some() {
+                if self.resolve_state.resolve_mod_rid.is_some() {
                     ui.spinner();
                 }
                 if ui
                     .add_enabled(
-                        self.state.config.local_mod_folder.is_some() && self.resolve_mod_rid.is_none(),
+                        self.state.config.local_mod_folder.is_some() && self.resolve_state.resolve_mod_rid.is_none(),
                         egui::Button::new("Import .pak/.zip"),
                     )
                     .on_hover_text("Scan the local mods folder configured in Settings; manage exclusions in the import dialog")
@@ -118,19 +118,19 @@ impl App {
                     };
 
                     let resolve = ui.add_enabled(
-                        self.resolve_mod_rid.is_none(),
-                        egui::TextEdit::singleline(&mut self.resolve_mod)
+                        self.resolve_state.resolve_mod_rid.is_none(),
+                        egui::TextEdit::singleline(&mut self.resolve_state.resolve_mod)
                             .layouter(&mut multiline_layouter)
                             .hint_text("Add mod..."),
                     );
                     if is_committed(&resolve) {
-                        if looks_like_structured_json(&self.resolve_mod) {
-                            self.last_action = Some(LastAction::failure(
+                        if looks_like_structured_json(&self.resolve_state.resolve_mod) {
+                            self.status_state.last_action = Some(LastAction::failure(
                                 "JSON cannot be added as mod URLs. Use Profiles > Import Profile (JSON).".into(),
                             ));
                         } else {
                             message::ResolveMods::send(self, ctx, self.parse_mods(), false);
-                            self.problematic_mod_id = None;
+                            self.status_state.problematic_mod_id = None;
                         }
                     }
                 });
@@ -188,10 +188,10 @@ impl App {
                 }
 
                 // Keep history controls beside sorting while preserving their shortcuts.
-                let history_enabled = self.resolve_mod_rid.is_none()
-                    && self.integrate_rid.is_none()
-                    && self.update_rid.is_none()
-                    && self.lint_rid.is_none();
+                let history_enabled = self.resolve_state.resolve_mod_rid.is_none()
+                    && self.install_state.integrate_rid.is_none()
+                    && self.install_state.update_rid.is_none()
+                    && self.lint_state.lint_rid.is_none();
                 let undo_image = egui::Image::new(egui::include_image!("../../../assets/icons/undo.svg"))
                     .fit_to_exact_size(egui::vec2(17.0, 17.0))
                     .tint(ui.visuals().text_color());
@@ -235,7 +235,7 @@ impl App {
 
                 ui.add_space(16.);
                 // TODO: actually implement mod groups.
-                let search_string = &mut self.search_string;
+                let search_string = &mut self.search.search_string;
                 let show_clear = !search_string.is_empty();
                 let lower = search_string.to_lowercase();
                 let any_matches = self.state.mod_data.any_mod(&profile, |mc, _| {
@@ -250,10 +250,10 @@ impl App {
                     crate::gui::search_field::show(ui, search_string, any_matches, show_clear);
                 if clear_clicked {
                     search_string.clear();
-                    self.scroll_to_match = false;
+                    self.search.scroll_to_match = false;
                     res.request_focus();
                 } else if res.changed() {
-                    self.scroll_to_match = true;
+                    self.search.scroll_to_match = true;
                 }
                 if res.lost_focus()
                     && ui.input(|i| {
@@ -261,10 +261,10 @@ impl App {
                     })
                 {
                     search_string.clear();
-                    self.scroll_to_match = false;
-                } else if self.focus_search {
+                    self.search.scroll_to_match = false;
+                } else if self.search.focus_search {
                     res.request_focus();
-                    self.focus_search = false;
+                    self.search.focus_search = false;
                 }
             });
             let toolbar_rect = egui::Rect::from_min_max(
@@ -293,8 +293,8 @@ impl App {
             let is_anything_focused = ctx.memory(|m| m.focused().is_some());
             ctx.input(|i| {
                 if !i.raw.dropped_files.is_empty()
-                    && self.integrate_rid.is_none()
-                    && self.update_rid.is_none()
+                    && self.install_state.integrate_rid.is_none()
+                    && self.install_state.update_rid.is_none()
                 {
                     if let Some((group, prepend)) = &file_group {
                         let paths = i
@@ -323,36 +323,36 @@ impl App {
                             mods.push('\n');
                         }
 
-                        self.resolve_mod = mods.trim().to_string();
+                        self.resolve_state.resolve_mod = mods.trim().to_string();
                         message::ResolveMods::send(self, ctx, self.parse_mods(), false);
-                        self.problematic_mod_id = None;
+                        self.status_state.problematic_mod_id = None;
                     }
                 }
                 for e in &i.events {
                     match e {
                         egui::Event::Paste(s) => {
-                            if self.integrate_rid.is_none()
-                                && self.update_rid.is_none()
-                                && self.lint_rid.is_none()
+                            if self.install_state.integrate_rid.is_none()
+                                && self.install_state.update_rid.is_none()
+                                && self.lint_state.lint_rid.is_none()
                                 && !is_anything_focused
                             {
                                 // A global paste with no focused text field is a mod-list shortcut.
                                 // Never feed profile/group JSON keys (such as `id`) to mod providers.
                                 if looks_like_structured_json(s) {
-                                    self.last_action = Some(LastAction::failure(
+                                    self.status_state.last_action = Some(LastAction::failure(
                                         "Profile JSON detected. Open Profiles > Import Profile (JSON), click its text field, then paste.".into(),
                                     ));
                                 } else {
-                                    self.resolve_mod = s.trim().to_string();
+                                    self.resolve_state.resolve_mod = s.trim().to_string();
                                     message::ResolveMods::send(self, ctx, self.parse_mods(), false);
                                 }
                             }
                         }
                         egui::Event::Text(text)
                             if !is_anything_focused && !text.trim().is_empty() => {
-                                self.search_string = text.to_string();
-                                self.scroll_to_match = true;
-                                self.focus_search = true;
+                                self.search.search_string = text.to_string();
+                                self.search.scroll_to_match = true;
+                                self.search.focus_search = true;
                             }
                         _ => {}
                     }
