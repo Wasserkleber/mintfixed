@@ -1,4 +1,5 @@
-use super::*;
+use super::{ResolveMods, App, MessageHandle, ModSpecification, ModInfo, HashMap};
+use crate::{Dirs, providers::ModResolution};
 
 fn app() -> (tempfile::TempDir, App) {
     let dir = tempfile::tempdir().unwrap();
@@ -39,7 +40,6 @@ fn result(app: &mut App) -> ResolveMods {
     ResolveMods {
         rid,
         profile_id: app.state.mod_data.profiles["default"].id.clone(),
-        profile: "default".into(),
         input: "submitted input".into(),
         specs: vec![spec.clone()],
         result: Ok(HashMap::from([(spec, info)])),

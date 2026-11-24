@@ -354,8 +354,6 @@ pub(in crate::gui) fn extract_bundle(
         &mut archive,
         &parsed.manifest.files,
         folder,
-        &parsed.manifest.name,
-        "profile",
     )?;
     let mut document = parsed.document;
     visit_urls_mut(&mut document, |url| {

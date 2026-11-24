@@ -1,9 +1,13 @@
-use super::*;
+use std::{collections::HashMap, ops::{Deref, DerefMut}};
+use tracing::error;
+use crate::gui::{App, LastAction, WindowProviderParameters, request_counter::RequestID};
+use crate::providers::{ModInfo, ModSpecification, ProviderError};
+use crate::state::{ModConfig, ModData_v0_1_0 as ModData, ModOrGroup};
+use super::{Message, MessageHandle};
 
 #[derive(Debug)]
 pub struct ResolveMods {
     rid: RequestID,
-    profile: String,
     profile_id: String,
     input: String,
     specs: Vec<ModSpecification>,
@@ -112,7 +116,6 @@ impl ResolveMods {
             let result = store.resolve_mods(&specs, false).await;
             tx.send(Message::ResolveMods(Self {
                 rid,
-                profile,
                 profile_id,
                 input,
                 specs,
@@ -132,7 +135,7 @@ impl ResolveMods {
         });
     }
 
-    pub(super) fn receive(mut self, app: &mut App) {
+    pub(super) fn receive(self, app: &mut App) {
         if Some(self.rid) == app.resolve_state.resolve_mod_rid.as_ref().map(|r| r.rid) {
             if self.from_bitfix {
                 // Bitfix additions are global; they must not depend on a profile still existing.
@@ -198,7 +201,6 @@ impl ResolveMods {
                 ));
                 return;
             };
-            self.profile = destination;
             match self.result {
                 Ok(mut resolved_mods) => {
                     let before = app.state.mod_data.deref().deref().clone();
@@ -235,10 +237,10 @@ impl ResolveMods {
                             // mod that satisfies the dependency and enable it.
                             !app.state
                                 .mod_data
-                                .enable_dependency(&self.profile, &resolved_spec)
+                                .enable_dependency(&destination, &resolved_spec)
                         } else {
                             let data = &mut app.state.mod_data;
-                            let profile = data.profiles.get_mut(&self.profile).unwrap();
+                            let profile = data.profiles.get_mut(&destination).unwrap();
                             let requested =
                                 if crate::providers::modio::pinned_file(&resolved_spec.url)
                                     .is_some()
@@ -273,7 +275,7 @@ impl ResolveMods {
                             let ModData { profiles, .. } =
                                 app.state.mod_data.deref_mut().deref_mut();
 
-                            profiles.get_mut(&self.profile).unwrap().mods.insert(
+                            profiles.get_mut(&destination).unwrap().mods.insert(
                                 insertion_index,
                                 ModOrGroup::Individual(ModConfig {
                                     id: crate::state::new_id(),
@@ -303,11 +305,7 @@ impl ResolveMods {
                         )));
                         return;
                     }
-                    if self.from_bitfix {
-                        if app.bitfix_menu.input == self.input {
-                            app.bitfix_menu.input.clear();
-                        }
-                    } else if app.resolve_state.resolve_mod == self.input {
+                    if app.resolve_state.resolve_mod == self.input {
                         app.resolve_state.resolve_mod.clear();
                     }
                     app.status_state.last_action = Some(LastAction::success(format!(
@@ -318,7 +316,7 @@ impl ResolveMods {
                         } else {
                             "s"
                         },
-                        self.profile
+                        destination
                     )));
                 }
                 Err(ProviderError::NoProvider { url: _, factory }) => {

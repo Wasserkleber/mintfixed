@@ -245,8 +245,6 @@ pub(super) fn extract_bundle(path: &Path, folder: &Path) -> Result<ModGroup, Str
         &mut archive,
         &parsed.manifest.files,
         folder,
-        &parsed.manifest.name,
-        "group",
     )?;
     let mut imported_group = parsed.group;
     for item in &mut imported_group.mods {

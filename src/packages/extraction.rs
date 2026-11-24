@@ -105,8 +105,6 @@ pub(crate) fn extract_mod_files(
     archive: &mut ZipArchive<File>,
     files: &[IncludedFile],
     folder: &Path,
-    _package_name: &str,
-    _package_kind: &str,
 ) -> Result<InstalledModFiles, String> {
     if !folder.is_dir() {
         return Err(format!(

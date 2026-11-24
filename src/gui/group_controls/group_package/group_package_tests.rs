@@ -143,13 +143,13 @@ fn remote_only_bundle_needs_no_configured_mod_folder() {
 use crate::providers::ModSpecification;
 
 #[test]
-fn package_filenames_are_unique_and_safe() {
+fn package_filenames_preserve_basename_and_reject_unsafe_paths() {
     assert_eq!(
-        bundle_filename(0, r"C:\mods\tool.pak").unwrap(),
+        bundle_filename(r"C:\mods\tool.pak").unwrap(),
         "mods/tool.pak"
     );
     assert_eq!(
-        bundle_filename(1, r"D:\more\tool.pak").unwrap(),
+        bundle_filename(r"D:\more\tool.pak").unwrap(),
         "mods/tool.pak"
     );
     assert!(!safe_archive_path("mods/../escape.pak"));

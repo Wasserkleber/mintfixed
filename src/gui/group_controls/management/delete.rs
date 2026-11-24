@@ -67,7 +67,6 @@ pub(super) fn show_delete(
             });
         } else if group_action_button(
             ui, "Delete group",
-            data.groups.get(&delete_editor.selected).and_then(|g| g.tint_color.as_deref()),
             !delete_editor.selected.is_empty() && !files_pending,
         ).clicked() {
             delete_editor.confirming = true;

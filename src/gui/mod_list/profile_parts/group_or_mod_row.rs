@@ -3,20 +3,9 @@
                                mc: &mut ModOrGroup,
                                row_index: usize| {
                 ui.scope(|ui| {
-                    // Color group rows just like the group header, but keep standalone mods neutral.
-                    let delete_accent = match &*mc {
-                        ModOrGroup::Group { group_name, .. } => group_tint_snapshot
-                            .get(group_name.as_str())
-                            .and_then(|color| color.as_deref())
-                            .map(|color| {
-                                mod_list_style::swatch_color(Some(color), ui.visuals().dark_mode)
-                            }),
-                        _ => None,
-                    };
-
                     ui.visuals_mut().widgets.hovered.weak_bg_fill = colors::DARK_RED;
                     ui.visuals_mut().widgets.active.weak_bg_fill = colors::DARKER_RED;
-                    if icon_buttons::delete_button(ui, delete_accent)
+                    if icon_buttons::delete_button(ui)
                         .on_hover_text_at_pointer("Delete mod")
                         .clicked()
                     {
@@ -214,13 +203,9 @@ ui.push_id(("group", group_name.as_str(), index), |ui| {
                                                 Drag::handle(ui, profile_name, Some(group_name), index, &group.mods[index].id, false);
                                             }
                                             ui.scope(|ui| {
-                                                // Match the shared group's selected color.
-                                                let delete_accent = selected_group_tint.as_deref()
-                                                    .map(|color| mod_list_style::swatch_color(Some(color), ui.visuals().dark_mode));
-
                                                 ui.visuals_mut().widgets.hovered.weak_bg_fill = colors::DARK_RED;
                                                 ui.visuals_mut().widgets.active.weak_bg_fill = colors::DARKER_RED;
-                                                if icon_buttons::delete_button(ui, delete_accent)
+                                                if icon_buttons::delete_button(ui)
                                                     .on_hover_text_at_pointer("Remove mod from shared group (confirmation required)")
                                                     .clicked()
                                                 {

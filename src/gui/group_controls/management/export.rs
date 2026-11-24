@@ -76,9 +76,6 @@ if export_editor.job.is_some() {
             if group_action_button(
                 ui,
                 "Export group",
-                data.groups
-                    .get(&export_editor.selected)
-                    .and_then(|g| g.tint_color.as_deref()),
                 data.groups.contains_key(&export_editor.selected) && export_editor.job.is_none(),
 )
 .clicked()

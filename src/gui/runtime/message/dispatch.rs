@@ -1,4 +1,7 @@
-use super::*;
+use tokio::task::JoinHandle;
+use crate::gui::{App, LastAction, request_counter::RequestID};
+use crate::providers::ModSpecification;
+use super::{CheckUpdates, FetchModProgress, FetchSelfUpdateProgress, Integrate, LintMods, ResolveMods, SelfUpdate, UpdateCache};
 
 #[derive(Debug, Clone, Copy)]
 pub(in crate::gui) enum InstallPhase {

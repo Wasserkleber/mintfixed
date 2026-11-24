@@ -45,7 +45,7 @@
                     */
 
                     if issues.duplicate(group, row_index)
-                        && icon_buttons::warning_button(ui, group_control_tint)
+                        && icon_buttons::warning_button(ui)
                             .on_hover_text("Remove this duplicate entry")
                             .clicked()
                     {
@@ -192,7 +192,7 @@
                                         msg.push_str(&dep.url);
                                     }
                                 }
-                                if icon_buttons::warning_button(ui, group_control_tint)
+                                if icon_buttons::warning_button(ui)
                                     .on_hover_text(msg)
                                     .clicked()
                                 {

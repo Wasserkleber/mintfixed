@@ -1,4 +1,12 @@
-use super::*;
+use std::path::PathBuf;
+use tokio::sync::mpsc::{self, Sender};
+use tracing::{debug, error, info};
+use snafu::prelude::*;
+#[cfg(target_os = "linux")]
+use fs_err as fs;
+use crate::gui::{App, LastAction, SelfUpdateProgress, request_counter::{RequestCounter, RequestID}};
+use crate::integrate::{IntegrationError, SelfUpdateFailedSnafu};
+use super::{Message, MessageHandle};
 
 #[derive(Debug)]
 pub struct SelfUpdate {

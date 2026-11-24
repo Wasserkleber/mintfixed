@@ -1,12 +1,12 @@
-//! One compact SVG delete button shared by the mod-list row renderers.
-//! A chosen group color softly tints both glyph and background.
+//! Compact SVG controls shared by the mod-list row renderers.
+//! Warning and destructive controls retain fixed colors.
 use eframe::egui::{self, Color32, Ui};
 
 use super::widget_style::blend;
 
 /// Returns the usual egui response so existing click/confirmation code stays unchanged.
 /// Always-red destructive control. Group colors intentionally do not apply.
-pub(in crate::gui) fn delete_button(ui: &mut Ui, _group_color: Option<Color32>) -> egui::Response {
+pub(in crate::gui) fn delete_button(ui: &mut Ui) -> egui::Response {
     let dark = ui.visuals().dark_mode;
     let (background, hovered_background, active_background, icon_color, hovered_icon) = if dark {
         (
@@ -80,9 +80,8 @@ pub(in crate::gui) fn copy_url_button(ui: &mut Ui, group_color: Option<Color32>)
 }
 /// Warning indicator for duplicate mods and missing dependencies.
 /// Keep its glyph a fixed, vivid orange even inside colored or disabled groups.
-/// Only the button background is softly influenced by the selected group tint.
 /// Always-orange warning indicator, even inside tinted groups.
-pub(in crate::gui) fn warning_button(ui: &mut Ui, _group_color: Option<Color32>) -> egui::Response {
+pub(in crate::gui) fn warning_button(ui: &mut Ui) -> egui::Response {
     let dark = ui.visuals().dark_mode;
     let (background, hovered_background, active_background) = if dark {
         (

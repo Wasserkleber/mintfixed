@@ -84,9 +84,6 @@ pub(super) fn show_rename(
         if group_action_button(
             ui,
             "Rename in all profiles",
-            data.groups
-                .get(&editor.selected)
-                .and_then(|g| g.tint_color.as_deref()),
             available && !files_pending,
         )
         .clicked()

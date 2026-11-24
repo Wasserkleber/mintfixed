@@ -84,9 +84,6 @@ pub(super) fn show_duplicate(
             if group_action_button(
                 ui,
                 "Duplicate group",
-                data.groups
-                    .get(&duplicate_editor.selected)
-                    .and_then(|g| g.tint_color.as_deref()),
                 available,
             )
             .clicked()

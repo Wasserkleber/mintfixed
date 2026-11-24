@@ -33,7 +33,7 @@ pub(crate) fn safe_component(value: &str) -> String {
 
 /// Use the actual filename in portable ZIPs, not a four-digit index.
 /// The manifest tracks both its original name and SHA-256 independently.
-pub(crate) fn bundle_filename(_index: usize, url: &str) -> Result<String, String> {
+pub(crate) fn bundle_filename(url: &str) -> Result<String, String> {
     let filename = url.rsplit(['/', '\\']).next().unwrap_or_default();
     let member = format!("mods/{filename}");
     if !safe_archive_path(&member) {
@@ -51,7 +51,7 @@ pub(crate) fn unique_bundle_filename(
     url: &str,
     used: &mut HashSet<String>,
 ) -> Result<String, String> {
-    let base = bundle_filename(0, url)?;
+    let base = bundle_filename(url)?;
     if used.insert(base.to_lowercase()) {
         return Ok(base);
     }

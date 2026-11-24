@@ -3,7 +3,7 @@ use super::*;
 /// A full-width dropdown row with the name left-aligned.
 /// The whole row receives hover highlighting and click input.
 /// Use exactly the same saved tint and palette as the mod list.
-pub(super) fn management_group_accent(ui: &Ui, tint: Option<&str>) -> Option<egui::Color32> {
+fn management_group_accent(ui: &Ui, tint: Option<&str>) -> Option<egui::Color32> {
     let tint = tint?;
     if !mod_list_style::COLOR_OPTIONS
         .iter()
@@ -17,7 +17,7 @@ pub(super) fn management_group_accent(ui: &Ui, tint: Option<&str>) -> Option<egu
     ))
 }
 
-pub(super) fn management_text(ui: &Ui, tint: egui::Color32) -> egui::Color32 {
+fn management_text(ui: &Ui, tint: egui::Color32) -> egui::Color32 {
     // Keep even yellow and other light colors legible in light themes.
     crate::gui::widget_style::blend(
         ui.visuals().text_color(),
@@ -78,7 +78,6 @@ pub(super) fn group_picker_button(
 pub(super) fn group_action_button(
     ui: &mut Ui,
     label: &str,
-    _tint: Option<&str>,
     enabled: bool,
 ) -> egui::Response {
     ui.add_enabled(enabled, Button::new(label))
