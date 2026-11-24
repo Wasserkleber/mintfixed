@@ -1,5 +1,5 @@
 #[derive(Debug, Clone, Copy)]
-pub(super) enum InstallPhase {
+pub(in crate::gui) enum InstallPhase {
     Resolving,
     Downloading,
     Integrating,
@@ -15,7 +15,7 @@ pub struct MessageHandle<S> {
 #[derive(Debug)]
 pub enum Message {
     GroupFiles {
-        target: super::group_controls::GroupDestination,
+        target: crate::gui::group_controls::GroupDestination,
         prepend: bool,
         files: Result<Vec<ModSpecification>, String>,
     },
@@ -49,7 +49,7 @@ impl Message {
                 app.pending_group_files = app.pending_group_files.saturating_sub(1);
                 match target.resolve(&app.state.mod_data) {
                     Some((profile, group)) => {
-                        super::group_controls::add_files(app, profile, group, prepend, files)
+                        crate::gui::group_controls::add_files(app, profile, group, prepend, files)
                     }
                     None => {
                         app.last_action = Some(LastAction::failure(

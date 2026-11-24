@@ -1,4 +1,6 @@
-fn show_export(
+use super::*;
+
+pub(super) fn show_export(
     ui: &mut Ui,
     data: &Data,
     export_editor: &mut ExportEditor,

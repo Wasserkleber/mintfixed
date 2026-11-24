@@ -1,8 +1,8 @@
 // Main frame concern extracted from app/frame.rs; original statements and ordering preserved.
-use super::*;
+use crate::gui::*;
 
 impl App {
-    pub(super) fn frame_toolbar(&mut self, ctx: &egui::Context) {
+    pub(in crate::gui) fn frame_toolbar(&mut self, ctx: &egui::Context) {
         egui::TopBottomPanel::bottom("bottom_panel").show(ctx, |ui| {
             ui.horizontal(|ui| {
                 // Keep launching DRG next to the Crash Logger on the left.

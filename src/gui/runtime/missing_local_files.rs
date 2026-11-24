@@ -7,7 +7,7 @@ use std::sync::{Arc, Mutex};
 use crate::state::{ModData_v0_1_0 as Data, ModGroup, ModOrGroup};
 
 #[derive(Clone, Debug)]
-pub(super) enum Origin {
+pub(in crate::gui) enum Origin {
     Profile(String),
     Group(String),
 }
@@ -243,11 +243,11 @@ fn looks_like_local_path(value: &str) -> bool {
     windows_absolute || rooted || mod_file
 }
 
-pub(super) fn is_missing_local_path(value: &str) -> bool {
+pub(in crate::gui) fn is_missing_local_path(value: &str) -> bool {
     looks_like_local_path(value) && !Path::new(value).exists()
 }
 
-pub(super) fn group_missing_paths(group: &ModGroup) -> Vec<String> {
+pub(in crate::gui) fn group_missing_paths(group: &ModGroup) -> Vec<String> {
     group
         .mods
         .iter()
@@ -259,7 +259,7 @@ pub(super) fn group_missing_paths(group: &ModGroup) -> Vec<String> {
         .collect()
 }
 
-pub(super) fn profile_missing_paths(data: &Data, profile_name: &str) -> Vec<String> {
+pub(in crate::gui) fn profile_missing_paths(data: &Data, profile_name: &str) -> Vec<String> {
     let Some(profile) = data.profiles.get(profile_name) else {
         return Vec::new();
     };
@@ -281,7 +281,7 @@ pub(super) fn profile_missing_paths(data: &Data, profile_name: &str) -> Vec<Stri
     missing.into_iter().collect()
 }
 
-pub(super) fn notify(ctx: &egui::Context, origin: Origin, paths: Vec<String>) {
+pub(in crate::gui) fn notify(ctx: &egui::Context, origin: Origin, paths: Vec<String>) {
     if paths.is_empty() {
         return;
     }
@@ -385,7 +385,7 @@ fn relocate(
 }
 
 /// Returns true only when a saved URL was changed and the caller must save it.
-pub(super) fn show(ctx: &egui::Context, data: &mut Data, configured_folder: Option<&Path>) -> bool {
+pub(in crate::gui) fn show(ctx: &egui::Context, data: &mut Data, configured_folder: Option<&Path>) -> bool {
     let key = egui::Id::new(NOTICE_ID);
     let Some(mut notice) = ctx.data(|memory| memory.get_temp::<Notice>(key)) else {
         return false;
@@ -523,5 +523,4 @@ pub(super) fn show(ctx: &egui::Context, data: &mut Data, configured_folder: Opti
 }
 
 #[cfg(test)]
-#[path = "missing_local_files/tests.rs"]
 mod tests;

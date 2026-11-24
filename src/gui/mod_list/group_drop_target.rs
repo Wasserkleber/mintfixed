@@ -1,9 +1,9 @@
 // Full-width group header hit testing, hover-open and drop feedback.
 // Kept separate from group title/appearance rendering.
-use super::*;
+use crate::gui::*;
 
 #[allow(clippy::too_many_arguments)]
-pub(super) fn render_group_drop_target(
+pub(in crate::gui) fn render_group_drop_target(
     ui: &mut Ui,
     header_response: &egui::Response,
     body_response: Option<&egui::Response>,

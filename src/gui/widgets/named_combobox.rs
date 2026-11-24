@@ -70,7 +70,7 @@ where
     ui.push_id(name, |ui| {
         ui.horizontal(|ui| {
             ui.add_enabled_ui(allow_edit, |ui| {
-                super::profile_management::ui(
+                crate::gui::profile_management::ui(
                     ui,
                     name,
                     entries,

@@ -13,7 +13,7 @@ use std::{
 use eframe::egui;
 use mint_lib::DRGInstallation;
 
-use super::State;
+use crate::state::State;
 
 const HEADER_BYTES: u64 = 2048;
 const MAX_RETAINED_CRASHES: usize = 50;
@@ -22,7 +22,7 @@ const MAX_RETAINED_SELF_TESTS: usize = 2;
 const MIN_CLEANUP_AGE: Duration = Duration::from_secs(30);
 
 #[derive(Default)]
-pub(super) struct CrashHistory {
+pub(in crate::gui) struct CrashHistory {
     open: bool,
     reports: Vec<CrashReport>,
     error: Option<String>,
@@ -67,7 +67,7 @@ struct ScanResult {
 }
 
 // Same size, padding and tinting as the Settings cogwheel in the footer.
-pub(super) fn toolbar_button(ui: &mut egui::Ui) -> bool {
+pub(in crate::gui) fn toolbar_button(ui: &mut egui::Ui) -> bool {
     let icon = egui::Image::new(egui::include_image!("../../../assets/icons/crash.svg"))
         .fit_to_exact_size(egui::vec2(14.0, 14.0))
         .tint(ui.visuals().text_color());
@@ -77,7 +77,7 @@ pub(super) fn toolbar_button(ui: &mut egui::Ui) -> bool {
 }
 
 impl CrashHistory {
-    pub(super) fn open(&mut self, state: &State) {
+    pub(in crate::gui) fn open(&mut self, state: &State) {
         self.sync_directory(state);
         self.open = true;
         if self.pending.is_none() {
@@ -160,7 +160,7 @@ impl CrashHistory {
         }
     }
 
-    pub(super) fn show(&mut self, ctx: &egui::Context, state: &State) {
+    pub(in crate::gui) fn show(&mut self, ctx: &egui::Context, state: &State) {
         if self.open {
             self.sync_directory(state);
         }
@@ -492,5 +492,4 @@ fn open_report(path: &Path) -> std::io::Result<()> {
 }
 
 #[cfg(test)]
-#[path = "crash_history/tests.rs"]
 mod tests;

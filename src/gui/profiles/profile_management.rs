@@ -1,17 +1,13 @@
 //! Profile Management popup (create, rename, duplicate, copy, import and delete profiles).
 //! Kept separate from the reusable profile selector and the JSON importer.
-use super::named_combobox::NamedEntries;
+use crate::gui::named_combobox::NamedEntries;
 
-#[path = "profile_management/actions.rs"]
 mod actions;
-#[path = "profile_management/export_files.rs"]
 mod export_files;
-#[path = "profile_management/export_ui.rs"]
 mod export_ui;
-#[path = "profile_management/picker.rs"]
 mod picker;
 
-pub(super) use export_ui::copy_options;
+pub(in crate::gui) use export_ui::copy_options;
 
 // Persistent input state for the single profile management menu.
 #[derive(Debug, Clone, Default)]
@@ -31,7 +27,7 @@ struct ProfileManagementEditor {
 
 /// Profile actions in one popup. Inline editors avoid nesting egui popups,
 /// which would otherwise close each other or lose their text-field focus.
-pub(super) fn ui<E, N>(
+pub(in crate::gui) fn ui<E, N>(
     ui: &mut egui::Ui,
     name: &str,
     entries: &mut N,

@@ -1,4 +1,6 @@
-fn show_rename(
+use super::*;
+
+pub(super) fn show_rename(
     ui: &mut Ui,
     data: &Data,
     editor: &mut RenameEditor,

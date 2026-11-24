@@ -1,4 +1,6 @@
-fn show_import(
+use super::*;
+
+pub(super) fn show_import(
     ui: &mut Ui,
     data: &Data,
     import_editor: &mut ImportEditor,

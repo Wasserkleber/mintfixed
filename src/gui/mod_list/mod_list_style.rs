@@ -2,7 +2,7 @@
 //! Tint selection is stored with each ModGroup; no automatic per-name colors.
 use eframe::egui::{self, Color32, Ui};
 
-pub(super) use crate::group_palette::COLOR_OPTIONS;
+pub(in crate::gui) use crate::group_palette::COLOR_OPTIONS;
 
 fn accent(color: &str) -> Option<Color32> {
     Some(match color {
@@ -26,7 +26,7 @@ fn accent(color: &str) -> Option<Color32> {
     })
 }
 
-pub(super) fn swatch_color(color: Option<&str>, dark: bool) -> Color32 {
+pub(in crate::gui) fn swatch_color(color: Option<&str>, dark: bool) -> Color32 {
     color.and_then(accent).unwrap_or(if dark {
         Color32::from_gray(120)
     } else {
@@ -34,11 +34,11 @@ pub(super) fn swatch_color(color: Option<&str>, dark: bool) -> Color32 {
     })
 }
 
-use super::widget_style::blend as mix;
+use crate::gui::widget_style::blend as mix;
 
 /// Readable group-header text and arrow accent, blended with the active theme.
 /// Uncolored groups use a quieter neutral gray instead of the bright theme foreground.
-pub(super) fn group_header_text_color(ui: &Ui, selected: Option<&str>) -> Option<Color32> {
+pub(in crate::gui) fn group_header_text_color(ui: &Ui, selected: Option<&str>) -> Option<Color32> {
     Some(match selected.and_then(accent) {
         Some(accent) => mix(
             ui.visuals().text_color(),
@@ -51,7 +51,7 @@ pub(super) fn group_header_text_color(ui: &Ui, selected: Option<&str>) -> Option
 }
 
 /// Only matching selected colors can be striped; other colors remain uniform.
-pub(super) fn same_selected_color(previous: Option<&str>, current: Option<&str>) -> bool {
+pub(in crate::gui) fn same_selected_color(previous: Option<&str>, current: Option<&str>) -> bool {
     matches!((previous, current), (Some(a), Some(b)) if a == b)
 }
 
@@ -69,7 +69,7 @@ mod matching_color_stripe_tests {
     }
 }
 
-pub(super) fn row_frame(
+pub(in crate::gui) fn row_frame(
     ui: &Ui,
     visual_index: usize,
     is_group: bool,
@@ -162,7 +162,7 @@ pub(super) fn row_frame(
 
 // mintfixed-selection-boundaries-v1: selection is a muted fill, not a box.
 // Use the existing row color as the base so group tints remain visible.
-pub(super) fn selected_row_frame(ui: &Ui, frame: egui::Frame) -> egui::Frame {
+pub(in crate::gui) fn selected_row_frame(ui: &Ui, frame: egui::Frame) -> egui::Frame {
     let base = if frame.fill == Color32::TRANSPARENT {
         ui.visuals().panel_fill
     } else {
@@ -186,7 +186,7 @@ pub(super) fn selected_row_frame(ui: &Ui, frame: egui::Frame) -> egui::Frame {
 /// Softly tint only the version selector and load-priority control of a
 /// mod inside a manually colored group. Call from a `ui.scope` so other
 /// widgets (toggles, icons, popup controls, standalone mods) are unaffected.
-pub(super) fn tint_group_member_controls(ui: &mut Ui, selected: Option<Color32>) {
+pub(in crate::gui) fn tint_group_member_controls(ui: &mut Ui, selected: Option<Color32>) {
     let Some(accent) = selected else {
         return;
     };
@@ -219,7 +219,7 @@ pub(super) fn tint_group_member_controls(ui: &mut Ui, selected: Option<Color32>)
 // Draw an entire palette entry as one click target. The filled swatch and
 // colored text use the existing group accent; selection is shown on the right.
 // No group settings or save behavior are changed here.
-pub(super) fn color_menu_option(
+pub(in crate::gui) fn color_menu_option(
     ui: &mut Ui,
     color_key: Option<&str>,
     label: &str,

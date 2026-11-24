@@ -1,4 +1,4 @@
-use super::*;
+use crate::gui::*;
 use mint_lib::mod_replacements;
 use std::collections::HashSet;
 
@@ -10,7 +10,7 @@ enum Choice {
 }
 
 impl App {
-    pub(super) fn show_replacement_prompt(&mut self, ctx: &egui::Context) {
+    pub(in crate::gui) fn show_replacement_prompt(&mut self, ctx: &egui::Context) {
         let Some(mut pending) = self.pending_replacement_addition.take() else {
             return;
         };

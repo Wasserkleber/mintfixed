@@ -1,4 +1,4 @@
-use super::*;
+use crate::gui::*;
 // The local-file installation blocker can contain both a contextual entry
 // (path + profile/group) and the same path again as a plain row.  Keep the
 // contextual entry; suppress only the redundant plain row in status details.
@@ -51,7 +51,7 @@ fn compact_missing_local_file_details(details: &str) -> String {
 }
 
 impl App {
-    pub(super) fn frame_status_details(&mut self, ctx: &egui::Context) {
+    pub(in crate::gui) fn frame_status_details(&mut self, ctx: &egui::Context) {
         let mut show = None;
         let mut refresh_cache = false;
         if self.status_details.is_some() {
@@ -200,7 +200,7 @@ impl App {
 }
 
 impl App {
-    pub(super) fn refresh_unavailable_overview(&mut self) {
+    pub(in crate::gui) fn refresh_unavailable_overview(&mut self) {
         let data = &self.state.mod_data;
         let store = &self.state.store;
         let changed =
@@ -228,7 +228,7 @@ impl App {
         self.live_unavailable_details = true;
     }
 
-    pub(super) fn unavailable_overview_button(&mut self, ui: &mut egui::Ui) {
+    pub(in crate::gui) fn unavailable_overview_button(&mut self, ui: &mut egui::Ui) {
         let count = self.unavailable_overview.entries.len();
         if count == 0 {
             return;

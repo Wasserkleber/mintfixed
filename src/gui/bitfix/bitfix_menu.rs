@@ -1,19 +1,19 @@
 //! Global bitfix Lua management UI, independent of ordinary mod profiles.
-use super::*;
+use crate::gui::*;
 
-pub(super) const REDIRECT_HINT: &str = "Bitfix Lua scripts cannot be added here. Open the Bitfix menu using the button in the bottom-left corner.";
+pub(in crate::gui) const REDIRECT_HINT: &str = "Bitfix Lua scripts cannot be added here. Open the Bitfix menu using the button in the bottom-left corner.";
 
 #[derive(Default)]
-pub(super) struct BitfixMenu {
-    pub(super) open: bool,
-    pub(super) input: String,
+pub(in crate::gui) struct BitfixMenu {
+    pub(in crate::gui) open: bool,
+    pub(in crate::gui) input: String,
     /// Tracks the target through the final native drop frame.
     drop_hovered: bool,
     // Keep a snapshot so the confirmation cannot delete a DLL silently changed in the meantime.
-    pub(super) pending_conflict: Option<(PathBuf, Vec<u8>)>,
+    pub(in crate::gui) pending_conflict: Option<(PathBuf, Vec<u8>)>,
 }
 
-pub(super) fn is_lua_spec(spec: &ModSpecification) -> bool {
+pub(in crate::gui) fn is_lua_spec(spec: &ModSpecification) -> bool {
     spec.url
         .split(['?', '#'])
         .next()
@@ -22,7 +22,7 @@ pub(super) fn is_lua_spec(spec: &ModSpecification) -> bool {
         .ends_with(".lua")
 }
 
-pub(super) fn toolbar_button(ui: &mut Ui) -> bool {
+pub(in crate::gui) fn toolbar_button(ui: &mut Ui) -> bool {
     let icon = egui::Image::new(egui::include_image!("../../../assets/icons/bitfix.svg"))
         .fit_to_exact_size(egui::vec2(14.0, 14.0))
         .tint(ui.visuals().text_color());
@@ -76,7 +76,7 @@ fn dropped_lua_paths(files: &[egui::DroppedFile]) -> Result<Vec<PathBuf>, &'stat
 }
 
 impl App {
-    pub(super) fn preflight_bitfix_proxy(&mut self) -> bool {
+    pub(in crate::gui) fn preflight_bitfix_proxy(&mut self) -> bool {
         match conflict_for_active(&self.state) {
             Ok(None) => true,
             Ok(Some(path)) => match std::fs::read(&path) {
@@ -102,7 +102,7 @@ impl App {
         }
     }
 
-    pub(super) fn start_install_for_active(&mut self, ctx: &egui::Context) {
+    pub(in crate::gui) fn start_install_for_active(&mut self, ctx: &egui::Context) {
         if self.integrate_rid.is_some() || self.update_rid.is_some() {
             return;
         }
@@ -130,7 +130,7 @@ impl App {
         self.problematic_mod_id = None;
     }
 
-    pub(super) fn show_bitfix_menu(&mut self, ctx: &egui::Context) {
+    pub(in crate::gui) fn show_bitfix_menu(&mut self, ctx: &egui::Context) {
         if !self.bitfix_menu.open {
             return;
         }
@@ -275,7 +275,7 @@ impl App {
         }
     }
 
-    pub(super) fn show_bitfix_conflict(&mut self, ctx: &egui::Context) {
+    pub(in crate::gui) fn show_bitfix_conflict(&mut self, ctx: &egui::Context) {
         let Some((path, original_bytes)) = self.bitfix_menu.pending_conflict.as_ref() else {
             return;
         };

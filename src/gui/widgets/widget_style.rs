@@ -2,7 +2,7 @@
 use eframe::egui::{self, Color32, Ui};
 
 /// Blend RGB channels using the same integer rounding as existing group tints.
-pub(super) fn blend(base: Color32, tint: Color32, percent: u16) -> Color32 {
+pub(in crate::gui) fn blend(base: Color32, tint: Color32, percent: u16) -> Color32 {
     let percent = percent.min(100);
     let rest = 100 - percent;
     Color32::from_rgb(
@@ -13,7 +13,7 @@ pub(super) fn blend(base: Color32, tint: Color32, percent: u16) -> Color32 {
 }
 
 /// Draw the original inline picker arrow without allocating another widget.
-pub(super) fn paint_picker_arrow(ui: &Ui, rect: egui::Rect, open: bool, color: Color32) {
+pub(in crate::gui) fn paint_picker_arrow(ui: &Ui, rect: egui::Rect, open: bool, color: Color32) {
     let x = rect.right() - 12.0;
     let y = rect.center().y;
     let arrow = if open {
@@ -33,7 +33,7 @@ pub(super) fn paint_picker_arrow(ui: &Ui, rect: egui::Rect, open: bool, color: C
         .add(egui::Shape::convex_polygon(arrow, color, egui::Stroke::NONE));
 }
 
-pub(super) fn picker_scroll() -> egui::ScrollArea {
+pub(in crate::gui) fn picker_scroll() -> egui::ScrollArea {
     egui::ScrollArea::vertical()
         .max_height(140.0)
         .scroll_bar_visibility(egui::containers::scroll_area::ScrollBarVisibility::AlwaysVisible)

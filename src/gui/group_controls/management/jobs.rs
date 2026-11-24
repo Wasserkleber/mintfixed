@@ -1,4 +1,6 @@
-fn poll_package_jobs(
+use super::*;
+
+pub(super) fn poll_package_jobs(
     ui: &Ui,
     export_editor: &mut ExportEditor,
     import_editor: &mut ImportEditor,

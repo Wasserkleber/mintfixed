@@ -1,4 +1,6 @@
-fn show_delete(
+use super::*;
+
+pub(super) fn show_delete(
     ui: &mut Ui,
     data: &Data,
     delete_editor: &mut DeleteEditor,

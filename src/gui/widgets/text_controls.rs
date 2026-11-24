@@ -1,7 +1,7 @@
 //! Common text buttons, description help and bounded status labels.
 use eframe::egui::{self, Button, Color32, RichText, Ui};
 
-pub(super) fn description_help_button(ui: &mut Ui, description: &str, group_tint: Option<Color32>) {
+pub(in crate::gui) fn description_help_button(ui: &mut Ui, description: &str, group_tint: Option<Color32>) {
     // Use the supplied group accent directly, not inherited widget text visuals.
     // The same hover-only icon is used by headers and both mod-row paths.
     let (rect, response) = ui.allocate_exact_size(egui::vec2(18.0, 18.0), egui::Sense::hover());
@@ -36,7 +36,7 @@ pub(super) fn description_help_button(ui: &mut Ui, description: &str, group_tint
 
 // A single-line, width-bounded status label. Never let diagnostics reserve toolbar space.
 // Hover exposes the unabridged message; clicking opens the copyable details window.
-pub(super) fn status_message(ui: &mut Ui, message: &str) -> bool {
+pub(in crate::gui) fn status_message(ui: &mut Ui, message: &str) -> bool {
     let width = ui.available_width();
     if width < 18.0 {
         return false;
@@ -58,6 +58,6 @@ pub(super) fn status_message(ui: &mut Ui, message: &str) -> bool {
 }
 
 // Shared styling for ordinary text buttons; icon buttons retain their own rendering.
-pub(super) fn mint_text_button(text: impl Into<egui::WidgetText>) -> egui::Button<'static> {
+pub(in crate::gui) fn mint_text_button(text: impl Into<egui::WidgetText>) -> egui::Button<'static> {
     egui::Button::new(text).corner_radius(4_u8)
 }

@@ -1,8 +1,8 @@
 // app-update dialog; methods moved intact from gui/mod.rs.
-use super::*;
+use crate::gui::*;
 
 impl App {
-    pub(super) fn show_update_window(&mut self, ctx: &egui::Context) {
+    pub(in crate::gui) fn show_update_window(&mut self, ctx: &egui::Context) {
         if let (Some(update), Some(update_time)) =
             (self.available_update.as_ref(), self.show_update_time)
         {

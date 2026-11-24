@@ -10,8 +10,8 @@ use tokio::{
 };
 use tracing::*;
 
-use super::SelfUpdateProgress;
-use super::{
+use crate::gui::SelfUpdateProgress;
+use crate::gui::{
     App, SpecFetchProgress, WindowProviderParameters,
     request_counter::{RequestCounter, RequestID},
 };

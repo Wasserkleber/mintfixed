@@ -25,7 +25,7 @@ impl ResolveMods {
                 return;
             }
             let active = &app.state.mod_data.active_profile;
-            app.pending_replacement_addition = Some(super::PendingReplacementAddition {
+            app.pending_replacement_addition = Some(crate::gui::PendingReplacementAddition {
                 specs,
                 is_dependency,
                 profile_id: app.state.mod_data.profiles[active].id.clone(),
@@ -37,7 +37,7 @@ impl ResolveMods {
         Self::send_inner(app, ctx, specs, is_dependency, false);
     }
     /// Bypass the prompt only after an explicit choice in its confirmation dialog.
-    pub(super) fn send_confirmed(
+    pub(in crate::gui) fn send_confirmed(
         app: &mut App,
         ctx: &egui::Context,
         specs: Vec<ModSpecification>,
@@ -56,14 +56,14 @@ impl ResolveMods {
         from_bitfix: bool,
     ) {
         // Reject even mixed lists before inserting anything into the active profile.
-        if !from_bitfix && specs.iter().any(super::bitfix_menu::is_lua_spec) {
+        if !from_bitfix && specs.iter().any(crate::gui::bitfix_menu::is_lua_spec) {
             app.last_action = Some(LastAction::failure(
-                super::bitfix_menu::REDIRECT_HINT.into(),
+                crate::gui::bitfix_menu::REDIRECT_HINT.into(),
             ));
             return;
         }
         if from_bitfix
-            && (specs.is_empty() || specs.iter().any(|s| !super::bitfix_menu::is_lua_spec(s)))
+            && (specs.is_empty() || specs.iter().any(|s| !crate::gui::bitfix_menu::is_lua_spec(s)))
         {
             app.last_action = Some(LastAction::failure(
                 "The Bitfix menu only accepts .lua script paths or URLs.".into(),

@@ -19,14 +19,14 @@ enum Status {
     Failed(String),
 }
 
-pub(super) struct StartupUpdate {
+pub(in crate::gui) struct StartupUpdate {
     events: Receiver<Event>,
     window: Option<Status>,
     dismissed: bool,
 }
 
 impl StartupUpdate {
-    pub(super) fn start(state: &State, ctx: &egui::Context) -> Self {
+    pub(in crate::gui) fn start(state: &State, ctx: &egui::Context) -> Self {
         let (tx, events) = mpsc::channel();
         if state.config.bundled_crash_reporter
             && let Some(pak_path) = state.config.drg_pak_path.clone()
@@ -62,7 +62,7 @@ impl StartupUpdate {
         }
     }
 
-    pub(super) fn show(&mut self, ctx: &egui::Context) {
+    pub(in crate::gui) fn show(&mut self, ctx: &egui::Context) {
         for event in self.events.try_iter() {
             match event {
                 Event::Started if !self.dismissed => self.window = Some(Status::Updating),

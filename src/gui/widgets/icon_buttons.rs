@@ -6,7 +6,7 @@ use super::widget_style::blend;
 
 /// Returns the usual egui response so existing click/confirmation code stays unchanged.
 /// Always-red destructive control. Group colors intentionally do not apply.
-pub(super) fn delete_button(ui: &mut Ui, _group_color: Option<Color32>) -> egui::Response {
+pub(in crate::gui) fn delete_button(ui: &mut Ui, _group_color: Option<Color32>) -> egui::Response {
     let dark = ui.visuals().dark_mode;
     let (background, hovered_background, active_background, icon_color, hovered_icon) = if dark {
         (
@@ -59,7 +59,7 @@ pub(super) fn delete_button(ui: &mut Ui, _group_color: Option<Color32>) -> egui:
 }
 /// Copy a single mod URL. Shares the delete button's compact dimensions and
 /// tinting, without changing the existing clipboard handler or tooltip.
-pub(super) fn copy_url_button(ui: &mut Ui, group_color: Option<Color32>) -> egui::Response {
+pub(in crate::gui) fn copy_url_button(ui: &mut Ui, group_color: Option<Color32>) -> egui::Response {
     let dark = ui.visuals().dark_mode;
     let base_bg = if dark {
         Color32::from_rgb(46, 47, 50)
@@ -82,7 +82,7 @@ pub(super) fn copy_url_button(ui: &mut Ui, group_color: Option<Color32>) -> egui
 /// Keep its glyph a fixed, vivid orange even inside colored or disabled groups.
 /// Only the button background is softly influenced by the selected group tint.
 /// Always-orange warning indicator, even inside tinted groups.
-pub(super) fn warning_button(ui: &mut Ui, _group_color: Option<Color32>) -> egui::Response {
+pub(in crate::gui) fn warning_button(ui: &mut Ui, _group_color: Option<Color32>) -> egui::Response {
     let dark = ui.visuals().dark_mode;
     let (background, hovered_background, active_background) = if dark {
         (
@@ -162,19 +162,19 @@ fn mod_error_indicator(ui: &mut Ui, sense: egui::Sense) -> egui::Response {
 
 /// Passive error marker for unavailable or otherwise problematic mod rows,
 /// including the unavailable-member indicator on group headers.
-pub(super) fn mod_error_badge(ui: &mut Ui) -> egui::Response {
+pub(in crate::gui) fn mod_error_badge(ui: &mut Ui) -> egui::Response {
     mod_error_indicator(ui, egui::Sense::hover())
 }
 
 /// Clickable error marker used to open the global unavailable-mod overview.
-pub(super) fn mod_error_button(ui: &mut Ui) -> egui::Response {
+pub(in crate::gui) fn mod_error_button(ui: &mut Ui) -> egui::Response {
     mod_error_indicator(ui, egui::Sense::click()).on_hover_cursor(egui::CursorIcon::PointingHand)
 }
 
 /// Non-interactive provider icon for local-file mods.
 /// Matches the compact mod-row controls without adding borders or row padding.
 /// Passive file-type marker: not a clickable control and no button-style fill.
-pub(super) fn folder_badge(ui: &mut Ui, group_color: Option<Color32>) {
+pub(in crate::gui) fn folder_badge(ui: &mut Ui, group_color: Option<Color32>) {
     let base_icon = ui.visuals().text_color();
     let glyph = group_color.map_or(base_icon, |accent| blend(base_icon, accent, 35));
 

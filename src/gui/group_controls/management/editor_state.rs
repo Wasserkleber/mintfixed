@@ -1,39 +1,39 @@
 #[derive(Clone, Default)]
-struct RenameEditor {
-    selected: String,
-    name: String,
-    error: Option<String>,
-    success: Option<String>,
-    picker_open: bool,
+pub(super) struct RenameEditor {
+    pub(super) selected: String,
+    pub(super) name: String,
+    pub(super) error: Option<String>,
+    pub(super) success: Option<String>,
+    pub(super) picker_open: bool,
 }
 
 #[derive(Clone, Default)]
-struct DeleteEditor {
-    selected: String,
-    picker_open: bool,
-    confirming: bool,
-    error: Option<String>,
-    success: Option<String>,
+pub(super) struct DeleteEditor {
+    pub(super) selected: String,
+    pub(super) picker_open: bool,
+    pub(super) confirming: bool,
+    pub(super) error: Option<String>,
+    pub(super) success: Option<String>,
 }
 
 #[derive(Clone, Default)]
-struct DuplicateEditor {
-    selected: String,
-    name: String,
-    picker_open: bool,
-    error: Option<String>,
-    success: Option<String>,
+pub(super) struct DuplicateEditor {
+    pub(super) selected: String,
+    pub(super) name: String,
+    pub(super) picker_open: bool,
+    pub(super) error: Option<String>,
+    pub(super) success: Option<String>,
 }
 
 #[derive(Clone, Copy, Default, PartialEq, Eq)]
-enum GroupExportKind {
+pub(super) enum GroupExportKind {
     #[default]
     Json,
     Txt,
 }
 
 impl GroupExportKind {
-    fn extension(self) -> &'static str {
+    pub(super) fn extension(self) -> &'static str {
         match self {
             Self::Json => "json",
             Self::Txt => "txt",
@@ -42,32 +42,31 @@ impl GroupExportKind {
 }
 
 /// A background export/import: empty until the worker stores its result.
-type Job<T> = std::sync::Arc<std::sync::Mutex<Option<Result<T, String>>>>;
+pub(super) type Job<T> = std::sync::Arc<std::sync::Mutex<Option<Result<T, String>>>>;
 
 #[derive(Clone, Default)]
-struct ExportEditor {
-    selected: String,
-    kind: GroupExportKind,
-    include_files: bool,
-    job: Option<Job<std::path::PathBuf>>,
-    picker_open: bool,
-    success: Option<String>,
-    error: Option<String>,
+pub(super) struct ExportEditor {
+    pub(super) selected: String,
+    pub(super) kind: GroupExportKind,
+    pub(super) include_files: bool,
+    pub(super) job: Option<Job<std::path::PathBuf>>,
+    pub(super) picker_open: bool,
+    pub(super) success: Option<String>,
+    pub(super) error: Option<String>,
 }
 
 #[derive(Clone)]
-pub(super) struct PendingGroupImport {
-    pub(super) suggested_name: Option<String>,
-    pub(super) group: crate::state::ModGroup,
+pub(in crate::gui::group_controls) struct PendingGroupImport {
+    pub(in crate::gui::group_controls) suggested_name: Option<String>,
+    pub(in crate::gui::group_controls) group: crate::state::ModGroup,
 }
 
 #[derive(Clone, Default)]
-struct ImportEditor {
-    pending: Option<PendingGroupImport>,
-    bundle_path: Option<std::path::PathBuf>,
-    job: Option<Job<(String, crate::state::ModGroup)>>,
-    name: String,
-    success: Option<String>,
-    error: Option<String>,
+pub(super) struct ImportEditor {
+    pub(super) pending: Option<PendingGroupImport>,
+    pub(super) bundle_path: Option<std::path::PathBuf>,
+    pub(super) job: Option<Job<(String, crate::state::ModGroup)>>,
+    pub(super) name: String,
+    pub(super) success: Option<String>,
+    pub(super) error: Option<String>,
 }
-

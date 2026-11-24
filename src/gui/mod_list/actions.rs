@@ -1,8 +1,8 @@
 // mod-list actions and sorting configuration; methods moved intact from gui/mod.rs.
-use super::*;
+use crate::gui::*;
 
 impl App {
-    pub(super) fn apply_mod_history(&mut self, ctx: &egui::Context, redo: bool) {
+    pub(in crate::gui) fn apply_mod_history(&mut self, ctx: &egui::Context, redo: bool) {
         match self.edit_history.restore(&mut self.state.mod_data, redo) {
             Ok(true) => {
                 // History restores the saved list, not the transient drag selection.
@@ -20,7 +20,7 @@ impl App {
         }
     }
 
-    pub(super) fn parse_mods(&self) -> Vec<ModSpecification> {
+    pub(in crate::gui) fn parse_mods(&self) -> Vec<ModSpecification> {
         self.resolve_mod
             .lines()
             .map(|l| l.trim())
@@ -29,11 +29,11 @@ impl App {
             .collect()
     }
 
-    pub(super) fn get_sorting_config(&self) -> Option<SortingConfig> {
+    pub(in crate::gui) fn get_sorting_config(&self) -> Option<SortingConfig> {
         self.state.config.sorting_config.clone()
     }
 
-    pub(super) fn update_sorting_config(
+    pub(in crate::gui) fn update_sorting_config(
         &mut self,
         sort_category: Option<SortBy>,
         is_ascending: bool,

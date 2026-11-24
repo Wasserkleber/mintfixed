@@ -1,77 +1,41 @@
-#[path = "bitfix/bitfix_menu.rs"]
-mod bitfix_menu;
-#[path = "crashes/crash_history.rs"]
-mod crash_history;
-#[path = "crashes/crash_notice.rs"]
-mod crash_notice;
+mod mod_list;
+use mod_list::edit_history;
+use mod_list::find_string;
+use mod_list::group_drop_target;
+use mod_list::group_header;
+use mod_list::mod_list_style;
+use mod_list::mod_tags;
+mod bitfix;
+use bitfix::bitfix_menu;
+mod settings;
+mod profiles;
+use profiles::profile_import;
+use profiles::profile_management;
+use profiles::profile_package;
+mod imports;
+use imports::folder_import;
+mod dialogs;
+mod crashes;
+use crashes::crash_history;
+use crashes::crash_notice;
 #[cfg(all(feature = "hook", target_os = "windows"))]
-#[path = "crashes/crash_reporter_update.rs"]
-mod crash_reporter_update;
-#[path = "mod_list/edit_history.rs"]
-mod edit_history;
-#[path = "mod_list/find_string.rs"]
-mod find_string;
-#[path = "imports/folder_import.rs"]
-mod folder_import;
+use crashes::crash_reporter_update;
+mod widgets;
+use widgets::icon_buttons;
+use widgets::widget_style;
+use widgets::text_controls;
+use widgets::search_field;
+use widgets::management_popup;
+use widgets::named_combobox;
+use widgets::toggle_switch;
+mod app;
+mod runtime;
+use runtime::{message, missing_local_files, request_counter, unavailable_mods};
 mod group_controls;
-#[path = "widgets/icon_buttons.rs"]
-mod icon_buttons;
-#[path = "widgets/widget_style.rs"]
-mod widget_style;
-#[path = "widgets/text_controls.rs"]
-mod text_controls;
-#[path = "widgets/search_field.rs"]
-mod search_field;
 use text_controls::{description_help_button, mint_text_button, status_message};
 mod lint;
 use self::lint::LintOptions;
-#[path = "app/begin_frame.rs"]
-mod app_begin_frame;
-#[path = "app/frame.rs"]
-mod app_frame;
-#[path = "app/install_preflight.rs"]
-mod app_install_preflight;
-#[path = "app/main_panel.rs"]
-mod app_main_panel;
-#[path = "app/overlays.rs"]
-mod app_overlays;
-#[path = "app/status_details.rs"]
-mod app_status_details;
-#[path = "app/toolbar.rs"]
-mod app_toolbar;
-#[path = "mod_list/group_drop_target.rs"]
-mod group_drop_target;
-#[path = "mod_list/group_header.rs"]
-mod group_header;
-#[path = "mod_list/mod_list_style.rs"]
-mod mod_list_style;
-#[path = "mod_list/mod_tags.rs"]
-mod mod_tags;
-#[path = "mod_list/profile_ui.rs"]
-mod profile_ui;
-#[path = "dialogs/replacement_prompt.rs"]
-mod replacement_prompt;
 use group_controls::{Drag, Target};
-#[path = "widgets/management_popup.rs"]
-mod management_popup;
-#[path = "runtime/message.rs"]
-mod message;
-#[path = "runtime/missing_local_files.rs"]
-mod missing_local_files;
-#[path = "widgets/named_combobox.rs"]
-mod named_combobox;
-#[path = "profiles/profile_import.rs"]
-mod profile_import;
-#[path = "profiles/profile_management.rs"]
-mod profile_management;
-#[path = "profiles/profile_package.rs"]
-mod profile_package;
-#[path = "runtime/request_counter.rs"]
-mod request_counter;
-#[path = "widgets/toggle_switch.rs"]
-mod toggle_switch;
-#[path = "runtime/unavailable_mods.rs"]
-mod unavailable_mods;
 
 #[cfg(test)]
 #[path = "tests/priority_input_tests.rs"]
@@ -690,15 +654,3 @@ mod structured_json_paste_tests {
         ));
     }
 }
-
-// Stage 2F: separated GUI windows and list actions.
-#[path = "dialogs/group_removal.rs"]
-mod gui_group_removal_dialog;
-#[path = "mod_list/actions.rs"]
-mod gui_mod_list_actions;
-#[path = "profiles/windows.rs"]
-mod gui_profile_windows;
-#[path = "settings/windows.rs"]
-mod gui_settings_windows;
-#[path = "dialogs/update.rs"]
-mod gui_update_dialog;

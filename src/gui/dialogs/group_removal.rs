@@ -1,8 +1,8 @@
 // shared-group removal confirmation; methods moved intact from gui/mod.rs.
-use super::*;
+use crate::gui::*;
 
 impl App {
-    pub(super) fn show_group_mod_removal_confirmation(&mut self, ctx: &egui::Context) {
+    pub(in crate::gui) fn show_group_mod_removal_confirmation(&mut self, ctx: &egui::Context) {
         let Some(pending) = &self.pending_group_mod_removal else {
             return;
         };

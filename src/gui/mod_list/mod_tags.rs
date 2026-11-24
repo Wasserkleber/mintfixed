@@ -1,7 +1,7 @@
 // mod.io approval, requirement, and category badges displayed on mod rows.
-use super::*;
+use crate::gui::*;
 
-pub(super) fn render_mod_tags(
+pub(in crate::gui) fn render_mod_tags(
     ui: &mut Ui,
     info: &ModInfo,
     search_string: &str,

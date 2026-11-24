@@ -1,3 +1,5 @@
+use super::*;
+
 /// Returns whether groups changed and an optional success message for the main status bar.
 pub(in crate::gui) fn controls(
     ui: &mut Ui,
@@ -152,7 +154,7 @@ pub(in crate::gui) fn controls(
                 let worker_result = result.clone();
                 let ctx = ui.ctx().clone();
                 std::thread::spawn(move || {
-                    let outcome = super::group_package::export_bundle(
+                    let outcome = crate::gui::group_controls::group_package::export_bundle(
                         &name, &group, &path, kind == GroupExportKind::Json,
                     ).map(|()| path);
                     if let Ok(mut slot) = worker_result.lock() { *slot = Some(outcome); }
@@ -225,7 +227,7 @@ pub(in crate::gui) fn controls(
     }
     if let Some(name) = requested_import_name {
         if import_editor.pending.as_ref().is_some_and(|pending| {
-            super::group_package::group_import_requires_mod_folder(
+            crate::gui::group_controls::group_package::group_import_requires_mod_folder(
                 &pending.group, import_editor.bundle_path.is_some(), configured_mod_folder,
             )
         }) {
@@ -234,12 +236,12 @@ pub(in crate::gui) fn controls(
             );
         } else if let Some(archive) = import_editor.bundle_path.clone() {
             if import_editor.job.is_none() {
-                if let Some(folder) = super::group_package::bundle_destination(configured_mod_folder) {
+                if let Some(folder) = crate::gui::group_controls::group_package::bundle_destination(configured_mod_folder) {
                     let result = std::sync::Arc::new(std::sync::Mutex::new(None));
                     let worker_result = result.clone();
                     let ctx = ui.ctx().clone();
                     std::thread::spawn(move || {
-                        let outcome = super::group_package::extract_bundle(&archive, &folder)
+                        let outcome = crate::gui::group_controls::group_package::extract_bundle(&archive, &folder)
                             .map(|group| (name, group));
                         if let Ok(mut slot) = worker_result.lock() { *slot = Some(outcome); }
                         ctx.request_repaint();

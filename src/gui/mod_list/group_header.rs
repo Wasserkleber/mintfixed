@@ -1,8 +1,8 @@
 // Shared group-header presentation for the profile mod list.
 // Keep data changes in profile_ui.rs; these helpers only render the header.
-use super::*;
+use crate::gui::*;
 
-pub(super) fn title(
+pub(in crate::gui) fn title(
     ui: &Ui,
     group_name: &str,
     group_header_color: Option<Color32>,
@@ -36,7 +36,7 @@ pub(super) fn title(
 }
 
 // A double Option distinguishes "no selection" from the "None" color option.
-pub(super) fn render_contents(
+pub(in crate::gui) fn render_contents(
     ui: &mut Ui,
     group_title: RichText,
     group_member_count: usize,

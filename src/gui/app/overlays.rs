@@ -1,8 +1,8 @@
 // Main frame concern extracted from app/frame.rs; original statements and ordering preserved.
-use super::*;
+use crate::gui::*;
 
 impl App {
-    pub(super) fn frame_overlays(&mut self, ctx: &egui::Context) {
+    pub(in crate::gui) fn frame_overlays(&mut self, ctx: &egui::Context) {
         // begin draw
 
         self.show_update_window(ctx);

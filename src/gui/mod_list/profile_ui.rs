@@ -1,8 +1,8 @@
 // GUI profile rows and group rendering. Extracted without changing behavior.
-use super::*;
+use crate::gui::*;
 
 impl App {
-    pub(super) fn ui_profile(&mut self, ui: &mut Ui, profile: &str) -> Option<(String, bool)> {
+    pub(in crate::gui) fn ui_profile(&mut self, ui: &mut Ui, profile: &str) -> Option<(String, bool)> {
         if egui::DragAndDrop::payload::<Drag>(ui.ctx()).is_some() {
             ui.style_mut().interaction.selectable_labels = false;
         }

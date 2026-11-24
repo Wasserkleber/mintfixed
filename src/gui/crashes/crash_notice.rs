@@ -4,14 +4,14 @@
 use std::io::Read;
 use std::path::{Path, PathBuf};
 
-use super::State;
+use crate::state::State;
 use mint_lib::DRGInstallation;
 
 const MAX_REPORT_READ: u64 = 128 * 1024;
 const MAX_STARTUP_SCAN: usize = 50;
 const SEEN_FILE: &str = "bpcrash-last-acknowledged.txt";
 
-pub(super) struct RecentCrash {
+pub(in crate::gui) struct RecentCrash {
     path: PathBuf,
     seen_file: PathBuf,
     name: String,
@@ -22,7 +22,7 @@ pub(super) struct RecentCrash {
 
 /// Only look inside the selected DRG installation; never scan arbitrary folders.
 /// A report is acknowledged when the user closes the popup or clicks Dismiss.
-pub(super) fn find_recent_unseen(state: &State) -> Option<RecentCrash> {
+pub(in crate::gui) fn find_recent_unseen(state: &State) -> Option<RecentCrash> {
     let pak = state.config.drg_pak_path.as_deref()?;
     let installation = DRGInstallation::from_pak_path(pak).ok()?;
     let reports_dir = installation.binaries_directory().join("mintfixed-bpcrash");
@@ -131,7 +131,7 @@ fn open_report(path: &Path) -> std::io::Result<()> {
     }
 }
 
-pub(super) fn show(ctx: &egui::Context, recent: &mut Option<RecentCrash>) {
+pub(in crate::gui) fn show(ctx: &egui::Context, recent: &mut Option<RecentCrash>) {
     let Some(crash) = recent.as_mut() else {
         return;
     };
@@ -194,14 +194,13 @@ pub(super) fn show(ctx: &egui::Context, recent: &mut Option<RecentCrash>) {
 }
 
 #[cfg(test)]
-#[path = "crash_notice/tests.rs"]
 mod tests;
 
 // Check for new crash reports without causing periodic GUI repaints or blocking
 // the UI thread on filesystem access. The worker is parked between checks.
 const CRASH_POLL_INTERVAL: std::time::Duration = std::time::Duration::from_secs(5);
 
-pub(super) struct CrashMonitor {
+pub(in crate::gui) struct CrashMonitor {
     pak_path: Option<PathBuf>,
     received: std::sync::mpsc::Receiver<RecentCrash>,
     stop: Option<std::sync::mpsc::Sender<()>>,
@@ -210,7 +209,7 @@ pub(super) struct CrashMonitor {
 }
 
 impl CrashMonitor {
-    pub(super) fn start(state: &State, ctx: &egui::Context) -> Self {
+    pub(in crate::gui) fn start(state: &State, ctx: &egui::Context) -> Self {
         let pak_path = state.config.drg_pak_path.clone();
         let reports_dir = pak_path
             .as_deref()
@@ -269,11 +268,11 @@ impl CrashMonitor {
         }
     }
 
-    pub(super) fn matches_installation(&self, state: &State) -> bool {
+    pub(in crate::gui) fn matches_installation(&self, state: &State) -> bool {
         self.pak_path.as_ref() == state.config.drg_pak_path.as_ref()
     }
 
-    pub(super) fn poll(&mut self, shown: &mut Option<RecentCrash>) {
+    pub(in crate::gui) fn poll(&mut self, shown: &mut Option<RecentCrash>) {
         while let Ok(report) = self.received.try_recv() {
             if shown
                 .as_ref()
@@ -414,5 +413,4 @@ fn find_new_report(
 }
 
 #[cfg(test)]
-#[path = "crash_notice/live_crash_monitor_tests.rs"]
 mod live_crash_monitor_tests;

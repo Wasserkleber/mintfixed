@@ -178,7 +178,7 @@ fn import_profile(data: &mut Data, text: &str, requested_name: &str) -> Result<S
 
 /// Render the importer directly inside Profile Management (no nested popup).
 /// Returns a status message when a new profile is imported successfully.
-pub(super) fn ui_inline(
+pub(in crate::gui) fn ui_inline(
     ui: &mut egui::Ui,
     data: &mut Data,
     modified: &mut bool,
@@ -391,5 +391,4 @@ pub(super) fn ui_inline(
 }
 
 #[cfg(test)]
-#[path = "profile_import/tests.rs"]
 mod tests;

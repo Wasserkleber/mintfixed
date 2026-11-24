@@ -102,7 +102,7 @@ impl UpdateCache {
         if Some(self.rid) == app.update_rid.as_ref().map(|r| r.rid) {
             let unavailable_details = match &self.result {
                 Ok((_, _, unavailable)) if *unavailable > 0 => {
-                    Some(super::unavailable_mods::entries(
+                    Some(crate::gui::unavailable_mods::entries(
                         &app.state.mod_data,
                         |spec| app.state.store.is_modio_unavailable(spec),
                         |spec| {
@@ -158,12 +158,12 @@ impl UpdateCache {
             }
             if let (Some(details), Some(action)) = (unavailable_details, app.last_action.as_mut()) {
                 let summary = match &action.status {
-                    super::LastActionStatus::Success(message)
-                    | super::LastActionStatus::Failure(message) => message,
+                    crate::gui::LastActionStatus::Success(message)
+                    | crate::gui::LastActionStatus::Failure(message) => message,
                 };
                 action.details = Some(format!(
                     "{summary}\n\n{}",
-                    super::unavailable_mods::describe(&details)
+                    crate::gui::unavailable_mods::describe(&details)
                 ));
                 action.unavailable_locations = details;
             }

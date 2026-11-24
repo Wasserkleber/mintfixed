@@ -1,6 +1,6 @@
 //! On-demand local-mod import preview with persistent explicit exclusions.
 //! All file-system walking and SHA-256 comparisons run off the egui thread.
-use super::*;
+use crate::gui::*;
 use std::collections::{BTreeSet, HashSet};
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -9,7 +9,7 @@ use std::sync::mpsc::{self, Receiver, TryRecvError};
 const EXCLUSIONS_FILE: &str = "excluded_mod_imports.json";
 
 #[derive(Default)]
-pub(super) struct FolderImport {
+pub(in crate::gui) struct FolderImport {
     scan: Option<ScanJob>,
     preview: Option<Preview>,
 }
@@ -194,7 +194,7 @@ fn start(app: &mut App, ctx: &egui::Context, folder: PathBuf) -> Result<(), Stri
     Ok(())
 }
 
-pub(super) fn open_preview(app: &mut App, ctx: &egui::Context, folder: PathBuf) {
+pub(in crate::gui) fn open_preview(app: &mut App, ctx: &egui::Context, folder: PathBuf) {
     if !folder.is_dir() {
         app.last_action = Some(LastAction::failure(format!(
             "Not a folder: {}",
@@ -220,7 +220,7 @@ pub(super) fn open_preview(app: &mut App, ctx: &egui::Context, folder: PathBuf) 
 
 /// Poll a scan initiated explicitly by opening the Import local mods menu.
 /// Nothing is scanned at startup, periodically, or after a normal deletion.
-pub(super) fn tick(app: &mut App, _ctx: &egui::Context) {
+pub(in crate::gui) fn tick(app: &mut App, _ctx: &egui::Context) {
     if let Some(job) = app.folder_import.scan.take() {
         match job.rx.try_recv() {
             Ok(Ok(paths)) => {
@@ -248,7 +248,7 @@ pub(super) fn tick(app: &mut App, _ctx: &egui::Context) {
     }
 }
 
-pub(super) fn show_preview(app: &mut App, ctx: &egui::Context) {
+pub(in crate::gui) fn show_preview(app: &mut App, ctx: &egui::Context) {
     let Some(mut preview) = app.folder_import.preview.take() else {
         return;
     };
@@ -461,7 +461,7 @@ fn show_inline_exclusions(app: &mut App, ui: &mut egui::Ui) -> bool {
 
 /// Save the watched folder independently of the main Settings Save button.
 /// Invalid intermediate text is not persisted, and a failed disk write is rolled back.
-pub(super) fn save_folder_setting(state: &mut State, text: &str) -> Result<bool, String> {
+pub(in crate::gui) fn save_folder_setting(state: &mut State, text: &str) -> Result<bool, String> {
     let folder = if text.trim().is_empty() {
         None
     } else {
@@ -483,11 +483,10 @@ pub(super) fn save_folder_setting(state: &mut State, text: &str) -> Result<bool,
     Ok(true)
 }
 
-pub(super) fn reset_schedule(app: &mut App) {
+pub(in crate::gui) fn reset_schedule(app: &mut App) {
     app.folder_import.scan = None;
     app.folder_import.preview = None;
 }
 
 #[cfg(test)]
-#[path = "folder_import/tests.rs"]
 mod tests;

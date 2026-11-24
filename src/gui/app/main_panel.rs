@@ -1,8 +1,8 @@
 // Main frame concern extracted from app/frame.rs; original statements and ordering preserved.
-use super::*;
+use crate::gui::*;
 
 impl App {
-    pub(super) fn frame_main_panel(&mut self, ctx: &egui::Context) {
+    pub(in crate::gui) fn frame_main_panel(&mut self, ctx: &egui::Context) {
         egui::CentralPanel::default().show(ctx, |ui| {
             if self.integrate_rid.is_some() || self.update_rid.is_some() || self.lint_rid.is_some()
             {

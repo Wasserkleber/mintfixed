@@ -1,5 +1,5 @@
 // Main eframe UI frame and event handling; extracted without changing behavior.
-use super::*;
+use crate::gui::*;
 
 impl eframe::App for App {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {

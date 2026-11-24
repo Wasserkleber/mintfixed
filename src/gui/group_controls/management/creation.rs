@@ -1,4 +1,6 @@
-fn show_creation_and_attachment(
+use super::*;
+
+pub(super) fn show_creation_and_attachment(
     ui: &mut Ui,
     data: &mut Data,
     name: &mut String,

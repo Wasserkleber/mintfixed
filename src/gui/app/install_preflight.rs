@@ -1,9 +1,9 @@
-use super::*;
+use crate::gui::*;
 
 impl App {
     /// A cache-only check before starting either manual or post-cache installation.
     /// Never silently skip mods or change the user's selection.
-    pub(super) fn preflight_unavailable_mods(&mut self, after_cache_update: bool) -> bool {
+    pub(in crate::gui) fn preflight_unavailable_mods(&mut self, after_cache_update: bool) -> bool {
         let data = &self.state.mod_data;
         let store = &self.state.store;
         // Nonexistent local files should never be discovered only after an

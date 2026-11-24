@@ -1,8 +1,8 @@
 // Main frame concern extracted from app/frame.rs; original statements and ordering preserved.
-use super::*;
+use crate::gui::*;
 
 impl App {
-    pub(super) fn frame_begin(&mut self, ctx: &egui::Context) {
+    pub(in crate::gui) fn frame_begin(&mut self, ctx: &egui::Context) {
         // VSync limits frames to the monitor's refresh rate, which may exceed 60 Hz.
         // Pace updates during rapid input without requesting any frames when idle.
         const MIN_FRAME_INTERVAL: Duration = Duration::from_nanos(16_666_667);

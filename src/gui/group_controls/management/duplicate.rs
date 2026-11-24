@@ -1,4 +1,6 @@
-fn show_duplicate(
+use super::*;
+
+pub(super) fn show_duplicate(
     ui: &mut Ui,
     data: &Data,
     duplicate_editor: &mut DuplicateEditor,

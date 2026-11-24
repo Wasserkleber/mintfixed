@@ -3,7 +3,7 @@ use eframe::egui::{self, Align, Ui};
 
 /// Render the field without changing the parent's UI scopes or widget IDs.
 /// The caller owns the query, focus handling and scroll-to-match behaviour.
-pub(super) fn show(
+pub(in crate::gui) fn show(
     ui: &mut Ui,
     search_string: &mut String,
     any_matches: bool,
