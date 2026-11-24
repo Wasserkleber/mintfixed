@@ -49,6 +49,8 @@ enum PresetItem {
         name: String,
         #[serde(default)]
         description: Option<String>,
+        #[serde(default)]
+        color: Option<String>,
         #[serde(default = "default_true")]
         enabled: bool,
         #[serde(default)]
@@ -126,9 +128,18 @@ fn apply_json(raw: &str, data: &mut ModData) -> Result<bool, String> {
     for item in &preset.items {
         match item {
             PresetItem::Mod { url, .. } => validate_mod(url, &mut seen_mods)?,
-            PresetItem::Group { name, mods, .. } => {
+            PresetItem::Group {
+                name, color, mods, ..
+            } => {
                 if name.trim().is_empty() || !seen_groups.insert(name.clone()) {
                     return Err(format!("invalid or duplicate preset group: {name:?}"));
+                }
+                if let Some(color) = color
+                    && !crate::group_palette::COLOR_OPTIONS
+                        .iter()
+                        .any(|(key, _)| *key == color.as_str())
+                {
+                    return Err(format!("invalid preset group color {color:?} for {name:?}"));
                 }
                 for m in mods {
                     validate_mod(&m.url, &mut seen_mods)?;
@@ -159,13 +170,14 @@ fn apply_json(raw: &str, data: &mut ModData) -> Result<bool, String> {
             PresetItem::Group {
                 name,
                 description,
+                color,
                 enabled,
                 mods,
             } => {
                 groups.insert(
                     name.clone(),
                     ModGroup {
-                        tint_color: None,
+                        tint_color: color,
                         id: crate::state::new_id(),
                         description: clean_description(description),
                         mods: mods
@@ -288,6 +300,43 @@ mod tests {
             panic!("expected mod")
         };
         assert!(mod_config.description.is_none());
+    }
+
+    #[test]
+    fn preset_group_colors_round_trip_and_are_optional() {
+        let mut data = ModData::default();
+        apply_json(
+            r#"{"items":[
+                {"type":"group","name":"Colored","color":"teal"},
+                {"type":"group","name":"Neutral"},
+                {"type":"group","name":"Explicit neutral","color":null}
+            ]}"#,
+            &mut data,
+        )
+        .unwrap();
+        let restored: ModData =
+            serde_json::from_str(&serde_json::to_string(&data).unwrap()).unwrap();
+        assert_eq!(
+            restored.groups["Colored"].tint_color.as_deref(),
+            Some("teal")
+        );
+        assert!(restored.groups["Neutral"].tint_color.is_none());
+        assert!(restored.groups["Explicit neutral"].tint_color.is_none());
+    }
+
+    #[test]
+    fn invalid_group_color_does_not_touch_data() {
+        let mut data = ModData::default();
+        let result = apply_json(
+            r#"{"items":[
+                {"type":"mod","url":"https://mod.io/g/drg/m/example"},
+                {"type":"group","name":"Invalid","color":"not-a-color"}
+            ]}"#,
+            &mut data,
+        );
+        assert!(result.is_err());
+        assert!(data.profiles["default"].mods.is_empty());
+        assert!(!data.groups.contains_key("Invalid"));
     }
 
     #[test]

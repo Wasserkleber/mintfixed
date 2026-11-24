@@ -5,6 +5,7 @@
     {
       "type": "group",
       "name": "Utilities",
+      "color": "blue",
       "description": "Contains useful quality-of-life mods.",
       "mods": [
         {

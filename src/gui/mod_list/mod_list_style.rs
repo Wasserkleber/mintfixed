@@ -2,24 +2,7 @@
 //! Tint selection is stored with each ModGroup; no automatic per-name colors.
 use eframe::egui::{self, Color32, Ui};
 
-pub(super) const COLOR_OPTIONS: &[(&str, &str)] = &[
-    ("red", "Red"),
-    ("coral", "Coral"),
-    ("orange", "Orange"),
-    ("gold", "Gold"),
-    ("yellow", "Yellow"),
-    ("lime", "Lime"),
-    ("green", "Green"),
-    ("mint", "Mint"),
-    ("teal", "Teal"),
-    ("cyan", "Cyan"),
-    ("blue", "Blue"),
-    ("indigo", "Indigo"),
-    ("purple", "Purple"),
-    ("lavender", "Lavender"),
-    ("pink", "Pink"),
-    ("burgundy", "Burgundy"),
-];
+pub(super) use crate::group_palette::COLOR_OPTIONS;
 
 fn accent(color: &str) -> Option<Color32> {
     Some(match color {

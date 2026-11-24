@@ -2,6 +2,7 @@
 mod bitfix;
 mod crash_context;
 mod crash_reporter;
+mod group_palette;
 pub mod gui;
 mod installation;
 pub mod integrate;

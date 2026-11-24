@@ -269,22 +269,37 @@ fn priority_drag_value(ui: &mut Ui, priority: &mut i32) -> egui::Response {
     response
 }
 
-fn description_help_button(ui: &mut Ui, description: &str) {
-    let border = ui.visuals().widgets.inactive.fg_stroke.color;
-    ui.add(
-        Button::new(RichText::new("?").strong())
-            .small()
-            .frame(true)
-            .stroke(Stroke::new(1.0_f32, border))
-            .min_size(egui::vec2(18.0, 18.0))
-            .sense(egui::Sense::hover()),
-    )
-    .on_hover_cursor(egui::CursorIcon::PointingHand)
-    .on_hover_ui_at_pointer(|ui| {
-        ui.set_max_width(320.0);
-        ui.label(RichText::new("Description").strong());
-        ui.label(description);
+fn description_help_button(ui: &mut Ui, description: &str, group_tint: Option<Color32>) {
+    // Use the supplied group accent directly, not inherited widget text visuals.
+    // The same hover-only icon is used by headers and both mod-row paths.
+    let (rect, response) = ui.allocate_exact_size(egui::vec2(18.0, 18.0), egui::Sense::hover());
+    let glyph = group_tint.unwrap_or_else(|| {
+        if response.hovered() {
+            ui.visuals().text_color()
+        } else {
+            ui.visuals().weak_text_color()
+        }
     });
+    if ui.is_rect_visible(rect) {
+        if response.hovered() {
+            ui.painter().circle_filled(
+                rect.center(),
+                9.0,
+                ui.visuals().widgets.hovered.weak_bg_fill,
+            );
+        }
+        egui::Image::new(egui::include_image!(
+            "../../assets/icons/description_help.svg"
+        ))
+        .tint(glyph)
+        .paint_at(ui, rect.shrink(1.5));
+    }
+    response
+        .on_hover_ui_at_pointer(|ui| {
+            ui.set_max_width(320.0);
+            ui.label(RichText::new("Description").strong());
+            ui.label(description);
+        });
 }
 
 // A single-line, width-bounded status label. Never let diagnostics reserve toolbar space.

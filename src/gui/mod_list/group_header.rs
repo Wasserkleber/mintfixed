@@ -100,7 +100,9 @@ pub(super) fn render_contents(
             .on_hover_text("Group color");
         });
         if let Some(description) = group_description {
-            description_help_button(ui, description);
+            let group_tint = selected_color
+                .map(|color| mod_list_style::swatch_color(Some(color), ui.visuals().dark_mode));
+            description_help_button(ui, description, group_tint);
         }
     });
     (title_clicked, requested_color)

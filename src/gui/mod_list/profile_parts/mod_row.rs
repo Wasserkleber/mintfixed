@@ -262,7 +262,7 @@
                                 .as_deref()
                                 .filter(|text| !text.trim().is_empty())
                             {
-                                description_help_button(ui, description);
+                                description_help_button(ui, description, group_control_tint);
                             }
                             mod_tags::render_mod_tags(
                                 ui,
@@ -296,7 +296,7 @@
                             .as_deref()
                             .filter(|text| !text.trim().is_empty())
                         {
-                            description_help_button(ui, description);
+                            description_help_button(ui, description, group_control_tint);
                         }
                     }
                 }
