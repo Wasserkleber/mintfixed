@@ -70,7 +70,7 @@ pub(in crate::gui) fn render_contents(
             ui.visuals_mut().widgets.inactive.bg_stroke = egui::Stroke::NONE;
             ui.menu_image_button(
                 egui::Image::new(egui::include_image!(
-                    "../../../assets/icons/group_palette.svg"
+                    "../../../../assets/icons/group_palette.svg"
                 ))
                 .fit_to_exact_size(egui::vec2(15.0, 15.0))
                 .tint(mod_list_style::swatch_color(

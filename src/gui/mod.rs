@@ -35,7 +35,6 @@ use runtime::{message, missing_local_files, request_counter, unavailable_mods};
 mod group_controls;
 use text_controls::{description_help_button, mint_text_button, status_message};
 mod lint;
-use self::lint::LintOptions;
 use group_controls::{Drag, Target};
 
 #[cfg(test)]
@@ -70,7 +69,6 @@ use eframe::{
 use egui_commonmark::{CommonMarkCache, CommonMarkViewer};
 use mint_lib::error::ResultExt as _;
 use mint_lib::mod_info::{ModioTags, RequiredStatus};
-use mint_lib::update::GitHubRelease;
 use strum::{EnumIter, IntoEnumIterator};
 use tokio::{
     sync::mpsc::{self, Receiver, Sender},
