@@ -3,14 +3,15 @@
 //! constrain its *contents* when a collapsing section becomes tall.
 
 const EDGE_PADDING: f32 = 6.0;
-const FRAME_ALLOWANCE: f32 = 10.0;
-const PREFERRED_WIDTH: f32 = 330.0;
+const FRAME_ALLOWANCE: f32 = 14.0;
+const BUTTON_GAP: f32 = 3.0;
+const PREFERRED_WIDTH: f32 = 300.0;
 const COMFORTABLE_HEIGHT: f32 = 180.0;
 
 /// Returns the preferred side and maximum inner content size in logical points.
 fn popup_geometry(screen: egui::Rect, button: egui::Rect) -> (egui::AboveOrBelow, f32, f32) {
-    let space_below = (screen.bottom() - button.bottom() - EDGE_PADDING).max(0.0);
-    let space_above = (button.top() - screen.top() - EDGE_PADDING).max(0.0);
+    let space_below = (screen.bottom() - button.bottom() - EDGE_PADDING - BUTTON_GAP).max(0.0);
+    let space_above = (button.top() - screen.top() - EDGE_PADDING - BUTTON_GAP).max(0.0);
     // Prefer opening downwards unless there is too little room to work with.
     let below = space_below >= COMFORTABLE_HEIGHT || space_below >= space_above;
     let side = if below {
@@ -27,6 +28,33 @@ fn popup_geometry(screen: egui::Rect, button: egui::Rect) -> (egui::AboveOrBelow
     (side, max_height, width)
 }
 
+/// Align the outer popup edge with the corresponding toolbar button edge.
+fn popup_anchor(
+    screen: egui::Rect,
+    button: egui::Rect,
+    side: egui::AboveOrBelow,
+) -> (egui::Pos2, egui::Align2) {
+    let right_aligned = button.center().x >= screen.center().x;
+    match (side, right_aligned) {
+        (egui::AboveOrBelow::Below, false) => (
+            button.left_bottom() + egui::vec2(0.0, BUTTON_GAP),
+            egui::Align2::LEFT_TOP,
+        ),
+        (egui::AboveOrBelow::Below, true) => (
+            button.right_bottom() + egui::vec2(0.0, BUTTON_GAP),
+            egui::Align2::RIGHT_TOP,
+        ),
+        (egui::AboveOrBelow::Above, false) => (
+            button.left_top() - egui::vec2(0.0, BUTTON_GAP),
+            egui::Align2::LEFT_BOTTOM,
+        ),
+        (egui::AboveOrBelow::Above, true) => (
+            button.right_top() - egui::vec2(0.0, BUTTON_GAP),
+            egui::Align2::RIGHT_BOTTOM,
+        ),
+    }
+}
+
 /// Share layout, positioning and scroll behavior while keeping the current
 /// per-menu persistent IDs, actions and click-outside close behavior.
 /// Shared Group/Profile popup, sized from the current pass's visible controls.
@@ -41,23 +69,24 @@ pub(super) fn show<R>(
         return None;
     }
 
-    let (side, max_height, width) = popup_geometry(parent_ui.ctx().screen_rect(), button.rect);
-    let (mut anchor, pivot) = match side {
-        egui::AboveOrBelow::Above => (button.rect.left_top(), egui::Align2::LEFT_BOTTOM),
-        egui::AboveOrBelow::Below => (button.rect.left_bottom(), egui::Align2::LEFT_TOP),
-    };
-    if let Some(to_global) = parent_ui
+    // Compare the button and viewport in the same coordinate space.
+    let screen = parent_ui.ctx().screen_rect();
+    let button_rect = parent_ui
         .ctx()
         .layer_transform_to_global(parent_ui.layer_id())
-    {
-        anchor = to_global * anchor;
-    }
+        .map_or(button.rect, |to_global| to_global * button.rect);
+    let (side, max_height, width) = popup_geometry(screen, button_rect);
+    let (anchor, pivot) = popup_anchor(screen, button_rect, side);
+    let inset = EDGE_PADDING
+        .min(screen.width() * 0.25)
+        .min(screen.height() * 0.25);
 
     let popup = egui::Area::new(id)
         .kind(egui::UiKind::Popup)
         .order(egui::Order::Foreground)
         .fixed_pos(anchor)
         .pivot(pivot)
+        .constrain_to(screen.shrink(inset))
         .show(parent_ui.ctx(), |ui| {
             egui::Frame::popup(parent_ui.style())
                 .show(ui, |ui| {
@@ -157,6 +186,25 @@ mod tests {
         let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(900.0, 500.0));
         let button = egui::Rect::from_min_size(egui::pos2(10.0, 450.0), egui::vec2(140.0, 25.0));
         assert_eq!(popup_geometry(screen, button).0, egui::AboveOrBelow::Above);
+    }
+
+    #[test]
+    fn anchors_left_and_right_toolbar_buttons_to_their_outer_edges() {
+        let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(900.0, 500.0));
+        let left = egui::Rect::from_min_size(egui::pos2(10.0, 30.0), egui::vec2(140.0, 25.0));
+        let right = egui::Rect::from_min_size(egui::pos2(750.0, 30.0), egui::vec2(140.0, 25.0));
+        let (anchor, pivot) = popup_anchor(screen, left, egui::AboveOrBelow::Below);
+        assert_eq!(anchor, egui::pos2(left.left(), left.bottom() + BUTTON_GAP));
+        assert_eq!(pivot, egui::Align2::LEFT_TOP);
+        let (anchor, pivot) = popup_anchor(screen, right, egui::AboveOrBelow::Below);
+        assert_eq!(
+            anchor,
+            egui::pos2(right.right(), right.bottom() + BUTTON_GAP)
+        );
+        assert_eq!(pivot, egui::Align2::RIGHT_TOP);
+        let (anchor, pivot) = popup_anchor(screen, right, egui::AboveOrBelow::Above);
+        assert_eq!(anchor, egui::pos2(right.right(), right.top() - BUTTON_GAP));
+        assert_eq!(pivot, egui::Align2::RIGHT_BOTTOM);
     }
 
     #[test]
