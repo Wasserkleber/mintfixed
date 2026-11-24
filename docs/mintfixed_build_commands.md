@@ -12,7 +12,7 @@ cd C:\Users\Wasserkleber\mint
 .\build.cmd
 ```
 
-This is the recommended local build command. `build.cmd` starts `scripts/build_release_and_experimental.ps1` with a process-local PowerShell execution-policy override; no machine-wide policy change is needed.
+This is the recommended local build command. `build.cmd` starts `scripts/build/build_release_and_experimental.ps1` with a process-local PowerShell execution-policy override; no machine-wide policy change is needed.
 
 The builder:
 
@@ -123,14 +123,14 @@ Run `build.cmd` to package your current checkout under release-labeled and exper
 
 Create/publish a release for the intended tag at [Mintfixed GitHub Releases](https://github.com/Wasserkleber/mintfixed/releases/new). Mark prereleases appropriately. Upload the tagged ZIP from `target\release\dist\` when manually distributing a release. Use `mintfixed_experimental-windows-x86_64.zip` for Windows test builds, not as an official tagged release.
 
-The GitHub Actions release workflow also uses `scripts/build_release_and_experimental.ps1` to package its already-compiled Windows executable. The legacy `build_tagged.ps1` has been removed; CI uses the packaging-only mode described below.
+The GitHub Actions release workflow also uses `scripts/build/build_release_and_experimental.ps1` to package its already-compiled Windows executable. The legacy `build_tagged.ps1` has been removed; CI uses the packaging-only mode described below.
 
 ## GitHub Actions packaging mode (not for normal local builds)
 
 The GitHub Actions workflow first checks out the published tag and compiles the executable, then invokes the same script **without rebuilding**:
 
 ```powershell
-.\scripts\build_release_and_experimental.ps1 -NoBuild -Tag mintfixed_1.4 -OutputDirectory dist
+.\scripts\build\build_release_and_experimental.ps1 -NoBuild -Tag mintfixed_1.4 -OutputDirectory dist
 ```
 
 This checks that the tag points to `HEAD`, that the checkout is clean, and that `mint.exe --version` exactly matches the requested tag. It copies the already-compiled binary to `dist\mintfixed_1.4-windows-x86_64.exe`. GitHub Actions then creates its published Windows ZIP and uploads the artifacts. This CI-only call produces the tagged EXE, **not** all four local build artifacts.
@@ -139,12 +139,12 @@ This checks that the tag points to `HEAD`, that the checkout is clean, and that 
 
 ## Optional: verify version-number stamping
 
-`scripts/verify_version_rebuild.ps1` is **not** a second Mintfixed builder. It is a standalone smoke test for `mint_lib/build_version.rs`. It creates a small temporary Rust project and checks that the embedded version string changes correctly after adding tags, modifying files, making commits, and switching branches. It does not build Mintfixed itself, and the normal `build.cmd` workflow does not invoke it.
+`scripts/verify/verify_version_rebuild.ps1` is **not** a second Mintfixed builder. It is a standalone smoke test for `mint_lib/build/version.rs`. It creates a small temporary Rust project and checks that the embedded version string changes correctly after adding tags, modifying files, making commits, and switching branches. It does not build Mintfixed itself, and the normal `build.cmd` workflow does not invoke it.
 
 To run this version-stamping check separately (requires Git and the Rust **stable** toolchain):
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\verify_version_rebuild.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\verify\verify_version_rebuild.ps1
 ```
 
 Keep this test script even though the old `build_tagged.ps1` has been removed.

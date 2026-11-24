@@ -1,11 +1,15 @@
+#[path = "assets/blueprint_guard.rs"]
 mod blueprint_guard;
+#[path = "pak/bundle_writer.rs"]
 mod bundle_writer;
 
 use self::bundle_writer::ModBundleWriter;
+#[path = "assets/paths.rs"]
 mod asset_paths;
 mod assets;
 mod mod_inputs;
 mod orchestration;
+#[path = "pak/reader.rs"]
 mod pak_reader;
 mod patches;
 mod unchanged;

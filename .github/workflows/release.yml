@@ -70,7 +70,7 @@ jobs:
         shell: pwsh
         run: |
           $asset = "${env:MINTFIXED_RELEASE_TAG}_windows_x86_64.zip"
-          & ./scripts/build_release_and_experimental.ps1 -NoBuild -Tag $env:MINTFIXED_RELEASE_TAG -OutputDirectory 'dist'
+          & ./scripts/build/build_release_and_experimental.ps1 -NoBuild -Tag $env:MINTFIXED_RELEASE_TAG -OutputDirectory 'dist'
           $executable = "dist/$($env:MINTFIXED_RELEASE_TAG)-windows-x86_64.exe"
           Compress-Archive -Path $executable -DestinationPath $asset -Force
           "RELEASE_ASSET=$asset" >> $env:GITHUB_ENV

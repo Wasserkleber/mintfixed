@@ -1,3 +1,5 @@
+use super::*;
+
 /// Capture object identities, never fall back to a newly-created namesake.
 #[derive(Debug)]
 pub(in crate::gui) struct GroupDestination {
@@ -6,7 +8,7 @@ pub(in crate::gui) struct GroupDestination {
     reference_id: String,
 }
 impl GroupDestination {
-    fn capture(data: &Data, profile: &str, group: &str) -> Option<Self> {
+    pub(super) fn capture(data: &Data, profile: &str, group: &str) -> Option<Self> {
         let profile = data.profiles.get(profile)?;
         let reference = profile.mods.iter().find(
             |row| matches!(row, ModOrGroup::Group { group_name, .. } if group_name == group),
@@ -47,13 +49,13 @@ pub(in crate::gui) fn drop_files(
         path.extension()
             .is_some_and(|ext| ext.eq_ignore_ascii_case("lua"))
     }) {
-        app.last_action = Some(LastAction::failure(
+        app.status_state.last_action = Some(LastAction::failure(
             crate::gui::bitfix_menu::REDIRECT_HINT.into(),
         ));
         return;
     }
     let Some(target) = GroupDestination::capture(&app.state.mod_data, &profile, &group) else {
-        app.last_action = Some(LastAction::failure(
+        app.status_state.last_action = Some(LastAction::failure(
             "The group destination no longer exists.".into(),
         ));
         return;
@@ -162,9 +164,8 @@ pub(in crate::gui) fn add_files(
         app.groups_to_open.insert((profile, group));
         Ok(message)
     });
-    app.last_action = Some(match result {
+    app.status_state.last_action = Some(match result {
         Ok(message) => LastAction::success(message),
         Err(message) => LastAction::failure(message),
     });
 }
-

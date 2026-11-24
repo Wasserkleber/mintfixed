@@ -1,1 +1,1 @@
-scripts/build_linux_wsl.sh text eol=lf
+scripts/build/build_linux_wsl.sh text eol=lf

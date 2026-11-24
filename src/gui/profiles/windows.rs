@@ -1,8 +1,8 @@
 // profile pop-out windows; methods moved intact from gui/mod.rs.
-use super::*;
+use crate::gui::*;
 
 impl App {
-    pub(super) fn show_profile_windows(&mut self, ctx: &egui::Context) {
+    pub(in crate::gui) fn show_profile_windows(&mut self, ctx: &egui::Context) {
         let mut to_remove = vec![];
         for profile in &self.open_profiles.clone() {
             let mut open = true;

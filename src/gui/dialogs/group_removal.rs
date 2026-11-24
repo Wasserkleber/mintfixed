@@ -1,8 +1,8 @@
 // shared-group removal confirmation; methods moved intact from gui/mod.rs.
-use super::*;
+use crate::gui::*;
 
 impl App {
-    pub(super) fn show_group_mod_removal_confirmation(&mut self, ctx: &egui::Context) {
+    pub(in crate::gui) fn show_group_mod_removal_confirmation(&mut self, ctx: &egui::Context) {
         let Some(pending) = &self.pending_group_mod_removal else {
             return;
         };
@@ -62,7 +62,7 @@ impl App {
         );
 
         if removed.is_err() {
-            self.last_action = Some(LastAction::failure(
+            self.status_state.last_action = Some(LastAction::failure(
                 "The mod or group changed before removal. Nothing was deleted.".into(),
             ));
             return;
@@ -70,14 +70,14 @@ impl App {
         match self.state.mod_data.save() {
             Ok(()) => {
                 self.profile_issues.clear();
-                self.last_action = Some(LastAction::success(format!(
+                self.status_state.last_action = Some(LastAction::success(format!(
                     "Removed '{}' from shared group '{}'",
                     pending.mod_name, pending.group_name,
                 )));
             }
             Err(error) => {
                 *self.state.mod_data.deref_mut().deref_mut() = before;
-                self.last_action = Some(LastAction::failure(format!(
+                self.status_state.last_action = Some(LastAction::failure(format!(
                     "Could not save group removal: {error}",
                 )));
             }

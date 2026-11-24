@@ -257,7 +257,7 @@ fn install_inner(bin_dir: &Path, installation_type: &DRGInstallationType) -> Res
     }
     let license = dir.join("BP-Crash-Reporter-LICENSE.txt");
     if !license.exists() {
-        fs::write(&license, include_str!("../../assets/bpcrash-LICENSE.txt"))?;
+        fs::write(&license, include_str!("../../assets/bpcrash/LICENSE.txt"))?;
         info!(
             "BP-Crash-Reporter: installed license notice at {}",
             license.display()

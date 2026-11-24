@@ -28,7 +28,7 @@ impl State {
         if fresh {
             match &mut mod_data {
                 VersionAnnotatedModData::V0_1_0(data) | VersionAnnotatedModData::V0_3_0(data) => {
-                    crate::preinstall::apply(data)
+                    super::preinstall::apply(data)
                         .map_err(|reason| StateError::InvalidBundledPreset { reason })?;
                 }
                 VersionAnnotatedModData::V0_0_0(_) => unreachable!("mod data should be upgraded"),

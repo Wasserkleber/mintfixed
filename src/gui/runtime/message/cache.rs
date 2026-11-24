@@ -1,3 +1,8 @@
+use super::{Message, MessageHandle};
+use crate::gui::{App, LastAction, WindowProviderParameters, request_counter::RequestID};
+use crate::providers::ProviderError;
+use tracing::{error, info, warn};
+
 #[derive(Debug)]
 pub struct UpdateCache {
     rid: RequestID,
@@ -88,21 +93,21 @@ impl UpdateCache {
                 .unwrap();
             ctx.request_repaint();
         });
-        app.cache_recovery_progress = None;
-        app.cache_recovery_last_advance = None;
-        app.last_action = None;
-        app.update_rid = Some(MessageHandle {
+        app.install_state.cache_recovery_progress = None;
+        app.install_state.cache_recovery_last_advance = None;
+        app.status_state.last_action = None;
+        app.install_state.update_rid = Some(MessageHandle {
             rid,
             handle,
             state: (),
         });
     }
 
-    fn receive(self, app: &mut App) {
-        if Some(self.rid) == app.update_rid.as_ref().map(|r| r.rid) {
+    pub(super) fn receive(self, app: &mut App) {
+        if Some(self.rid) == app.install_state.update_rid.as_ref().map(|r| r.rid) {
             let unavailable_details = match &self.result {
                 Ok((_, _, unavailable)) if *unavailable > 0 => {
-                    Some(super::unavailable_mods::entries(
+                    Some(crate::gui::unavailable_mods::entries(
                         &app.state.mod_data,
                         |spec| app.state.store.is_modio_unavailable(spec),
                         |spec| {
@@ -119,13 +124,13 @@ impl UpdateCache {
             match self.result {
                 Ok((0, cached, 0)) => {
                     info!("cache update complete; referenced mod.io metadata recovered");
-                    app.last_action = Some(LastAction::success(format!(
+                    app.status_state.last_action = Some(LastAction::success(format!(
                         "Cache updated: {cached} cached mod.io mods ready"
                     )));
                 }
                 Ok((0, cached, unavailable)) => {
                     warn!("cache updated with {unavailable} unavailable mod.io mods");
-                    app.last_action = Some(LastAction::success(format!(
+                    app.status_state.last_action = Some(LastAction::success(format!(
                         "Cache updated: {cached} cached mod.io mods, {unavailable} unavailable (cached files preserved)"
                     )));
                 }
@@ -135,19 +140,20 @@ impl UpdateCache {
                     );
                     // A missing active mod cannot be safely installed after updating.
                     // The failure status prevents the automatic install from starting.
-                    app.last_action = Some(LastAction::failure(format!(
+                    app.status_state.last_action = Some(LastAction::failure(format!(
                         "Cache updated: {cached} cached mod.io mods, {unavailable} unavailable; {remaining} entries lack metadata"
                     )));
                 }
                 Err(ProviderError::NoProvider { url: _, factory }) => {
                     app.window_provider_parameters =
                         Some(WindowProviderParameters::new(factory, &app.state));
-                    app.last_action = Some(LastAction::failure("no provider".to_string()));
+                    app.status_state.last_action =
+                        Some(LastAction::failure("no provider".to_string()));
                 }
                 Err(e) => {
                     error!("{}", e);
-                    app.problematic_mod_id = e.opt_mod_id();
-                    app.last_action = Some(LastAction::failure(e.to_string()));
+                    app.status_state.problematic_mod_id = e.opt_mod_id();
+                    app.status_state.last_action = Some(LastAction::failure(e.to_string()));
                 }
             }
             for location in unavailable_details.iter().flatten() {
@@ -156,18 +162,20 @@ impl UpdateCache {
                     location.label.replace('\n', " ")
                 );
             }
-            if let (Some(details), Some(action)) = (unavailable_details, app.last_action.as_mut()) {
+            if let (Some(details), Some(action)) =
+                (unavailable_details, app.status_state.last_action.as_mut())
+            {
                 let summary = match &action.status {
-                    super::LastActionStatus::Success(message)
-                    | super::LastActionStatus::Failure(message) => message,
+                    crate::gui::LastActionStatus::Success(message)
+                    | crate::gui::LastActionStatus::Failure(message) => message,
                 };
                 action.details = Some(format!(
                     "{summary}\n\n{}",
-                    super::unavailable_mods::describe(&details)
+                    crate::gui::unavailable_mods::describe(&details)
                 ));
                 action.unavailable_locations = details;
             }
-            app.update_rid = None;
+            app.install_state.update_rid = None;
         }
     }
 }

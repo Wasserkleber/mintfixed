@@ -5,7 +5,7 @@ mods and groups. The **configuration** is embedded in the executable; the actual
 mod files are NOT bundled or downloaded on startup. This is not an offline
 mod bundle.
 
-1. Edit `assets/preinstall.json` before building. The default `items: []` does
+1. Edit `assets/config/preinstall.json` before building. The default `items: []` does
    nothing. For example, replace the URLs below with your actual mod.io links:
 
    ```json
@@ -53,7 +53,7 @@ Other rules:
 ## Descriptions and info icons
 
 Optionally add `"description"` to **each standalone mod**, **each group**, or
-**each mod inside a group** in `assets/preinstall.json`. For example:
+**each mod inside a group** in `assets/config/preinstall.json`. For example:
 
 ```json
 {

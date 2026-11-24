@@ -1,3 +1,19 @@
+use super::{FetchModProgress, Message, MessageHandle};
+use crate::gui::{
+    App, LastAction, WindowProviderParameters,
+    request_counter::{RequestCounter, RequestID},
+};
+use crate::integrate::IntegrationError;
+use crate::mod_lints::{LintId, LintReport};
+use crate::providers::{FetchProgress, ModResolution, ModSpecification, ModStore, ProviderError};
+use std::{
+    collections::{BTreeSet, HashMap},
+    path::PathBuf,
+    sync::Arc,
+};
+use tokio::sync::mpsc::{self, Sender};
+use tracing::{error, info};
+
 #[derive(Debug)]
 pub struct LintMods {
     rid: RequestID,
@@ -55,35 +71,35 @@ impl LintMods {
         }
     }
 
-    fn receive(self, app: &mut App) {
-        if Some(self.rid) == app.lint_rid.as_ref().map(|r| r.rid) {
+    pub(super) fn receive(self, app: &mut App) {
+        if Some(self.rid) == app.lint_state.lint_rid.as_ref().map(|r| r.rid) {
             match self.result {
                 Ok(mut report) => {
                     info!("lint mod report complete");
-                    if let Some(run) = &app.lint_run {
+                    if let Some(run) = &app.lint_state.lint_run {
                         if let Some(anchor) = &run.focus {
-                            super::lint::focus_only(&mut report, anchor);
+                            crate::gui::lint::focus_only(&mut report, anchor);
                         }
-                        match super::lint::save_txt(&app.state.dirs.data_dir, &report, run) {
+                        match crate::gui::lint::save_txt(&app.state.dirs.data_dir, &report, run) {
                             Ok(path) => {
-                                app.last_action = Some(LastAction::success(format!(
+                                app.status_state.last_action = Some(LastAction::success(format!(
                                     "Lint report saved: {}",
                                     path.display()
                                 )));
-                                app.lint_report_path = Some(path);
-                                app.lint_report_error = None;
+                                app.lint_state.lint_report_path = Some(path);
+                                app.lint_state.lint_report_error = None;
                             }
                             Err(error) => {
-                                app.lint_report_path = None;
-                                app.lint_report_error =
+                                app.lint_state.lint_report_path = None;
+                                app.lint_state.lint_report_error =
                                     Some(format!("Could not save lint TXT report: {error}"));
-                                app.last_action = Some(LastAction::failure(format!(
+                                app.status_state.last_action = Some(LastAction::failure(format!(
                                     "Lint checks finished, but TXT export failed: {error}"
                                 )));
                             }
                         }
                     }
-                    app.lint_report = Some(report);
+                    app.lint_state.lint_report = Some(report);
                 }
                 Err(ref e)
                     if let IntegrationError::ProviderError { source } = e
@@ -91,15 +107,16 @@ impl LintMods {
                 {
                     app.window_provider_parameters =
                         Some(WindowProviderParameters::new(factory, &app.state));
-                    app.last_action = Some(LastAction::failure("no provider".to_string()));
+                    app.status_state.last_action =
+                        Some(LastAction::failure("no provider".to_string()));
                 }
                 Err(e) => {
                     error!("{}", e);
-                    app.problematic_mod_id = e.opt_mod_id();
-                    app.last_action = Some(LastAction::failure(e.to_string()));
+                    app.status_state.problematic_mod_id = e.opt_mod_id();
+                    app.status_state.last_action = Some(LastAction::failure(e.to_string()));
                 }
             }
-            app.lint_rid = None;
+            app.lint_state.lint_rid = None;
         }
     }
 }
@@ -148,4 +165,3 @@ async fn resolve_async_ordered(
 
     Ok(store.fetch_mods_ordered(&urls, update, Some(tx)).await?)
 }
-

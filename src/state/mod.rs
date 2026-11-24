@@ -3,10 +3,14 @@
 //! Keep the public `state::*` API stable; implementations live in focused modules.
 pub mod config;
 mod groups;
+pub(crate) use groups::attach_group;
+pub(crate) mod local_files;
+pub(crate) use groups::palette as group_palette;
 mod migration;
 mod models;
 mod operations;
 mod persistence;
+mod preinstall;
 mod profiles;
 mod validation;
 

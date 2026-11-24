@@ -1,19 +1,19 @@
 //! Global bitfix Lua management UI, independent of ordinary mod profiles.
-use super::*;
+use crate::gui::*;
 
-pub(super) const REDIRECT_HINT: &str = "Bitfix Lua scripts cannot be added here. Open the Bitfix menu using the button in the bottom-left corner.";
+pub(in crate::gui) const REDIRECT_HINT: &str = "Bitfix Lua scripts cannot be added here. Open the Bitfix menu using the button in the bottom-left corner.";
 
 #[derive(Default)]
-pub(super) struct BitfixMenu {
-    pub(super) open: bool,
-    pub(super) input: String,
+pub(in crate::gui) struct BitfixMenu {
+    pub(in crate::gui) open: bool,
+    pub(in crate::gui) input: String,
     /// Tracks the target through the final native drop frame.
     drop_hovered: bool,
     // Keep a snapshot so the confirmation cannot delete a DLL silently changed in the meantime.
-    pub(super) pending_conflict: Option<(PathBuf, Vec<u8>)>,
+    pub(in crate::gui) pending_conflict: Option<(PathBuf, Vec<u8>)>,
 }
 
-pub(super) fn is_lua_spec(spec: &ModSpecification) -> bool {
+pub(in crate::gui) fn is_lua_spec(spec: &ModSpecification) -> bool {
     spec.url
         .split(['?', '#'])
         .next()
@@ -22,7 +22,7 @@ pub(super) fn is_lua_spec(spec: &ModSpecification) -> bool {
         .ends_with(".lua")
 }
 
-pub(super) fn toolbar_button(ui: &mut Ui) -> bool {
+pub(in crate::gui) fn toolbar_button(ui: &mut Ui) -> bool {
     let icon = egui::Image::new(egui::include_image!("../../../assets/icons/bitfix.svg"))
         .fit_to_exact_size(egui::vec2(14.0, 14.0))
         .tint(ui.visuals().text_color());
@@ -76,34 +76,34 @@ fn dropped_lua_paths(files: &[egui::DroppedFile]) -> Result<Vec<PathBuf>, &'stat
 }
 
 impl App {
-    pub(super) fn preflight_bitfix_proxy(&mut self) -> bool {
+    pub(in crate::gui) fn preflight_bitfix_proxy(&mut self) -> bool {
         match conflict_for_active(&self.state) {
             Ok(None) => true,
             Ok(Some(path)) => match std::fs::read(&path) {
                 Ok(bytes) => {
                     self.bitfix_menu.pending_conflict = Some((path, bytes));
-                    self.last_action = Some(LastAction::failure(
+                    self.status_state.last_action = Some(LastAction::failure(
                         "Conflicting d3d9.dll detected. Confirm or cancel in the warning window."
                             .into(),
                     ));
                     false
                 }
                 Err(error) => {
-                    self.last_action = Some(LastAction::failure(format!(
+                    self.status_state.last_action = Some(LastAction::failure(format!(
                         "Could not inspect d3d9.dll: {error}"
                     )));
                     false
                 }
             },
             Err(message) => {
-                self.last_action = Some(LastAction::failure(message));
+                self.status_state.last_action = Some(LastAction::failure(message));
                 false
             }
         }
     }
 
-    pub(super) fn start_install_for_active(&mut self, ctx: &egui::Context) {
-        if self.integrate_rid.is_some() || self.update_rid.is_some() {
+    pub(in crate::gui) fn start_install_for_active(&mut self, ctx: &egui::Context) {
+        if self.install_state.integrate_rid.is_some() || self.install_state.update_rid.is_some() {
             return;
         }
         if !self.preflight_bitfix_proxy() {
@@ -112,13 +112,14 @@ impl App {
         let data = &self.state.mod_data;
         let mods = data.ordered_install_entries(&data.active_profile);
         let Some(fsd_pak) = self.state.config.drg_pak_path.clone() else {
-            self.last_action = Some(LastAction::failure("DRG install not configured".into()));
+            self.status_state.last_action =
+                Some(LastAction::failure("DRG install not configured".into()));
             return;
         };
-        self.last_action = None;
-        self.cache_install_rid = None;
-        self.install_phase = message::InstallPhase::Resolving;
-        self.integrate_rid = Some(message::Integrate::send(
+        self.status_state.last_action = None;
+        self.install_state.cache_install_rid = None;
+        self.install_state.install_phase = message::InstallPhase::Resolving;
+        self.install_state.integrate_rid = Some(message::Integrate::send(
             &mut self.request_counter,
             self.state.store.clone(),
             mods,
@@ -127,10 +128,10 @@ impl App {
             self.tx.clone(),
             ctx.clone(),
         ));
-        self.problematic_mod_id = None;
+        self.status_state.problematic_mod_id = None;
     }
 
-    pub(super) fn show_bitfix_menu(&mut self, ctx: &egui::Context) {
+    pub(in crate::gui) fn show_bitfix_menu(&mut self, ctx: &egui::Context) {
         if !self.bitfix_menu.open {
             return;
         }
@@ -144,8 +145,8 @@ impl App {
             .default_width(560.0)
             .resizable(true)
             .show(ctx, |ui| {
-                if self.integrate_rid.is_some() || self.update_rid.is_some()
-                    || self.resolve_mod_rid.is_some() { ui.disable(); }
+                if self.install_state.integrate_rid.is_some() || self.install_state.update_rid.is_some()
+                    || self.resolve_state.resolve_mod_rid.is_some() { ui.disable(); }
                 ui.label("Bitfix Lua scripts are shared across all profiles.");
                 ui.label("Paste local .lua paths or .lua URLs (one per line):");
                 if ui.input(|i| !i.raw.hovered_files.is_empty())
@@ -159,7 +160,7 @@ impl App {
                 ui.add(egui::TextEdit::multiline(&mut self.bitfix_menu.input).desired_rows(1));
                 ui.horizontal(|ui| {
                     if ui.add_enabled(
-                        self.resolve_mod_rid.is_none() && !self.bitfix_menu.input.trim().is_empty(),
+                        self.resolve_state.resolve_mod_rid.is_none() && !self.bitfix_menu.input.trim().is_empty(),
                         Button::new("Add scripts")
                     ).clicked() { add = true; }
                     if ui.button("Browse .lua files").clicked()
@@ -171,8 +172,8 @@ impl App {
                             add = true;
                         }
                     if ui.add_enabled(
-                        self.resolve_mod_rid.is_none() && self.integrate_rid.is_none()
-                            && self.update_rid.is_none()
+                        self.resolve_state.resolve_mod_rid.is_none() && self.install_state.integrate_rid.is_none()
+                            && self.install_state.update_rid.is_none()
                             && self.state.config.drg_pak_path.is_some(),
                         Button::new("Install mods and Bitfix")
                     ).on_hover_text("Install the active mod profile with globally enabled Bitfix scripts")
@@ -201,7 +202,7 @@ impl App {
         self.bitfix_menu.open = open;
         if changed && let Err(error) = self.state.mod_data.save() {
             *self.state.mod_data.deref_mut().deref_mut() = before;
-            self.last_action = Some(LastAction::failure(format!(
+            self.status_state.last_action = Some(LastAction::failure(format!(
                 "Unable to save Bitfix script changes: {error}"
             )));
         }
@@ -236,11 +237,11 @@ impl App {
             if dropped_here {
                 let dropped = ctx.input_mut(|i| std::mem::take(&mut i.raw.dropped_files));
                 self.bitfix_menu.drop_hovered = false;
-                if self.resolve_mod_rid.is_some()
-                    || self.integrate_rid.is_some()
-                    || self.update_rid.is_some()
+                if self.resolve_state.resolve_mod_rid.is_some()
+                    || self.install_state.integrate_rid.is_some()
+                    || self.install_state.update_rid.is_some()
                 {
-                    self.last_action = Some(LastAction::failure(
+                    self.status_state.last_action = Some(LastAction::failure(
                         "Wait for the current operation before dropping Bitfix scripts.".into(),
                     ));
                 } else {
@@ -263,7 +264,7 @@ impl App {
                         }
                         Ok(_) => {}
                         Err(error) => {
-                            self.last_action = Some(LastAction::failure(error.into()));
+                            self.status_state.last_action = Some(LastAction::failure(error.into()));
                         }
                     }
                 }
@@ -275,7 +276,7 @@ impl App {
         }
     }
 
-    pub(super) fn show_bitfix_conflict(&mut self, ctx: &egui::Context) {
+    pub(in crate::gui) fn show_bitfix_conflict(&mut self, ctx: &egui::Context) {
         let Some((path, original_bytes)) = self.bitfix_menu.pending_conflict.as_ref() else {
             return;
         };
@@ -309,7 +310,7 @@ impl App {
             self.bitfix_menu.pending_conflict = None;
             match result {
                 Ok(()) => self.start_install_for_active(ctx),
-                Err(e) => self.last_action = Some(LastAction::failure(e)),
+                Err(e) => self.status_state.last_action = Some(LastAction::failure(e)),
             }
         }
     }

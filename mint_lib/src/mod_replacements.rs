@@ -1,10 +1,10 @@
-//! Build-time, mod.io replacement/alternative rules. Like assets/preinstall.json,
-//! changes to assets/mod_replacements.json take effect after rebuilding mintfixed.
+//! Build-time, mod.io replacement/alternative rules. Like assets/config/preinstall.json,
+//! changes to assets/config/mod_replacements.json take effect after rebuilding mintfixed.
 use crate::mod_info::ModSpecification;
 use serde::Deserialize;
 use std::{collections::HashSet, sync::OnceLock};
 
-const EMBEDDED_RULES: &str = include_str!("../../assets/mod_replacements.json");
+const EMBEDDED_RULES: &str = include_str!("../../assets/config/mod_replacements.json");
 
 #[derive(Clone, Debug, Deserialize)]
 #[serde(deny_unknown_fields)]

@@ -1,3 +1,4 @@
+#[path = "build/version.rs"]
 mod build_version;
 
 fn main() {

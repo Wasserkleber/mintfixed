@@ -2,13 +2,12 @@
 mod bitfix;
 mod crash_context;
 mod crash_reporter;
-mod group_palette;
 pub mod gui;
 mod installation;
 pub mod integrate;
 mod mod_identity;
 pub mod mod_lints;
-mod preinstall;
+mod packages;
 pub mod providers;
 pub mod state;
 

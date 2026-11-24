@@ -1,8 +1,8 @@
 // settings and provider configuration windows; methods moved intact from gui/mod.rs.
-use super::*;
+use crate::gui::*;
 
 impl App {
-    pub(super) fn show_provider_parameters(&mut self, ctx: &egui::Context) {
+    pub(in crate::gui) fn show_provider_parameters(&mut self, ctx: &egui::Context) {
         let Some(window) = &mut self.window_provider_parameters else {
             return;
         };
@@ -97,7 +97,7 @@ impl App {
         }
     }
 
-    pub(super) fn show_settings(&mut self, ctx: &egui::Context) {
+    pub(in crate::gui) fn show_settings(&mut self, ctx: &egui::Context) {
         let mut auto_save_local_folder: Option<(String, bool)> = None;
         let mut rescan_folder = false;
         if let Some(window) = &mut self.settings_window {
@@ -394,7 +394,7 @@ impl App {
                         if let Some(window) = &mut self.settings_window {
                             window.local_mod_folder_err = Some(error.clone());
                         }
-                        self.last_action = Some(LastAction::failure(error));
+                        self.status_state.last_action = Some(LastAction::failure(error));
                     }
                 }
             } else if committed && let Some(window) = &mut self.settings_window {

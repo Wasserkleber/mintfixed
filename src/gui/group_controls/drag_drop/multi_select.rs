@@ -1,3 +1,5 @@
+use super::*;
+
 // Session-only drag selection. It is never written to mod_data.json.
 // The handles of visible mods register themselves every frame, which makes
 // Shift-click and Ctrl+A respect collapsed groups and current list rendering.
@@ -73,8 +75,15 @@ impl Drag {
         ctx.request_repaint();
     }
 
-    pub(in crate::gui) fn selected_ids(ctx: &egui::Context, profile: &str) -> std::collections::BTreeSet<String> {
-        Self::read_selection(ctx, |map| map.get(profile).map(|s| s.selected.clone()).unwrap_or_default())
+    pub(in crate::gui) fn selected_ids(
+        ctx: &egui::Context,
+        profile: &str,
+    ) -> std::collections::BTreeSet<String> {
+        Self::read_selection(ctx, |map| {
+            map.get(profile)
+                .map(|s| s.selected.clone())
+                .unwrap_or_default()
+        })
     }
 
     pub(in crate::gui) fn clear_selected(ctx: &egui::Context, profile: &str) {
@@ -102,8 +111,14 @@ impl Drag {
     pub(in crate::gui) fn retain_valid_selection(ctx: &egui::Context, profile: &str, data: &Data) {
         Self::update_selection(ctx, |map| {
             if let Some(state) = map.get_mut(profile) {
-                state.selected.retain(|id| Self::find_mod(data, profile, id).is_some());
-                if state.anchor.as_ref().is_some_and(|id| Self::find_mod(data, profile, id).is_none()) {
+                state
+                    .selected
+                    .retain(|id| Self::find_mod(data, profile, id).is_some());
+                if state
+                    .anchor
+                    .as_ref()
+                    .is_some_and(|id| Self::find_mod(data, profile, id).is_none())
+                {
                     state.anchor = None;
                 }
             }
@@ -115,8 +130,10 @@ impl Drag {
             return;
         }
         let mut selected = Self::is_selected(ui.ctx(), profile, key);
-        if ui.add(egui::Checkbox::without_text(&mut selected))
-            .on_hover_text("Select mod (Shift+click for a range)").changed()
+        if ui
+            .add(egui::Checkbox::without_text(&mut selected))
+            .on_hover_text("Select mod (Shift+click for a range)")
+            .changed()
         {
             Self::selection_click(ui.ctx(), profile, key);
         }
@@ -127,18 +144,24 @@ impl Drag {
             return;
         }
         let count = Self::read_selection(ui.ctx(), |map| {
-            map.get(profile).map_or(0, |s| ids.iter().filter(|id| s.selected.contains(*id)).count())
+            map.get(profile).map_or(0, |s| {
+                ids.iter().filter(|id| s.selected.contains(*id)).count()
+            })
         });
         let mut all = count == ids.len();
-        if ui.add(egui::Checkbox::without_text(&mut all))
-            .on_hover_text("Select or deselect all group members, including collapsed mods").changed()
+        if ui
+            .add(egui::Checkbox::without_text(&mut all))
+            .on_hover_text("Select or deselect all group members, including collapsed mods")
+            .changed()
         {
             Self::update_selection(ui.ctx(), |map| {
                 let state = map.entry(profile.to_owned()).or_default();
                 if all {
                     state.selected.extend(ids.iter().cloned());
                 } else {
-                    for id in ids { state.selected.remove(id); }
+                    for id in ids {
+                        state.selected.remove(id);
+                    }
                 }
                 state.anchor = None;
             });
@@ -149,10 +172,19 @@ impl Drag {
         }
     }
 
-    pub(in crate::gui) fn select_name(ui: &mut Ui, profile: &str, key: &str, job: egui::text::LayoutJob, url: &str, manual: bool) -> egui::Response {
+    pub(in crate::gui) fn select_name(
+        ui: &mut Ui,
+        profile: &str,
+        key: &str,
+        job: egui::text::LayoutJob,
+        url: &str,
+        manual: bool,
+    ) -> egui::Response {
         let modifiers = ui.input(|i| i.modifiers);
-        if manual && (Self::selection_mode(ui.ctx(), profile) || modifiers.ctrl || modifiers.shift) {
-            let response = ui.add(egui::Label::new(job).sense(egui::Sense::click()))
+        if manual && (Self::selection_mode(ui.ctx(), profile) || modifiers.ctrl || modifiers.shift)
+        {
+            let response = ui
+                .add(egui::Label::new(job).sense(egui::Sense::click()))
                 .on_hover_cursor(egui::CursorIcon::PointingHand)
                 .on_hover_text("Click to select; Shift+click for a range");
             if response.clicked() {
@@ -166,7 +198,8 @@ impl Drag {
 
     pub(in crate::gui) fn begin_selection_frame(ui: &mut Ui, profile: &str, manual: bool) {
         let keyboard_free = !ui.ctx().wants_keyboard_input();
-        let ctrl_a = manual && keyboard_free
+        let ctrl_a = manual
+            && keyboard_free
             && ui.input(|input| input.modifiers.ctrl && input.key_pressed(egui::Key::A));
         let escape = ui.input(|input| input.key_pressed(egui::Key::Escape));
         Self::update_selection(ui.ctx(), |map| {
@@ -185,7 +218,7 @@ impl Drag {
         });
     }
 
-    fn register_visible(ctx: &egui::Context, profile: &str, key: &str) {
+    pub(super) fn register_visible(ctx: &egui::Context, profile: &str, key: &str) {
         Self::update_selection(ctx, |map| {
             let state = map.entry(profile.to_owned()).or_default();
             if !state.visible.iter().any(|id| id == key) {
@@ -196,11 +229,12 @@ impl Drag {
 
     pub(in crate::gui) fn is_selected(ctx: &egui::Context, profile: &str, key: &str) -> bool {
         Self::read_selection(ctx, |map| {
-            map.get(profile).is_some_and(|state| state.selected.contains(key))
+            map.get(profile)
+                .is_some_and(|state| state.selected.contains(key))
         })
     }
 
-    fn selection_click(ctx: &egui::Context, profile: &str, key: &str) {
+    pub(super) fn selection_click(ctx: &egui::Context, profile: &str, key: &str) {
         let modifiers = ctx.input(|i| i.modifiers);
         Self::update_selection(ctx, |map| {
             let state = map.entry(profile.to_owned()).or_default();
@@ -239,7 +273,12 @@ impl Drag {
         ctx.request_repaint();
     }
 
-    fn selection_drag_started(ctx: &egui::Context, profile: &str, key: &str, is_group: bool) {
+    pub(super) fn selection_drag_started(
+        ctx: &egui::Context,
+        profile: &str,
+        key: &str,
+        is_group: bool,
+    ) {
         Self::update_selection(ctx, |map| {
             let state = map.entry(profile.to_owned()).or_default();
             if is_group {
@@ -263,8 +302,12 @@ impl Drag {
                 .collect();
             // Collapsed group members are selected too. Append them after the
             // visible preview; apply_batch reconstructs actual profile order.
-            let hidden: Vec<_> = state.selected.iter()
-                .filter(|id| !state.dragging.contains(*id)).cloned().collect();
+            let hidden: Vec<_> = state
+                .selected
+                .iter()
+                .filter(|id| !state.dragging.contains(*id))
+                .cloned()
+                .collect();
             state.dragging.extend(hidden);
             if !state.dragging.iter().any(|id| id == key) {
                 state.dragging.push(key.to_owned());
@@ -291,8 +334,12 @@ impl Drag {
             match item {
                 ModOrGroup::Individual(mc) if mc.id == id => return Some((None, index)),
                 ModOrGroup::Group { group_name, .. } => {
-                    if let Some(index) = data.groups.get(group_name)?
-                        .mods.iter().position(|mc| mc.id == id)
+                    if let Some(index) = data
+                        .groups
+                        .get(group_name)?
+                        .mods
+                        .iter()
+                        .position(|mc| mc.id == id)
                     {
                         return Some((Some(group_name.clone()), index));
                     }
@@ -322,7 +369,10 @@ impl Drag {
             return Err("The selected mods have changed");
         }
         // Reconstruct original order, independent of the order of Ctrl-clicks.
-        let current = data.profiles.get(profile).ok_or("The source profile no longer exists")?;
+        let current = data
+            .profiles
+            .get(profile)
+            .ok_or("The source profile no longer exists")?;
         let mut ordered = Vec::new();
         for item in &current.mods {
             match item {
@@ -331,9 +381,13 @@ impl Drag {
                 }
                 ModOrGroup::Group { group_name, .. } => {
                     if let Some(group) = data.groups.get(group_name) {
-                        ordered.extend(group.mods.iter()
-                            .filter(|mc| chosen.contains(mc.id.as_str()))
-                            .map(|mc| mc.id.clone()));
+                        ordered.extend(
+                            group
+                                .mods
+                                .iter()
+                                .filter(|mc| chosen.contains(mc.id.as_str()))
+                                .map(|mc| mc.id.clone()),
+                        );
                     }
                 }
                 _ => {}
@@ -345,12 +399,19 @@ impl Drag {
         // Anchor the insertion to the first unselected entry at/after the
         // original target slot. Source removals cannot displace this ID.
         let anchor = match &target.group {
-            Some(group_name) => data.groups.get(group_name)
+            Some(group_name) => data
+                .groups
+                .get(group_name)
                 .ok_or("The destination group no longer exists")?
-                .mods.iter().skip(target.slot)
+                .mods
+                .iter()
+                .skip(target.slot)
                 .find(|mc| !chosen.contains(mc.id.as_str()))
                 .map(|mc| mc.id.clone()),
-            None => current.mods.iter().skip(target.slot)
+            None => current
+                .mods
+                .iter()
+                .skip(target.slot)
                 .find(|item| match item {
                     ModOrGroup::Individual(mc) => !chosen.contains(mc.id.as_str()),
                     ModOrGroup::Group { .. } => true,
@@ -377,8 +438,9 @@ impl Drag {
                 };
                 let artifact = crate::mod_identity::Artifact::cached(store, spec);
                 let duplicate = match &target.group {
-                    Some(name) => staged.groups[name].mods.iter()
-                        .any(|mc| crate::mod_identity::Artifact::cached(store, &mc.spec) == artifact),
+                    Some(name) => staged.groups[name].mods.iter().any(|mc| {
+                        crate::mod_identity::Artifact::cached(store, &mc.spec) == artifact
+                    }),
                     None => staged.profiles[profile].mods.iter().any(|item| {
                         matches!(item, ModOrGroup::Individual(mc)
                             if crate::mod_identity::Artifact::cached(store, &mc.spec) == artifact)
@@ -392,17 +454,21 @@ impl Drag {
             let slot = match &target.group {
                 Some(name) => {
                     let list = &staged.groups[name].mods;
-                    anchor.as_ref()
+                    anchor
+                        .as_ref()
                         .and_then(|id| list.iter().position(|mc| mc.id == *id))
                         .unwrap_or(list.len())
                 }
                 None => {
                     let list = &staged.profiles[profile].mods;
-                    anchor.as_ref()
-                        .and_then(|id| list.iter().position(|item| match item {
-                            ModOrGroup::Individual(mc) => mc.id == *id,
-                            ModOrGroup::Group { id: group_id, .. } => group_id == id,
-                        }))
+                    anchor
+                        .as_ref()
+                        .and_then(|id| {
+                            list.iter().position(|item| match item {
+                                ModOrGroup::Individual(mc) => mc.id == *id,
+                                ModOrGroup::Group { id: group_id, .. } => group_id == id,
+                            })
+                        })
                         .unwrap_or(list.len())
                 }
             };
@@ -413,7 +479,15 @@ impl Drag {
                 key,
                 is_group: false,
             };
-            drag.apply(&mut staged, profile, Target { group: target.group.clone(), slot }, store)?;
+            drag.apply(
+                &mut staged,
+                profile,
+                Target {
+                    group: target.group.clone(),
+                    slot,
+                },
+                store,
+            )?;
             moved += 1;
         }
         *data = staged;
@@ -449,7 +523,10 @@ mod history_selection_tests {
         Drag::selection_click(&ctx, "A", "hidden");
         Drag::register_visible(&ctx, "A", "visible");
         Drag::selection_drag_started(&ctx, "A", "visible", false);
-        assert_eq!(Drag::read_selection(&ctx, |m| m["A"].dragging.clone()), vec![String::from("visible"), String::from("hidden")]);
+        assert_eq!(
+            Drag::read_selection(&ctx, |m| m["A"].dragging.clone()),
+            vec![String::from("visible"), String::from("hidden")]
+        );
     }
 
     #[test]

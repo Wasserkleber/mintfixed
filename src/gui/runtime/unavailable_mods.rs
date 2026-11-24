@@ -4,7 +4,7 @@ use crate::providers::ModSpecification;
 use crate::state::{ModData_v0_1_0, ModOrGroup};
 
 #[derive(Clone, Debug)]
-pub(super) struct Location {
+pub(in crate::gui) struct Location {
     pub label: String,
     pub target: Option<Target>,
     pub spec: ModSpecification,
@@ -12,14 +12,14 @@ pub(super) struct Location {
 }
 
 #[derive(Clone, Debug)]
-pub(super) struct Target {
+pub(in crate::gui) struct Target {
     profile_id: String,
     group_entry_id: Option<String>,
     mod_id: String,
 }
 
 #[derive(Clone, Debug)]
-pub(super) struct ResolvedTarget {
+pub(in crate::gui) struct ResolvedTarget {
     pub profile: String,
     pub group: Option<String>,
     pub group_entry_id: Option<String>,
@@ -57,7 +57,7 @@ impl Target {
 }
 
 /// Keep every saved occurrence, including disabled members and unused groups.
-pub(super) fn entries(
+pub(in crate::gui) fn entries(
     data: &ModData_v0_1_0,
     mut unavailable: impl FnMut(&ModSpecification) -> bool,
     mut name: impl FnMut(&ModSpecification) -> String,
@@ -136,7 +136,7 @@ pub(super) fn entries(
     locations
 }
 
-pub(super) fn describe(locations: &[Location]) -> String {
+pub(in crate::gui) fn describe(locations: &[Location]) -> String {
     if locations.is_empty() {
         "Unavailable entries remain in the cache, but none are referenced by saved profiles or groups.".into()
     } else {
@@ -152,7 +152,7 @@ pub(super) fn describe(locations: &[Location]) -> String {
 }
 
 #[cfg(test)]
-pub(super) fn locations(
+pub(in crate::gui) fn locations(
     data: &ModData_v0_1_0,
     unavailable: impl FnMut(&ModSpecification) -> bool,
     name: impl FnMut(&ModSpecification) -> String,
@@ -163,7 +163,7 @@ pub(super) fn locations(
 /// Cache the overview by saved-data and provider metadata revisions. No list
 /// scans or provider lookups are needed on unchanged idle frames.
 #[derive(Default)]
-pub(super) struct Overview {
+pub(in crate::gui) struct Overview {
     revision: Option<(u64, (u64, u64))>,
     pub entries: Vec<Location>,
 }
@@ -193,7 +193,7 @@ impl Overview {
 
 /// Only enabled occurrences in the selected profile can block this install.
 /// Check each group occurrence's overrides without mutating shared members.
-pub(super) fn install_blockers(
+pub(in crate::gui) fn install_blockers(
     data: &ModData_v0_1_0,
     profile_name: &str,
     mut blocked: impl FnMut(&ModSpecification) -> bool,
@@ -267,7 +267,7 @@ impl Location {
 /// Check on opening/explicit refresh, never repeatedly stat files on idle frames.
 /// Keep the exact listed specification; historical reports must not silently
 /// substitute a different version selected since the report was generated.
-pub(super) fn check_downloads(
+pub(in crate::gui) fn check_downloads(
     locations: &mut [Location],
     force: bool,
     mut has_download: impl FnMut(&ModSpecification) -> bool,
@@ -283,7 +283,7 @@ pub(super) fn check_downloads(
     }
 }
 
-pub(super) fn copy_details(details: &str, locations: &[Location]) -> String {
+pub(in crate::gui) fn copy_details(details: &str, locations: &[Location]) -> String {
     if locations.is_empty() {
         return details.to_owned();
     }

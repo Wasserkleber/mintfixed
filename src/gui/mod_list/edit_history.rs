@@ -7,7 +7,7 @@ use std::ops::DerefMut;
 
 const MAX_HISTORY: usize = 64;
 
-pub(super) struct ModEditHistory {
+pub(in crate::gui) struct ModEditHistory {
     undo: Vec<ModData>,
     redo: Vec<ModData>,
     baseline: ModData,

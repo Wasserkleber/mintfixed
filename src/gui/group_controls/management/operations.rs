@@ -1,3 +1,5 @@
+use super::*;
+
 /// Remove a member by its stable entry ID, cleaning up overrides in every
 /// profile that references this shared group. Never delete by a stale row index.
 pub(in crate::gui) fn remove_group_member(
@@ -36,7 +38,7 @@ pub(in crate::gui) fn remove_group_member(
 }
 
 /// Renaming changes the shared collection's label, never its contents or order.
-pub(super) fn rename_group(
+pub(in crate::gui::group_controls) fn rename_group(
     data: &mut Data,
     old: &str,
     requested: &str,
@@ -70,7 +72,7 @@ pub(super) fn rename_group(
 
 /// Delete the shared collection and detach it from every profile.
 /// Standalone mods and other groups are untouched.
-fn delete_group(data: &mut Data, name: &str) -> Result<(), &'static str> {
+pub(super) fn delete_group(data: &mut Data, name: &str) -> Result<(), &'static str> {
     if data.groups.remove(name).is_none() {
         return Err("That group no longer exists");
     }
@@ -84,7 +86,11 @@ fn delete_group(data: &mut Data, name: &str) -> Result<(), &'static str> {
 
 /// Create a separate shared group with the same members and their settings.
 /// Only the active profile gets a reference to the new group.
-fn duplicate_group(data: &mut Data, source: &str, requested: &str) -> Result<String, &'static str> {
+pub(super) fn duplicate_group(
+    data: &mut Data,
+    source: &str,
+    requested: &str,
+) -> Result<String, &'static str> {
     let name = requested.trim();
     if name.is_empty() {
         return Err("Enter a name for the duplicate group");
@@ -143,4 +149,3 @@ fn duplicate_group(data: &mut Data, source: &str, requested: &str) -> Result<Str
         .insert(0, reference);
     Ok(name.to_owned())
 }
-

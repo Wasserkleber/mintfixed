@@ -1,70 +1,43 @@
-#[path = "bitfix/bitfix_menu.rs"]
-mod bitfix_menu;
-#[path = "crashes/crash_history.rs"]
-mod crash_history;
-#[path = "crashes/crash_notice.rs"]
-mod crash_notice;
+mod mod_list;
+use mod_list::edit_history;
+use mod_list::find_string;
+use mod_list::group_drop_target;
+use mod_list::group_header;
+use mod_list::mod_list_style;
+use mod_list::mod_tags;
+mod bitfix;
+use bitfix::bitfix_menu;
+mod profiles;
+mod settings;
+use crate::packages::profile as profile_package;
+use profiles::profile_import;
+use profiles::profile_management;
+mod imports;
+use imports::folder_import;
+mod crashes;
+mod dialogs;
+use crashes::crash_history;
+use crashes::crash_notice;
 #[cfg(all(feature = "hook", target_os = "windows"))]
-#[path = "crashes/crash_reporter_update.rs"]
-mod crash_reporter_update;
-#[path = "mod_list/edit_history.rs"]
-mod edit_history;
-#[path = "mod_list/find_string.rs"]
-mod find_string;
-#[path = "imports/folder_import.rs"]
-mod folder_import;
+use crashes::crash_reporter_update;
+mod widgets;
+use widgets::icon_buttons;
+use widgets::management_popup;
+use widgets::named_combobox;
+use widgets::search_field;
+use widgets::text_controls;
+use widgets::toggle_switch;
+use widgets::widget_style;
+mod app;
+use app::state::{
+    InstallUiState, LintUiState, ResolveUiState, SearchUiState, StatusUiState, UpdateUiState,
+};
+mod runtime;
+use runtime::{message, missing_local_files, request_counter, unavailable_mods};
 mod group_controls;
-#[path = "widgets/icon_buttons.rs"]
-mod icon_buttons;
+use text_controls::{description_help_button, mint_text_button, status_message};
 mod lint;
-use self::lint::LintOptions;
-#[path = "app/begin_frame.rs"]
-mod app_begin_frame;
-#[path = "app/frame.rs"]
-mod app_frame;
-#[path = "app/install_preflight.rs"]
-mod app_install_preflight;
-#[path = "app/main_panel.rs"]
-mod app_main_panel;
-#[path = "app/overlays.rs"]
-mod app_overlays;
-#[path = "app/status_details.rs"]
-mod app_status_details;
-#[path = "app/toolbar.rs"]
-mod app_toolbar;
-#[path = "mod_list/group_drop_target.rs"]
-mod group_drop_target;
-#[path = "mod_list/group_header.rs"]
-mod group_header;
-#[path = "mod_list/mod_list_style.rs"]
-mod mod_list_style;
-#[path = "mod_list/mod_tags.rs"]
-mod mod_tags;
-#[path = "mod_list/profile_ui.rs"]
-mod profile_ui;
-#[path = "dialogs/replacement_prompt.rs"]
-mod replacement_prompt;
 use group_controls::{Drag, Target};
-#[path = "widgets/management_popup.rs"]
-mod management_popup;
-#[path = "runtime/message.rs"]
-mod message;
-#[path = "runtime/missing_local_files.rs"]
-mod missing_local_files;
-#[path = "widgets/named_combobox.rs"]
-mod named_combobox;
-#[path = "profiles/profile_import.rs"]
-mod profile_import;
-#[path = "profiles/profile_management.rs"]
-mod profile_management;
-#[path = "profiles/profile_package.rs"]
-mod profile_package;
-#[path = "runtime/request_counter.rs"]
-mod request_counter;
-#[path = "widgets/toggle_switch.rs"]
-mod toggle_switch;
-#[path = "runtime/unavailable_mods.rs"]
-mod unavailable_mods;
 
 #[cfg(test)]
 #[path = "tests/priority_input_tests.rs"]
@@ -98,7 +71,6 @@ use eframe::{
 use egui_commonmark::{CommonMarkCache, CommonMarkViewer};
 use mint_lib::error::ResultExt as _;
 use mint_lib::mod_info::{ModioTags, RequiredStatus};
-use mint_lib::update::GitHubRelease;
 use strum::{EnumIter, IntoEnumIterator};
 use tokio::{
     sync::mpsc::{self, Receiver, Sender},
@@ -269,62 +241,6 @@ fn priority_drag_value(ui: &mut Ui, priority: &mut i32) -> egui::Response {
     response
 }
 
-fn description_help_button(ui: &mut Ui, description: &str, group_tint: Option<Color32>) {
-    // Use the supplied group accent directly, not inherited widget text visuals.
-    // The same hover-only icon is used by headers and both mod-row paths.
-    let (rect, response) = ui.allocate_exact_size(egui::vec2(18.0, 18.0), egui::Sense::hover());
-    let glyph = group_tint.unwrap_or_else(|| {
-        if response.hovered() {
-            ui.visuals().text_color()
-        } else {
-            ui.visuals().weak_text_color()
-        }
-    });
-    if ui.is_rect_visible(rect) {
-        if response.hovered() {
-            ui.painter().circle_filled(
-                rect.center(),
-                9.0,
-                ui.visuals().widgets.hovered.weak_bg_fill,
-            );
-        }
-        egui::Image::new(egui::include_image!(
-            "../../assets/icons/description_help.svg"
-        ))
-        .tint(glyph)
-        .paint_at(ui, rect.shrink(1.5));
-    }
-    response
-        .on_hover_ui_at_pointer(|ui| {
-            ui.set_max_width(320.0);
-            ui.label(RichText::new("Description").strong());
-            ui.label(description);
-        });
-}
-
-// A single-line, width-bounded status label. Never let diagnostics reserve toolbar space.
-// Hover exposes the unabridged message; clicking opens the copyable details window.
-fn status_message(ui: &mut Ui, message: &str) -> bool {
-    let width = ui.available_width();
-    if width < 18.0 {
-        return false;
-    }
-    // A frameless Button keeps the text left-aligned and truncates without
-    // Label's automatic tooltip (egui 0.31), avoiding duplicate hover popups.
-    ui.add(
-        Button::new(RichText::new(message).text_style(egui::TextStyle::Body))
-            .frame(false)
-            .truncate(),
-    )
-    .on_hover_ui_at_pointer(|ui| {
-        ui.set_max_width(500.0);
-        ui.label(message);
-        ui.small("Click to open and copy the complete message");
-    })
-    .on_hover_cursor(egui::CursorIcon::PointingHand)
-    .clicked()
-}
-
 struct PendingReplacementAddition {
     specs: Vec<ModSpecification>,
     is_dependency: bool,
@@ -333,7 +249,6 @@ struct PendingReplacementAddition {
 }
 
 pub struct App {
-    pending_replacement_addition: Option<PendingReplacementAddition>,
     crash_history: crash_history::CrashHistory,
     bitfix_menu: bitfix_menu::BitfixMenu,
     args: Option<Vec<String>>,
@@ -345,61 +260,27 @@ pub struct App {
     groups_to_open: HashSet<(String, String)>,
     new_group_name: String,
     pending_group_files: usize,
-    resolve_mod: String,
-    resolve_mod_rid: Option<MessageHandle<()>>,
-    integrate_rid: Option<MessageHandle<HashMap<ModSpecification, SpecFetchProgress>>>,
-    // Tracks only installations started by Update Cache, not manual installations.
-    cache_install_rid: Option<RequestID>,
-    cache_install_notice: Option<String>,
-    cache_install_details: Option<String>,
-    cache_install_locations: Vec<unavailable_mods::Location>,
-    install_phase: message::InstallPhase,
-    cache_recovery_progress: Option<(usize, usize)>,
-    cache_recovery_last_advance: Option<std::time::Instant>,
-    update_rid: Option<MessageHandle<()>>,
-    check_updates_rid: Option<MessageHandle<()>>,
     has_run_init: bool,
     last_ui_frame_start: Option<Instant>,
     request_counter: RequestCounter,
     window_provider_parameters: Option<WindowProviderParameters>,
-    search_string: String,
-    scroll_to_match: bool,
-    focus_search: bool,
     settings_window: Option<WindowSettings>,
     folder_import: folder_import::FolderImport,
     modio_texture_handle: Option<egui::TextureHandle>,
-    last_action: Option<LastAction>,
-    status_details: Option<String>,
-    status_locations: Vec<unavailable_mods::Location>,
-    unavailable_overview: unavailable_mods::Overview,
-    live_unavailable_details: bool,
-    show_mod_target: Option<unavailable_mods::ResolvedTarget>,
-    available_update: Option<GitHubRelease>,
-    show_update_time: Option<SystemTime>,
     open_profiles: HashSet<String>,
-    lint_rid: Option<MessageHandle<()>>,
-    lint_report_window: Option<WindowLintReport>,
-    lint_report: Option<LintReport>,
-    lints_toggle_window: Option<WindowLintsToggle>,
-    lint_options: LintOptions,
-    lint_scope: lint::LintScope,
-    lint_selected_mods: BTreeSet<ModSpecification>,
-    lint_focus: Option<ModSpecification>,
-    lint_filter: String,
-    lint_focus_filter: String,
-    lint_run: Option<lint::LintRun>,
-    lint_report_path: Option<PathBuf>,
-    lint_report_error: Option<String>,
     cache: CommonMarkCache,
     needs_restart: bool,
-    self_update_rid: Option<MessageHandle<SelfUpdateProgress>>,
-    original_exe_path: Option<PathBuf>,
-    problematic_mod_id: Option<u32>,
     pending_group_mod_removal: Option<PendingGroupModRemoval>,
     recent_crash: Option<crash_notice::RecentCrash>,
     #[cfg(all(feature = "hook", target_os = "windows"))]
     startup_crash_reporter_update: crash_reporter_update::StartupUpdate,
     crash_monitor: Option<crash_notice::CrashMonitor>,
+    lint_state: LintUiState,
+    install_state: InstallUiState,
+    search: SearchUiState,
+    update_state: UpdateUiState,
+    status_state: StatusUiState,
+    resolve_state: ResolveUiState,
 }
 
 struct LastAction {
@@ -476,7 +357,6 @@ impl App {
         let edit_history =
             edit_history::ModEditHistory::new(&state.mod_data, state.mod_data.revision());
         Ok(Self {
-            pending_replacement_addition: None,
             crash_history: crash_history::CrashHistory::default(),
             bitfix_menu: bitfix_menu::BitfixMenu::default(),
             args,
@@ -489,59 +369,26 @@ impl App {
             groups_to_open: HashSet::new(),
             new_group_name: String::new(),
             pending_group_files: 0,
-            resolve_mod: Default::default(),
-            resolve_mod_rid: None,
-            integrate_rid: None,
-            cache_install_rid: None,
-            cache_install_notice: None,
-            cache_install_details: None,
-            cache_install_locations: Vec::new(),
-            install_phase: message::InstallPhase::Resolving,
-            cache_recovery_progress: None,
-            cache_recovery_last_advance: None,
-            update_rid: None,
-            check_updates_rid: None,
             has_run_init: false,
             last_ui_frame_start: None,
             window_provider_parameters: None,
-            search_string: Default::default(),
-            scroll_to_match: false,
-            focus_search: false,
             settings_window: None,
             folder_import: Default::default(),
             modio_texture_handle: None,
-            last_action: None,
-            status_details: None,
-            status_locations: Vec::new(),
-            unavailable_overview: Default::default(),
-            live_unavailable_details: false,
-            show_mod_target: None,
-            available_update: None,
-            show_update_time: None,
             open_profiles: Default::default(),
-            lint_rid: None,
-            lint_report_window: None,
-            lint_report: None,
-            lints_toggle_window: None,
-            lint_options: LintOptions::default(),
-            lint_scope: lint::LintScope::All,
-            lint_selected_mods: BTreeSet::new(),
-            lint_focus: None,
-            lint_filter: String::new(),
-            lint_focus_filter: String::new(),
-            lint_run: None,
-            lint_report_path: None,
-            lint_report_error: None,
             cache: Default::default(),
             needs_restart: false,
-            self_update_rid: None,
-            original_exe_path: None,
-            problematic_mod_id: None,
             pending_group_mod_removal: None,
             recent_crash,
             #[cfg(all(feature = "hook", target_os = "windows"))]
             startup_crash_reporter_update,
             crash_monitor: None,
+            lint_state: Default::default(),
+            install_state: Default::default(),
+            search: Default::default(),
+            update_state: Default::default(),
+            status_state: Default::default(),
+            resolve_state: Default::default(),
         })
     }
 }
@@ -738,21 +585,4 @@ mod structured_json_paste_tests {
             "https://mod.io/g/drg/m/example\nC:\\mods\\example.pak"
         ));
     }
-}
-
-// Stage 2F: separated GUI windows and list actions.
-#[path = "dialogs/group_removal.rs"]
-mod gui_group_removal_dialog;
-#[path = "mod_list/actions.rs"]
-mod gui_mod_list_actions;
-#[path = "profiles/windows.rs"]
-mod gui_profile_windows;
-#[path = "settings/windows.rs"]
-mod gui_settings_windows;
-#[path = "dialogs/update.rs"]
-mod gui_update_dialog;
-
-// Shared styling for ordinary text buttons; icon buttons retain their own rendering.
-fn mint_text_button(text: impl Into<egui::WidgetText>) -> egui::Button<'static> {
-    egui::Button::new(text).corner_radius(4_u8)
 }

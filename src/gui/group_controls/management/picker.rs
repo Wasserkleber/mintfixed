@@ -1,3 +1,5 @@
+use super::*;
+
 /// A full-width dropdown row with the name left-aligned.
 /// The whole row receives hover highlighting and click input.
 /// Use exactly the same saved tint and palette as the mod list.
@@ -15,19 +17,9 @@ fn management_group_accent(ui: &Ui, tint: Option<&str>) -> Option<egui::Color32>
     ))
 }
 
-fn management_mix(base: egui::Color32, tint: egui::Color32, amount: u16) -> egui::Color32 {
-    let amount = amount.min(100);
-    let rest = 100 - amount;
-    egui::Color32::from_rgb(
-        ((base.r() as u16 * rest + tint.r() as u16 * amount) / 100) as u8,
-        ((base.g() as u16 * rest + tint.g() as u16 * amount) / 100) as u8,
-        ((base.b() as u16 * rest + tint.b() as u16 * amount) / 100) as u8,
-    )
-}
-
 fn management_text(ui: &Ui, tint: egui::Color32) -> egui::Color32 {
     // Keep even yellow and other light colors legible in light themes.
-    management_mix(
+    crate::gui::widget_style::blend(
         ui.visuals().text_color(),
         tint,
         if ui.visuals().dark_mode { 55 } else { 45 },
@@ -36,7 +28,7 @@ fn management_text(ui: &Ui, tint: egui::Color32) -> egui::Color32 {
 
 /// Shared colored selector for Rename, Duplicate, Export, and Delete.
 /// It styles the label, button fill, border, and chevron together.
-fn group_picker_button(
+pub(super) fn group_picker_button(
     ui: &mut Ui,
     selected: &str,
     tint: Option<&str>,
@@ -59,55 +51,45 @@ fn group_picker_button(
     let mut button = Button::new(text).min_size(egui::vec2(110.0, ui.spacing().interact_size.y));
     if let Some(tint) = accent {
         button = button
-            .fill(management_mix(
+            .fill(crate::gui::widget_style::blend(
                 ui.visuals().widgets.inactive.weak_bg_fill,
                 tint,
                 if ui.visuals().dark_mode { 23 } else { 16 },
             ))
             .stroke(egui::Stroke::new(
                 1.0_f32,
-                management_mix(ui.visuals().widgets.inactive.bg_stroke.color, tint, 55),
+                crate::gui::widget_style::blend(
+                    ui.visuals().widgets.inactive.bg_stroke.color,
+                    tint,
+                    55,
+                ),
             ));
     }
     let response = ui.add(button).on_hover_text(tip);
     if response.clicked() {
         *open = !*open;
     }
-    let x = response.rect.right() - 12.0;
-    let y = response.rect.center().y;
-    let arrow = if *open {
-        vec![
-            egui::pos2(x - 4.0, y + 2.0),
-            egui::pos2(x + 4.0, y + 2.0),
-            egui::pos2(x, y - 2.0),
-        ]
-    } else {
-        vec![
-            egui::pos2(x - 4.0, y - 2.0),
-            egui::pos2(x + 4.0, y - 2.0),
-            egui::pos2(x, y + 2.0),
-        ]
-    };
-    ui.painter().add(egui::Shape::convex_polygon(
-        arrow,
+    crate::gui::widget_style::paint_picker_arrow(
+        ui,
+        response.rect,
+        *open,
         accent.unwrap_or_else(|| ui.visuals().text_color()),
-        egui::Stroke::NONE,
-    ));
+    );
     response
 }
 
 /// Action buttons retain normal theme styling, including disabled states.
-fn group_action_button(
-    ui: &mut Ui,
-    label: &str,
-    _tint: Option<&str>,
-    enabled: bool,
-) -> egui::Response {
+pub(super) fn group_action_button(ui: &mut Ui, label: &str, enabled: bool) -> egui::Response {
     ui.add_enabled(enabled, Button::new(label))
 }
 /// Colored dropdown entries: subtle row tint, stronger selected/hover tint,
 /// a matching swatch, and hue-aware but readable name text.
-fn group_option_row(ui: &mut Ui, name: &str, selected: bool, tint: Option<&str>) -> egui::Response {
+pub(super) fn group_option_row(
+    ui: &mut Ui,
+    name: &str,
+    selected: bool,
+    tint: Option<&str>,
+) -> egui::Response {
     let (rect, response) = ui.allocate_exact_size(
         egui::vec2(ui.available_width(), ui.spacing().interact_size.y),
         egui::Sense::click(),
@@ -128,7 +110,11 @@ fn group_option_row(ui: &mut Ui, name: &str, selected: bool, tint: Option<&str>)
             ui.painter().rect_filled(
                 rect,
                 egui::CornerRadius::same(2),
-                management_mix(ui.visuals().widgets.inactive.weak_bg_fill, tint, amount),
+                crate::gui::widget_style::blend(
+                    ui.visuals().widgets.inactive.weak_bg_fill,
+                    tint,
+                    amount,
+                ),
             );
         } else if highlighted {
             ui.painter().rect_filled(
@@ -164,9 +150,6 @@ fn group_option_row(ui: &mut Ui, name: &str, selected: bool, tint: Option<&str>)
     response.on_hover_cursor(egui::CursorIcon::PointingHand)
 }
 /// Use the same compact, always-visible scrollbar for every group selector.
-fn group_picker_scroll() -> egui::ScrollArea {
-    egui::ScrollArea::vertical()
-        .max_height(140.0)
-        .scroll_bar_visibility(egui::containers::scroll_area::ScrollBarVisibility::AlwaysVisible)
+pub(super) fn group_picker_scroll() -> egui::ScrollArea {
+    crate::gui::widget_style::picker_scroll()
 }
-

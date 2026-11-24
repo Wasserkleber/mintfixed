@@ -22,9 +22,7 @@ fn popup_geometry(screen: egui::Rect, button: egui::Rect) -> (egui::AboveOrBelow
     let space = if below { space_below } else { space_above };
     // Reserve room for the popup frame and for a small gap from the screen edge.
     let max_height = (space - FRAME_ALLOWANCE).max(1.0);
-    let width = (screen.width() - 2.0 * EDGE_PADDING - FRAME_ALLOWANCE)
-        .max(1.0)
-        .min(PREFERRED_WIDTH);
+    let width = (screen.width() - 2.0 * EDGE_PADDING - FRAME_ALLOWANCE).clamp(1.0, PREFERRED_WIDTH);
     (side, max_height, width)
 }
 
@@ -59,7 +57,7 @@ fn popup_anchor(
 /// per-menu persistent IDs, actions and click-outside close behavior.
 /// Shared Group/Profile popup, sized from the current pass's visible controls.
 /// Keep the popup anchored while collapsing sections expand or contract.
-pub(super) fn show<R>(
+pub(in crate::gui) fn show<R>(
     parent_ui: &egui::Ui,
     id: egui::Id,
     button: &egui::Response,
@@ -156,12 +154,12 @@ pub(super) fn show<R>(
 
 /// Record the bottom of the last *actual* control in the popup.
 /// This avoids mistaking empty space from an old popup layout for content.
-pub(super) fn record_content_end(ui: &egui::Ui, id: egui::Id, bottom: f32) {
+pub(in crate::gui) fn record_content_end(ui: &egui::Ui, id: egui::Id, bottom: f32) {
     ui.data_mut(|data| data.insert_temp(id.with("management-last-bottom-v6"), bottom));
 }
 
 /// Scroll only when a section is opened, without closing any other section.
-pub(super) fn scroll_expanded_header(header: &egui::Response, expanded: bool) {
+pub(in crate::gui) fn scroll_expanded_header(header: &egui::Response, expanded: bool) {
     if expanded && header.clicked() {
         header.scroll_to_me(None);
     }
