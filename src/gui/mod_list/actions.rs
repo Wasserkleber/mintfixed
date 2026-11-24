@@ -2,10 +2,13 @@
 use super::*;
 
 impl App {
-    pub(super) fn apply_mod_history(&mut self, redo: bool) {
+    pub(super) fn apply_mod_history(&mut self, ctx: &egui::Context, redo: bool) {
         match self.edit_history.restore(&mut self.state.mod_data, redo) {
             Ok(true) => {
+                // History restores the saved list, not the transient drag selection.
+                Drag::clear_history_selection(ctx);
                 self.profile_issues.clear();
+                ctx.request_repaint();
                 self.last_action = Some(LastAction::success(if redo {
                     "Redid mod-list change".into()
                 } else {

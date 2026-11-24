@@ -189,7 +189,7 @@ impl App {
                 )
                 .on_hover_text("Undo mod-list change (Ctrl+Z)")
                 .clicked() {
-                    self.apply_mod_history(false);
+                    self.apply_mod_history(ui.ctx(), false);
                 }
                 let redo_image = egui::Image::new(egui::include_image!("../../../assets/icons/redo.svg"))
                     .fit_to_exact_size(egui::vec2(17.0, 17.0))
@@ -200,7 +200,7 @@ impl App {
                 )
                 .on_hover_text("Redo mod-list change (Ctrl+Y / Ctrl+Shift+Z)")
                 .clicked() {
-                    self.apply_mod_history(true);
+                    self.apply_mod_history(ui.ctx(), true);
                 }
 
                 ui.add_space(16.);

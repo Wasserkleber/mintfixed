@@ -43,6 +43,18 @@ impl Drag {
         f(&map)
     }
 
+    /// A history restore can move stable IDs between shared groups and profiles.
+    /// Discard transient selection, range anchors and cached visible row order.
+    pub(in crate::gui) fn clear_history_selection(ctx: &egui::Context) {
+        Self::update_selection(ctx, |map| map.clear());
+        if egui::DragAndDrop::payload::<Self>(ctx).is_some() {
+            egui::DragAndDrop::clear_payload(ctx);
+        }
+        ctx.data_mut(|data| {
+            data.remove::<DragPaintAnchor>(egui::Id::new(DRAG_PAINT_ANCHOR_ID));
+        });
+    }
+
     pub(in crate::gui) fn begin_selection_frame(ui: &mut Ui, profile: &str, manual: bool) {
         let ctrl_a = manual
             && !ui.ctx().wants_keyboard_input()
@@ -298,5 +310,30 @@ impl Drag {
         }
         *data = staged;
         Ok((moved, skipped))
+    }
+}
+
+#[cfg(test)]
+mod history_selection_tests {
+    use super::*;
+
+    #[test]
+    fn history_restore_clears_drag_selection_across_profiles() {
+        let ctx = egui::Context::default();
+        Drag::update_selection(&ctx, |map| {
+            for profile in ["A", "B"] {
+                let state = map.entry(profile.to_owned()).or_default();
+                state.selected.insert("mod-id".into());
+                state.anchor = Some("mod-id".into());
+                state.visible.push("mod-id".into());
+                state.previous_visible.push("mod-id".into());
+                state.dragging.push("mod-id".into());
+            }
+        });
+        assert!(Drag::is_selected(&ctx, "A", "mod-id"));
+        Drag::clear_history_selection(&ctx);
+        assert!(!Drag::is_selected(&ctx, "A", "mod-id"));
+        assert!(!Drag::is_selected(&ctx, "B", "mod-id"));
+        assert!(Drag::read_selection(&ctx, |map| map.is_empty()));
     }
 }

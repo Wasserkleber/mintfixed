@@ -174,7 +174,7 @@ impl App {
                 }
             });
             if let Some(redo) = shortcut {
-                self.apply_mod_history(redo);
+                self.apply_mod_history(ctx, redo);
             }
         }
     }
