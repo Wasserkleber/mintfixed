@@ -8,6 +8,7 @@ mod installation;
 pub mod integrate;
 mod mod_identity;
 pub mod mod_lints;
+mod packages;
 mod preinstall;
 pub mod providers;
 pub mod state;

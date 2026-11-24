@@ -1,15 +1,14 @@
 //! Portable profile bundles. Keep the existing profile JSON format intact, and
-//! reuse the group-package safety helpers for filenames, limits and hashing.
+//! use the shared package safety helpers for filenames, limits and hashing.
 //! Extraction is staged and verified before any profile is inserted into state.
 use std::collections::{BTreeMap, HashMap, HashSet};
-use std::fs::{self, File, OpenOptions};
-use std::io::{Read, Write};
+use std::fs::{self, File};
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
-use zip::{CompressionMethod, ZipArchive, ZipWriter, write::SimpleFileOptions};
+use zip::ZipArchive;
 
-use super::group_controls::group_package as shared;
+use crate::packages::{self as shared, ArchiveKind, Manifest};
 use crate::state::{ModData_v0_1_0 as Data, ModGroup, ModOrGroup};
 
 const FORMAT: &str = "mintfixed-profile-package";
@@ -25,14 +24,6 @@ struct ProfileDocument {
     groups: BTreeMap<String, ModGroup>,
 }
 
-#[derive(Clone, Serialize, Deserialize)]
-struct Manifest {
-    format: String,
-    version: u32,
-    name: String,
-    definition: String,
-    files: Vec<shared::IncludedFile>,
-}
 
 pub(super) struct PreparedExport {
     text: Vec<u8>,
@@ -206,127 +197,32 @@ pub(super) fn prepare_export(data: &Data, profile_name: &str) -> Result<Prepared
 /// Called off the GUI thread. Never overwrite a previous ZIP; partial exports
 /// are removed. Each local file is hashed as it is copied into the archive.
 pub(super) fn export_prepared(prepared: PreparedExport, path: &Path) -> Result<(), String> {
-    let file = OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .open(path)
-        .map_err(|e| format!("Cannot create portable profile ZIP {}: {e}", path.display()))?;
-    let outcome = (|| -> Result<(), String> {
-        let mut archive = ZipWriter::new(file);
-        let stored = SimpleFileOptions::default().compression_method(CompressionMethod::Stored);
-        archive
-            .start_file(DEFINITION, stored)
-            .map_err(|e| e.to_string())?;
-        archive
-            .write_all(&prepared.text)
-            .map_err(|e| e.to_string())?;
-        let mut files = Vec::new();
-        for (source, member, expected) in prepared.sources {
-            archive
-                .start_file(member.as_str(), stored)
-                .map_err(|e| e.to_string())?;
-            let mut input = File::open(&source)
-                .map_err(|e| format!("Cannot open {}: {e}", source.display()))?;
-            let (size, checksum) =
-                shared::copy_and_hash(&mut input, &mut archive, shared::MAX_TOTAL)?;
-            if size != expected {
-                return Err(format!("File changed during export: {}", source.display()));
-            }
-            files.push(shared::IncludedFile {
-                path: member,
-                size,
-                sha256: checksum,
-                original_name: Some(
-                    source
-                        .file_name()
-                        .ok_or("Invalid original filename")?
-                        .to_string_lossy()
-                        .into_owned(),
-                ),
-            });
-        }
-        let manifest = Manifest {
+    shared::write_package(
+        path,
+        Manifest {
             format: FORMAT.into(),
             version: VERSION,
             name: prepared.name,
             definition: DEFINITION.into(),
-            files,
-        };
-        let json = serde_json::to_vec_pretty(&manifest).map_err(|e| e.to_string())?;
-        if json.len() as u64 > shared::MAX_MANIFEST {
-            return Err("Profile package manifest exceeds 512 KiB".into());
-        }
-        archive
-            .start_file("manifest.json", stored)
-            .map_err(|e| e.to_string())?;
-        archive.write_all(&json).map_err(|e| e.to_string())?;
-        archive
-            .finish()
-            .map_err(|e| format!("Cannot finish profile ZIP: {e}"))?;
-        Ok(())
-    })();
-    if outcome.is_err() {
-        let _ = fs::remove_file(path);
-    }
-    outcome
+            files: Vec::new(),
+        },
+        &prepared.text,
+        prepared.sources,
+        ArchiveKind::Profile,
+    )
 }
 
-fn bounded_text(reader: &mut impl Read, max: u64) -> Result<String, String> {
-    let mut bytes = Vec::new();
-    reader
-        .take(max + 1)
-        .read_to_end(&mut bytes)
-        .map_err(|e| e.to_string())?;
-    if bytes.len() as u64 > max {
-        return Err("Oversized profile ZIP metadata".into());
-    }
-    String::from_utf8(bytes).map_err(|e| format!("Invalid UTF-8 in profile ZIP: {e}"))
-}
 
 fn preview(path: &Path) -> Result<Preview, String> {
     let file = File::open(path).map_err(|e| format!("Cannot read profile ZIP: {e}"))?;
     let mut archive = ZipArchive::new(file).map_err(|e| format!("Invalid profile ZIP: {e}"))?;
-    if archive.len() > shared::MAX_FILES + 2 {
-        return Err("Too many files in profile ZIP".into());
-    }
-    let mut names = HashSet::new();
-    let mut total = 0_u64;
-    for index in 0..archive.len() {
-        let entry = archive.by_index(index).map_err(|e| e.to_string())?;
-        let name = entry.name();
-        if entry.is_dir()
-            || name.contains('\\')
-            || name.contains('\0')
-            || name.starts_with('/')
-            || name.contains("..")
-            || name.contains(':')
-        {
-            return Err(format!("Unsafe entry in profile ZIP: {name}"));
-        }
-        if entry
-            .unix_mode()
-            .is_some_and(|mode| mode & 0o170000 == 0o120000)
-        {
-            return Err("Symlinks are not allowed in portable profile ZIPs".into());
-        }
-        if !names.insert(name.to_ascii_lowercase()) {
-            return Err("Duplicate filenames in profile ZIP".into());
-        }
-        total = total
-            .checked_add(entry.size())
-            .ok_or("Profile ZIP size overflow")?;
-        if total > shared::MAX_TOTAL + shared::MAX_DEFINITION + shared::MAX_MANIFEST {
-            return Err("Profile ZIP exceeds 8 GiB limit".into());
-        }
-        if name.starts_with("mods/") && entry.compression() != CompressionMethod::Stored {
-            return Err("Bundled mod files must use ZIP stored mode".into());
-        }
-    }
-    let manifest_text = bounded_text(
+    let names = shared::validate_entries(&mut archive, ArchiveKind::Profile)?;
+    let manifest_text = shared::bounded_text(
         &mut archive
             .by_name("manifest.json")
             .map_err(|_| "Missing manifest.json")?,
         shared::MAX_MANIFEST,
+        ArchiveKind::Profile,
     )?;
     let manifest: Manifest = serde_json::from_str(&manifest_text)
         .map_err(|e| format!("Invalid profile manifest: {e}"))?;
@@ -361,11 +257,12 @@ fn preview(path: &Path) -> Result<Preview, String> {
             return Err(format!("Unlisted ZIP entry: {name}"));
         }
     }
-    let definition = bounded_text(
+    let definition = shared::bounded_text(
         &mut archive
             .by_name(DEFINITION)
             .map_err(|_| "Missing profile.json")?,
         shared::MAX_DEFINITION,
+        ArchiveKind::Profile,
     )?;
     let doc: ProfileDocument = serde_json::from_str(&definition)
         .map_err(|e| format!("Invalid packaged profile definition: {e}"))?;
@@ -483,6 +380,8 @@ pub(super) fn extract_bundle(
 #[cfg(test)]
 mod profile_package_tests {
     use super::*;
+    use std::io::Write;
+    use zip::{ZipWriter, write::SimpleFileOptions};
     use crate::providers::ModSpecification;
     use crate::state::{MemberOverrides, ModConfig, ModProfile_v0_1_0 as Profile};
 

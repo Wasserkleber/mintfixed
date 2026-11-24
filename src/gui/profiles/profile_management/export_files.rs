@@ -149,7 +149,7 @@ fn portable_profile_export_path_beside(
         .join("mintfixed exports");
     std::fs::create_dir_all(&folder)
         .map_err(|error| format!("Cannot create export folder {}: {error}", folder.display()))?;
-    let mut safe = crate::gui::group_controls::group_package::safe_component(name);
+    let mut safe = crate::packages::safe_component(name);
     // Windows device names are invalid even when followed by .zip.
     if matches!(
         safe.to_ascii_uppercase().as_str(),
