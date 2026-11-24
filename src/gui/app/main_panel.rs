@@ -4,7 +4,6 @@ use super::*;
 impl App {
     pub(super) fn frame_main_panel(&mut self, ctx: &egui::Context) {
         egui::CentralPanel::default().show(ctx, |ui| {
-            self.unavailable_overview_button(ui);
             if self.integrate_rid.is_some() || self.update_rid.is_some() || self.lint_rid.is_some()
             {
                 ui.disable();
@@ -345,6 +344,7 @@ impl App {
             ui.add_space(6.0);
 
             Drag::cancel_if_invalid(ctx, &profile, self.get_sorting_config().is_none());
+            self.unavailable_overview_button(ui);
             let file_group = self.ui_profile(ui, &profile);
 
             // must access memory outside of input lock to prevent deadlock
