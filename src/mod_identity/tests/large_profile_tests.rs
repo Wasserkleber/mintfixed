@@ -67,7 +67,7 @@ fn large_profile_4096_mods_index_agrees_with_pairwise_matching() {
     let mut misses = 0;
     for q in 0..960 {
         let i = (q * 73) % COUNT;
-        let required = if i % 7 == 0 {
+        let required = if i.is_multiple_of(7) {
             match q % 3 {
                 0 => installed[i].clone(),
                 1 => spec(format!("synthetic://file-{i}.pak2")),
