@@ -1,12 +1,15 @@
+use super::{Message, MessageHandle};
+use crate::gui::{
+    App, LastAction, SelfUpdateProgress,
+    request_counter::{RequestCounter, RequestID},
+};
+use crate::integrate::{IntegrationError, SelfUpdateFailedSnafu};
+#[cfg(target_os = "linux")]
+use fs_err as fs;
+use snafu::prelude::*;
 use std::path::PathBuf;
 use tokio::sync::mpsc::{self, Sender};
 use tracing::{debug, error, info};
-use snafu::prelude::*;
-#[cfg(target_os = "linux")]
-use fs_err as fs;
-use crate::gui::{App, LastAction, SelfUpdateProgress, request_counter::{RequestCounter, RequestID}};
-use crate::integrate::{IntegrationError, SelfUpdateFailedSnafu};
-use super::{Message, MessageHandle};
 
 #[derive(Debug)]
 pub struct SelfUpdate {
@@ -40,13 +43,15 @@ impl SelfUpdate {
                 Ok(original_exe_path) => {
                     info!("self update complete");
                     app.update_state.original_exe_path = Some(original_exe_path);
-                    app.status_state.last_action = Some(LastAction::success("self update complete".to_string()));
+                    app.status_state.last_action =
+                        Some(LastAction::success("self update complete".to_string()));
                 }
                 Err(e) => {
                     error!("self update failed");
                     error!("{:#?}", e);
                     app.update_state.self_update_rid = None;
-                    app.status_state.last_action = Some(LastAction::failure("self update failed".to_string()));
+                    app.status_state.last_action =
+                        Some(LastAction::failure("self update failed".to_string()));
                 }
             }
             app.install_state.integrate_rid = None;

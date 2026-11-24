@@ -86,7 +86,11 @@ pub(super) fn delete_group(data: &mut Data, name: &str) -> Result<(), &'static s
 
 /// Create a separate shared group with the same members and their settings.
 /// Only the active profile gets a reference to the new group.
-pub(super) fn duplicate_group(data: &mut Data, source: &str, requested: &str) -> Result<String, &'static str> {
+pub(super) fn duplicate_group(
+    data: &mut Data,
+    source: &str,
+    requested: &str,
+) -> Result<String, &'static str> {
     let name = requested.trim();
     if name.is_empty() {
         return Err("Enter a name for the duplicate group");

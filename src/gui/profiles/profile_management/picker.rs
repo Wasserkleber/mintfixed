@@ -65,14 +65,13 @@ where
         return false;
     }
     let mut chosen = None;
-    crate::gui::widget_style::picker_scroll()
-        .show(ui, |ui| {
-            for (name, _) in entries.entries() {
-                if profile_option_row(ui, name, target.as_str() == name.as_str()).clicked() {
-                    chosen = Some(name.clone());
-                }
+    crate::gui::widget_style::picker_scroll().show(ui, |ui| {
+        for (name, _) in entries.entries() {
+            if profile_option_row(ui, name, target.as_str() == name.as_str()).clicked() {
+                chosen = Some(name.clone());
             }
-        });
+        }
+    });
     if let Some(name) = chosen {
         *target = name;
         *picker_open = false;

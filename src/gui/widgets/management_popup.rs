@@ -22,8 +22,7 @@ fn popup_geometry(screen: egui::Rect, button: egui::Rect) -> (egui::AboveOrBelow
     let space = if below { space_below } else { space_above };
     // Reserve room for the popup frame and for a small gap from the screen edge.
     let max_height = (space - FRAME_ALLOWANCE).max(1.0);
-    let width = (screen.width() - 2.0 * EDGE_PADDING - FRAME_ALLOWANCE)
-        .clamp(1.0, PREFERRED_WIDTH);
+    let width = (screen.width() - 2.0 * EDGE_PADDING - FRAME_ALLOWANCE).clamp(1.0, PREFERRED_WIDTH);
     (side, max_height, width)
 }
 

@@ -1,6 +1,8 @@
 //! Profile JSON validation and import into persistent state.
+use crate::state::{
+    MemberOverrides, ModData_v0_1_0 as Data, ModGroup, ModOrGroup, ModProfile_v0_1_0 as Profile,
+};
 use std::collections::{BTreeMap, HashSet};
-use crate::state::{MemberOverrides, ModData_v0_1_0 as Data, ModGroup, ModOrGroup, ModProfile_v0_1_0 as Profile};
 
 const PROFILE_FORMAT: &str = "mintfixed-profile-mod-list";
 const PROFILE_VERSION: u32 = 1;
@@ -72,7 +74,11 @@ fn unused_name(base: &str, reserved: &HashSet<String>) -> String {
 
 /// Prepare all data before modifying the saved state. Existing profiles and
 /// shared groups are never overwritten. New IDs avoid cross-profile collisions.
-pub(crate) fn import_profile(data: &mut Data, text: &str, requested_name: &str) -> Result<String, String> {
+pub(crate) fn import_profile(
+    data: &mut Data,
+    text: &str,
+    requested_name: &str,
+) -> Result<String, String> {
     let export = parse_profile(text)?;
     let requested_name = requested_name.trim();
     let base_name = if requested_name.is_empty() {

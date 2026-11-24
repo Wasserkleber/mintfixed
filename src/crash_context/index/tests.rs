@@ -151,8 +151,8 @@ fn zip_manifest_indexes_only_the_first_installable_member() {
     let path = temp.path().join("two_paks.zip");
     let file = File::create(&path).unwrap();
     let mut zip = zip::ZipWriter::new(file);
-    let options = zip::write::SimpleFileOptions::default()
-        .compression_method(zip::CompressionMethod::Stored);
+    let options =
+        zip::write::SimpleFileOptions::default().compression_method(zip::CompressionMethod::Stored);
     for (name, filename) in [
         ("nope.PAK", "FSD/Content/Test/Excluded0.uasset"),
         ("nested/first.pak", "FSD/Content/Test/Included.uasset"),

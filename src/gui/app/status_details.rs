@@ -56,9 +56,11 @@ impl App {
         let mut refresh_cache = false;
         if self.status_state.status_details.is_some() {
             let store = &self.state.store;
-            unavailable_mods::check_downloads(&mut self.status_state.status_locations, false, |spec| {
-                store.has_cached_modio_download(spec)
-            });
+            unavailable_mods::check_downloads(
+                &mut self.status_state.status_locations,
+                false,
+                |spec| store.has_cached_modio_download(spec),
+            );
         }
         if let Some(details) = self.status_state.status_details.as_ref() {
             let compacted_details = compact_missing_local_file_details(details);
@@ -138,9 +140,11 @@ impl App {
         }
         if refresh_cache {
             let store = &self.state.store;
-            unavailable_mods::check_downloads(&mut self.status_state.status_locations, true, |spec| {
-                store.has_cached_modio_download(spec)
-            });
+            unavailable_mods::check_downloads(
+                &mut self.status_state.status_locations,
+                true,
+                |spec| store.has_cached_modio_download(spec),
+            );
             ctx.request_repaint();
         }
         if let Some(target) = show {
@@ -148,7 +152,8 @@ impl App {
             self.state.mod_data.active_profile = target.profile.clone();
             if let Err(error) = self.state.mod_data.save() {
                 self.state.mod_data.active_profile = previous;
-                self.status_state.status_details = Some(format!("Could not save profile selection: {error}"));
+                self.status_state.status_details =
+                    Some(format!("Could not save profile selection: {error}"));
                 self.status_state.status_locations.clear();
                 self.status_state.live_unavailable_details = false;
                 return;
@@ -203,27 +208,29 @@ impl App {
     pub(in crate::gui) fn refresh_unavailable_overview(&mut self) {
         let data = &self.state.mod_data;
         let store = &self.state.store;
-        let changed =
-            self.status_state.unavailable_overview
-                .refresh((data.revision(), store.metadata_revision()), || {
-                    unavailable_mods::entries(
-                        data,
-                        |spec| store.is_modio_unavailable(spec),
-                        |spec| {
-                            store
-                                .get_mod_info(spec)
-                                .map(|info| info.name)
-                                .unwrap_or_else(|| spec.url.clone())
-                        },
-                    )
-                });
+        let changed = self.status_state.unavailable_overview.refresh(
+            (data.revision(), store.metadata_revision()),
+            || {
+                unavailable_mods::entries(
+                    data,
+                    |spec| store.is_modio_unavailable(spec),
+                    |spec| {
+                        store
+                            .get_mod_info(spec)
+                            .map(|info| info.name)
+                            .unwrap_or_else(|| spec.url.clone())
+                    },
+                )
+            },
+        );
         if changed && self.status_state.live_unavailable_details {
             self.open_unavailable_overview();
         }
     }
 
     fn open_unavailable_overview(&mut self) {
-        self.status_state.status_details = Some(self.status_state.unavailable_overview.description());
+        self.status_state.status_details =
+            Some(self.status_state.unavailable_overview.description());
         self.status_state.status_locations = self.status_state.unavailable_overview.entries.clone();
         self.status_state.live_unavailable_details = true;
     }

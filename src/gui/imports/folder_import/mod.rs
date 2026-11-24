@@ -212,7 +212,8 @@ pub(in crate::gui) fn open_preview(app: &mut App, ctx: &egui::Context, folder: P
     app.folder_import.preview = None;
     match start(app, ctx, folder) {
         Ok(()) => {
-            app.status_state.last_action = Some(LastAction::success("Scanning local mods folder...".into()))
+            app.status_state.last_action =
+                Some(LastAction::success("Scanning local mods folder...".into()))
         }
         Err(e) => app.status_state.last_action = Some(LastAction::failure(e)),
     }
@@ -442,7 +443,8 @@ fn show_inline_exclusions(app: &mut App, ui: &mut egui::Ui) -> bool {
                 }
             }
             Err(error) => {
-                app.status_state.last_action = Some(LastAction::failure(format!("Cannot exclude file: {error}")))
+                app.status_state.last_action =
+                    Some(LastAction::failure(format!("Cannot exclude file: {error}")))
             }
         }
     }

@@ -1,6 +1,6 @@
 //! Bounded streaming copy and SHA-256 verification.
-use std::io::{Read, Write};
 use sha2::{Digest, Sha256};
+use std::io::{Read, Write};
 
 pub(crate) fn copy_and_hash<R: Read, W: Write>(
     input: &mut R,

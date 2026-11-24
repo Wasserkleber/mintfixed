@@ -84,7 +84,11 @@ pub(super) fn show_delete(
         delete_editor.success = None;
         delete_editor.picker_open = false;
     }
-    let bottom = delete_section.body_response.as_ref()
-        .map_or(delete_section.header_response.rect.bottom(), |r| r.rect.bottom());
+    let bottom = delete_section
+        .body_response
+        .as_ref()
+        .map_or(delete_section.header_response.rect.bottom(), |r| {
+            r.rect.bottom()
+        });
     crate::gui::management_popup::record_content_end(ui, popup, bottom);
 }

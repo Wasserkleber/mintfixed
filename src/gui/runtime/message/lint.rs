@@ -1,11 +1,18 @@
-use std::{collections::{BTreeSet, HashMap}, path::PathBuf, sync::Arc};
-use tokio::sync::mpsc::{self, Sender};
-use tracing::{error, info};
-use crate::gui::{App, LastAction, WindowProviderParameters, request_counter::{RequestCounter, RequestID}};
+use super::{FetchModProgress, Message, MessageHandle};
+use crate::gui::{
+    App, LastAction, WindowProviderParameters,
+    request_counter::{RequestCounter, RequestID},
+};
 use crate::integrate::IntegrationError;
 use crate::mod_lints::{LintId, LintReport};
 use crate::providers::{FetchProgress, ModResolution, ModSpecification, ModStore, ProviderError};
-use super::{FetchModProgress, Message, MessageHandle};
+use std::{
+    collections::{BTreeSet, HashMap},
+    path::PathBuf,
+    sync::Arc,
+};
+use tokio::sync::mpsc::{self, Sender};
+use tracing::{error, info};
 
 #[derive(Debug)]
 pub struct LintMods {
@@ -100,7 +107,8 @@ impl LintMods {
                 {
                     app.window_provider_parameters =
                         Some(WindowProviderParameters::new(factory, &app.state));
-                    app.status_state.last_action = Some(LastAction::failure("no provider".to_string()));
+                    app.status_state.last_action =
+                        Some(LastAction::failure("no provider".to_string()));
                 }
                 Err(e) => {
                     error!("{}", e);

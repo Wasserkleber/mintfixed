@@ -34,7 +34,8 @@ pub(in crate::gui) struct LintUiState {
 }
 
 pub(in crate::gui) struct InstallUiState {
-    pub(in crate::gui) integrate_rid: Option<MessageHandle<HashMap<ModSpecification, SpecFetchProgress>>>,
+    pub(in crate::gui) integrate_rid:
+        Option<MessageHandle<HashMap<ModSpecification, SpecFetchProgress>>>,
     // Tracks only installations started by Update Cache, not manual installations.
     pub(in crate::gui) cache_install_rid: Option<RequestID>,
     pub(in crate::gui) cache_install_notice: Option<String>,
@@ -113,7 +114,10 @@ mod tests {
         assert!(install.integrate_rid.is_none());
         assert!(install.update_rid.is_none());
         assert!(install.cache_install_rid.is_none());
-        assert!(matches!(install.install_phase, message::InstallPhase::Resolving));
+        assert!(matches!(
+            install.install_phase,
+            message::InstallPhase::Resolving
+        ));
 
         let search = SearchUiState::default();
         assert!(search.search_string.is_empty());

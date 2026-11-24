@@ -37,8 +37,7 @@ fn rename_updates_all_references_without_changing_members_order_or_switches() {
         }
     }
     // Verify a round trip through disk representation, including all overrides.
-    let mut restored: Data =
-        serde_json::from_value(serde_json::to_value(&data).unwrap()).unwrap();
+    let mut restored: Data = serde_json::from_value(serde_json::to_value(&data).unwrap()).unwrap();
     rename_group(&mut restored, "Utilities", "Tools").unwrap();
     assert_eq!(serde_json::to_value(&restored).unwrap(), before);
 }

@@ -58,7 +58,11 @@ pub(super) fn group_picker_button(
             ))
             .stroke(egui::Stroke::new(
                 1.0_f32,
-                crate::gui::widget_style::blend(ui.visuals().widgets.inactive.bg_stroke.color, tint, 55),
+                crate::gui::widget_style::blend(
+                    ui.visuals().widgets.inactive.bg_stroke.color,
+                    tint,
+                    55,
+                ),
             ));
     }
     let response = ui.add(button).on_hover_text(tip);
@@ -75,16 +79,17 @@ pub(super) fn group_picker_button(
 }
 
 /// Action buttons retain normal theme styling, including disabled states.
-pub(super) fn group_action_button(
-    ui: &mut Ui,
-    label: &str,
-    enabled: bool,
-) -> egui::Response {
+pub(super) fn group_action_button(ui: &mut Ui, label: &str, enabled: bool) -> egui::Response {
     ui.add_enabled(enabled, Button::new(label))
 }
 /// Colored dropdown entries: subtle row tint, stronger selected/hover tint,
 /// a matching swatch, and hue-aware but readable name text.
-pub(super) fn group_option_row(ui: &mut Ui, name: &str, selected: bool, tint: Option<&str>) -> egui::Response {
+pub(super) fn group_option_row(
+    ui: &mut Ui,
+    name: &str,
+    selected: bool,
+    tint: Option<&str>,
+) -> egui::Response {
     let (rect, response) = ui.allocate_exact_size(
         egui::vec2(ui.available_width(), ui.spacing().interact_size.y),
         egui::Sense::click(),
@@ -105,7 +110,11 @@ pub(super) fn group_option_row(ui: &mut Ui, name: &str, selected: bool, tint: Op
             ui.painter().rect_filled(
                 rect,
                 egui::CornerRadius::same(2),
-                crate::gui::widget_style::blend(ui.visuals().widgets.inactive.weak_bg_fill, tint, amount),
+                crate::gui::widget_style::blend(
+                    ui.visuals().widgets.inactive.weak_bg_fill,
+                    tint,
+                    amount,
+                ),
             );
         } else if highlighted {
             ui.painter().rect_filled(

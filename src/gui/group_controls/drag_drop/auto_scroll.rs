@@ -101,7 +101,10 @@ mod window_pointer {
             return None;
         }
         let scale = pixels_per_point.max(0.01);
-        Some((down, egui::pos2(point.x as f32 / scale, point.y as f32 / scale)))
+        Some((
+            down,
+            egui::pos2(point.x as f32 / scale, point.y as f32 / scale),
+        ))
     }
 }
 

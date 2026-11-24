@@ -31,9 +31,9 @@ pub(super) fn show_creation_and_attachment(
         .groups
         .keys()
         .filter(|key| {
-            !profile.mods.iter().any(|item| {
-        matches!(item, ModOrGroup::Group { group_name, .. } if group_name == *key)
-    })
+            !profile.mods.iter().any(
+                |item| matches!(item, ModOrGroup::Group { group_name, .. } if group_name == *key),
+            )
         })
         .collect();
     if eligible.is_empty() {

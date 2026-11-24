@@ -1,9 +1,12 @@
-use std::{collections::HashMap, ops::{Deref, DerefMut}};
-use tracing::error;
+use super::{Message, MessageHandle};
 use crate::gui::{App, LastAction, WindowProviderParameters, request_counter::RequestID};
 use crate::providers::{ModInfo, ModSpecification, ProviderError};
 use crate::state::{ModConfig, ModData_v0_1_0 as ModData, ModOrGroup};
-use super::{Message, MessageHandle};
+use std::{
+    collections::HashMap,
+    ops::{Deref, DerefMut},
+};
+use tracing::error;
 
 #[derive(Debug)]
 pub struct ResolveMods {
@@ -24,19 +27,22 @@ impl ResolveMods {
         is_dependency: bool,
     ) {
         if !is_dependency && specs.iter().any(|spec| spec.replacement_rule().is_some()) {
-            if app.resolve_state.resolve_mod_rid.is_some() || app.resolve_state.pending_replacement_addition.is_some() {
+            if app.resolve_state.resolve_mod_rid.is_some()
+                || app.resolve_state.pending_replacement_addition.is_some()
+            {
                 app.status_state.last_action = Some(LastAction::failure(
                     "Finish the pending mod addition first.".into(),
                 ));
                 return;
             }
             let active = &app.state.mod_data.active_profile;
-            app.resolve_state.pending_replacement_addition = Some(crate::gui::PendingReplacementAddition {
-                specs,
-                is_dependency,
-                profile_id: app.state.mod_data.profiles[active].id.clone(),
-                decided: std::collections::HashSet::new(),
-            });
+            app.resolve_state.pending_replacement_addition =
+                Some(crate::gui::PendingReplacementAddition {
+                    specs,
+                    is_dependency,
+                    profile_id: app.state.mod_data.profiles[active].id.clone(),
+                    decided: std::collections::HashSet::new(),
+                });
             ctx.request_repaint();
             return;
         }
@@ -69,7 +75,10 @@ impl ResolveMods {
             return;
         }
         if from_bitfix
-            && (specs.is_empty() || specs.iter().any(|s| !crate::gui::bitfix_menu::is_lua_spec(s)))
+            && (specs.is_empty()
+                || specs
+                    .iter()
+                    .any(|s| !crate::gui::bitfix_menu::is_lua_spec(s)))
         {
             app.status_state.last_action = Some(LastAction::failure(
                 "The Bitfix menu only accepts .lua script paths or URLs.".into(),
@@ -177,7 +186,8 @@ impl ResolveMods {
                     Err(ProviderError::NoProvider { factory, .. }) => {
                         app.window_provider_parameters =
                             Some(WindowProviderParameters::new(factory, &app.state));
-                        app.status_state.last_action = Some(LastAction::failure("no provider".into()));
+                        app.status_state.last_action =
+                            Some(LastAction::failure("no provider".into()));
                     }
                     Err(error) => {
                         app.status_state.problematic_mod_id = error.opt_mod_id();
@@ -322,7 +332,8 @@ impl ResolveMods {
                 Err(ProviderError::NoProvider { url: _, factory }) => {
                     app.window_provider_parameters =
                         Some(WindowProviderParameters::new(factory, &app.state));
-                    app.status_state.last_action = Some(LastAction::failure("no provider".to_string()));
+                    app.status_state.last_action =
+                        Some(LastAction::failure("no provider".to_string()));
                 }
                 Err(e) => {
                     error!("{}", e);

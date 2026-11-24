@@ -3,9 +3,10 @@ use crate::gui::*;
 
 impl App {
     pub(in crate::gui) fn show_update_window(&mut self, ctx: &egui::Context) {
-        if let (Some(update), Some(update_time)) =
-            (self.update_state.available_update.as_ref(), self.update_state.show_update_time)
-        {
+        if let (Some(update), Some(update_time)) = (
+            self.update_state.available_update.as_ref(),
+            self.update_state.show_update_time,
+        ) {
             let now = SystemTime::now();
             let wait_time = Duration::from_secs(10);
             egui::Area::new("available-update-overlay".into())
@@ -92,11 +93,12 @@ impl App {
                                     .on_hover_text("Download and install the update.")
                                     .clicked()
                                 {
-                                    self.update_state.self_update_rid = Some(message::SelfUpdate::send(
-                                        &mut self.request_counter,
-                                        self.tx.clone(),
-                                        ctx.clone(),
-                                    ));
+                                    self.update_state.self_update_rid =
+                                        Some(message::SelfUpdate::send(
+                                            &mut self.request_counter,
+                                            self.tx.clone(),
+                                            ctx.clone(),
+                                        ));
                                 }
 
                                 let elapsed = now.duration_since(update_time).unwrap_or_default();

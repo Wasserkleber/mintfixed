@@ -4,9 +4,9 @@ use std::fs::{self, File, OpenOptions};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
-use zip::ZipArchive;
-use super::{IncludedFile, copy_and_hash, local_archive};
 use super::filenames::{original_file_name, unique_destination_name};
+use super::{IncludedFile, copy_and_hash, local_archive};
+use zip::ZipArchive;
 
 /// Never follow symbolic links while discovering reusable local mods. Only
 /// hash files whose size could match an entry in the package.

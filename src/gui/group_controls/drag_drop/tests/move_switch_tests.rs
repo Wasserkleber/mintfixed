@@ -19,7 +19,8 @@ fn data(source_enabled: bool, destination_enabled: bool) -> Data {
             "Destination": {"mods": [{"spec": {"url": "staying"}, "required": false,
                 "enabled": true, "member_id": "other"}]}
         }
-    })).unwrap()
+    }))
+    .unwrap()
 }
 
 fn drag(data: &Data) -> Drag {

@@ -1,6 +1,6 @@
 //! Portable and Windows-safe mod filenames.
-use std::{collections::HashSet, path::Path};
 use super::IncludedFile;
+use std::{collections::HashSet, path::Path};
 
 pub(crate) fn local_archive(url: &str) -> bool {
     if url.starts_with("http://") || url.starts_with("https://") {
@@ -91,7 +91,6 @@ pub(crate) fn safe_archive_path(path: &str) -> bool {
     })
     .is_ok()
 }
-
 
 /// Reconstruct the displayed/original filename, including for old bundles
 /// created before the manifest explicitly stored original_name.

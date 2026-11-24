@@ -3,9 +3,7 @@ use super::*;
 fn write_report(dir: &Path, name: &str, reason: &str) {
     fs::write(
         dir.join(name),
-        format!(
-            "=== BPCrashHandler report ===\nreason  : {reason}\n\n--- native context ---\n"
-        ),
+        format!("=== BPCrashHandler report ===\nreason  : {reason}\n\n--- native context ---\n"),
     )
     .unwrap();
 }

@@ -116,8 +116,8 @@ pub(in crate::gui) fn copy_options(
                         let worker_state = std::sync::Arc::clone(&state);
                         let ctx = ui.ctx().clone();
                         std::thread::spawn(move || {
-                            let result = profile_package::export_prepared(snapshot, &path)
-                                .map(|_| path);
+                            let result =
+                                profile_package::export_prepared(snapshot, &path).map(|_| path);
                             if let Ok(mut slot) = worker_state.lock() {
                                 *slot = Some(result);
                             }

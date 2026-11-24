@@ -52,8 +52,7 @@ pub(super) fn show_rename<E, N>(
             }
             let current = editor.rename_target.clone();
             let field = ui.add(
-                egui::TextEdit::singleline(&mut editor.rename_name)
-                    .hint_text("New profile name"),
+                egui::TextEdit::singleline(&mut editor.rename_name).hint_text("New profile name"),
             );
             if field.changed() {
                 editor.rename_success = None;
@@ -64,12 +63,8 @@ pub(super) fn show_rename<E, N>(
                 && !candidate.is_empty()
                 && candidate != current
                 && !entries.contains(&candidate);
-            if !candidate.is_empty() && candidate != current && entries.contains(&candidate)
-            {
-                ui.colored_label(
-                    ui.visuals().warn_fg_color,
-                    "Profile name already exists.",
-                );
+            if !candidate.is_empty() && candidate != current && entries.contains(&candidate) {
+                ui.colored_label(ui.visuals().warn_fg_color, "Profile name already exists.");
             }
             let clicked = ui
                 .add_enabled(valid, crate::gui::mint_text_button("Rename Profile"))
@@ -137,10 +132,8 @@ pub(super) fn show_duplicate<E, N>(
                     "A profile with that name already exists.",
                 );
             }
-            let valid = !target.is_empty()
-                && entries.contains(&target)
-                && !requested.is_empty()
-                && !exists;
+            let valid =
+                !target.is_empty() && entries.contains(&target) && !requested.is_empty() && !exists;
             let clicked = ui
                 .add_enabled(valid, crate::gui::mint_text_button("Duplicate Profile"))
                 .clicked();
@@ -192,10 +185,7 @@ pub(super) fn show_delete<E, N>(
                     }
                     let can_delete = entries.selected_name() == target && entries.len() > 1;
                     if ui
-                        .add_enabled(
-                            can_delete,
-                            crate::gui::mint_text_button("Confirm Delete"),
-                        )
+                        .add_enabled(can_delete, crate::gui::mint_text_button("Confirm Delete"))
                         .clicked()
                     {
                         entries.remove_selected();

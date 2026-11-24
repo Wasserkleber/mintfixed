@@ -46,7 +46,8 @@ impl App {
             // Match the exact automatic installation that is completing.
             let finishing_cache_install = matches!(&msg, message::Message::Integrate(_))
                 && self.install_state.cache_install_rid.is_some()
-                && self.install_state.cache_install_rid == self.install_state.integrate_rid.as_ref().map(|r| r.rid);
+                && self.install_state.cache_install_rid
+                    == self.install_state.integrate_rid.as_ref().map(|r| r.rid);
             msg.handle(self);
             // The shared store already contains the recovered metadata; invalidate
             // cached profile warnings and redraw names/tags immediately.
@@ -59,11 +60,13 @@ impl App {
             if finishing_cache_install && self.install_state.integrate_rid.is_none() {
                 self.install_state.cache_install_rid = None;
                 let notice = self
-                    .install_state.cache_install_notice
+                    .install_state
+                    .cache_install_notice
                     .take()
                     .unwrap_or_else(|| "Cache updated".to_string());
                 let cache_details = self
-                    .install_state.cache_install_details
+                    .install_state
+                    .cache_install_details
                     .take()
                     .unwrap_or_else(|| notice.clone());
                 if let Some(action) = self.status_state.last_action.as_mut() {
@@ -95,7 +98,8 @@ impl App {
                 && self.install_state.update_rid.is_none()
                 && self.install_state.integrate_rid.is_none()
                 && self
-                    .status_state.last_action
+                    .status_state
+                    .last_action
                     .as_ref()
                     .is_some_and(|action| matches!(&action.status, LastActionStatus::Success(_)))
             {
@@ -120,23 +124,27 @@ impl App {
                     ));
                     // Retain the cache result before the installation clears the status.
                     // It may contain warnings about unavailable mod.io mods.
-                    self.install_state.cache_install_notice = self.status_state.last_action.as_ref().and_then(|action| {
-                        if let LastActionStatus::Success(message) = &action.status {
-                            Some(message.clone())
-                        } else {
-                            None
-                        }
-                    });
+                    self.install_state.cache_install_notice =
+                        self.status_state.last_action.as_ref().and_then(|action| {
+                            if let LastActionStatus::Success(message) = &action.status {
+                                Some(message.clone())
+                            } else {
+                                None
+                            }
+                        });
                     self.install_state.cache_install_details = self
-                        .status_state.last_action
+                        .status_state
+                        .last_action
                         .as_ref()
                         .and_then(|action| action.details.clone());
                     self.install_state.cache_install_locations = self
-                        .status_state.last_action
+                        .status_state
+                        .last_action
                         .as_ref()
                         .map(|action| action.unavailable_locations.clone())
                         .unwrap_or_default();
-                    self.install_state.cache_install_rid = self.install_state.integrate_rid.as_ref().map(|r| r.rid);
+                    self.install_state.cache_install_rid =
+                        self.install_state.integrate_rid.as_ref().map(|r| r.rid);
                     self.install_state.install_phase = message::InstallPhase::Resolving;
                     self.status_state.problematic_mod_id = None;
                     // The install is not yet successful; the live phase label is shown below.

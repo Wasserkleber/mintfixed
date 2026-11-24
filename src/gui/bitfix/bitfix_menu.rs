@@ -112,7 +112,8 @@ impl App {
         let data = &self.state.mod_data;
         let mods = data.ordered_install_entries(&data.active_profile);
         let Some(fsd_pak) = self.state.config.drg_pak_path.clone() else {
-            self.status_state.last_action = Some(LastAction::failure("DRG install not configured".into()));
+            self.status_state.last_action =
+                Some(LastAction::failure("DRG install not configured".into()));
             return;
         };
         self.status_state.last_action = None;

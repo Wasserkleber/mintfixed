@@ -1,7 +1,10 @@
-use tokio::task::JoinHandle;
+use super::{
+    CheckUpdates, FetchModProgress, FetchSelfUpdateProgress, Integrate, LintMods, ResolveMods,
+    SelfUpdate, UpdateCache,
+};
 use crate::gui::{App, LastAction, request_counter::RequestID};
 use crate::providers::ModSpecification;
-use super::{CheckUpdates, FetchModProgress, FetchSelfUpdateProgress, Integrate, LintMods, ResolveMods, SelfUpdate, UpdateCache};
+use tokio::task::JoinHandle;
 
 #[derive(Debug, Clone, Copy)]
 pub(in crate::gui) enum InstallPhase {
@@ -68,7 +71,12 @@ impl Message {
             Self::Integrate(msg) => msg.receive(app),
             Self::FetchModProgress(msg) => msg.receive(app),
             Self::InstallPhase { rid, phase } => {
-                if app.install_state.integrate_rid.as_ref().is_some_and(|h| h.rid == rid) {
+                if app
+                    .install_state
+                    .integrate_rid
+                    .as_ref()
+                    .is_some_and(|h| h.rid == rid)
+                {
                     app.install_state.install_phase = phase;
                 }
             }
@@ -77,11 +85,18 @@ impl Message {
                 completed,
                 total,
             } => {
-                if app.install_state.update_rid.as_ref().is_some_and(|h| h.rid == rid) {
+                if app
+                    .install_state
+                    .update_rid
+                    .as_ref()
+                    .is_some_and(|h| h.rid == rid)
+                {
                     // Only successful counter advances reset the inactivity timer.
                     // Retries and duplicate progress messages do not count as progress.
-                    if app.install_state.cache_recovery_progress.map(|(n, _)| n) != Some(completed) {
-                        app.install_state.cache_recovery_last_advance = Some(std::time::Instant::now());
+                    if app.install_state.cache_recovery_progress.map(|(n, _)| n) != Some(completed)
+                    {
+                        app.install_state.cache_recovery_last_advance =
+                            Some(std::time::Instant::now());
                     }
                     app.install_state.cache_recovery_progress = Some((completed, total));
                 }

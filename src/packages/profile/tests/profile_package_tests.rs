@@ -1,8 +1,8 @@
 use super::*;
-use std::io::Write;
-use zip::{ZipWriter, write::SimpleFileOptions};
 use crate::providers::ModSpecification;
 use crate::state::{MemberOverrides, ModConfig, ModProfile_v0_1_0 as Profile};
+use std::io::Write;
+use zip::{ZipWriter, write::SimpleFileOptions};
 
 fn member(url: String, priority: i32) -> ModConfig {
     ModConfig {
@@ -121,13 +121,10 @@ fn corrupted_payload_is_rejected_without_creating_import_folder() {
 fn remote_only_profile_needs_no_mod_folder() {
     let root = tempfile::tempdir().unwrap();
     let (mut data, _, _) = sample(root.path());
-    if let ModOrGroup::Individual(item) =
-        &mut data.profiles.get_mut("Portable").unwrap().mods[0]
-    {
+    if let ModOrGroup::Individual(item) = &mut data.profiles.get_mut("Portable").unwrap().mods[0] {
         item.spec.url = "https://mod.io/g/drg/m/foo".into();
     }
-    data.groups.get_mut("Tools").unwrap().mods[0].spec.url =
-        "https://mod.io/g/drg/m/bar".into();
+    data.groups.get_mut("Tools").unwrap().mods[0].spec.url = "https://mod.io/g/drg/m/bar".into();
     let bundle = root.path().join("portable.zip");
     export_prepared(prepare_export(&data, "Portable").unwrap(), &bundle).unwrap();
     let (_, json, has_files) = inspect_bundle(&bundle).unwrap();
@@ -250,8 +247,7 @@ fn profile_export_handles_duplicate_basename_without_numbering_all_files() {
     fs::create_dir(&folder).unwrap();
     let second = folder.join("mod.pak");
     fs::write(&second, b"other mod contents").unwrap();
-    data.groups.get_mut("Tools").unwrap().mods[0].spec.url =
-        second.to_string_lossy().into_owned();
+    data.groups.get_mut("Tools").unwrap().mods[0].spec.url = second.to_string_lossy().into_owned();
     let dest = root.path().join("duplicate-names.zip");
     export_prepared(prepare_export(&data, "Portable").unwrap(), &dest).unwrap();
     let mut zip = ZipArchive::new(File::open(&dest).unwrap()).unwrap();

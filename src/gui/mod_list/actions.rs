@@ -21,7 +21,8 @@ impl App {
     }
 
     pub(in crate::gui) fn parse_mods(&self) -> Vec<ModSpecification> {
-        self.resolve_state.resolve_mod
+        self.resolve_state
+            .resolve_mod
             .lines()
             .map(|l| l.trim())
             .filter(|l| !l.is_empty())

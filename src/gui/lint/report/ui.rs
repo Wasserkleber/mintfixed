@@ -14,9 +14,12 @@ impl App {
                         ui.horizontal_wrapped(|ui| {
                             ui.label(format!("TXT saved: {}", path.display()));
                             if ui.button("Open TXT").clicked()
-                                && let Err(error) = opener::open(&path) {
-                                    self.status_state.last_action = Some(LastAction::failure(format!("Could not open lint report: {error}")));
-                                }
+                                && let Err(error) = opener::open(&path)
+                            {
+                                self.status_state.last_action = Some(LastAction::failure(format!(
+                                    "Could not open lint report: {error}"
+                                )));
+                            }
                             if ui.button("Copy path").clicked() {
                                 ui.ctx().copy_text(path.to_string_lossy().to_string());
                             }

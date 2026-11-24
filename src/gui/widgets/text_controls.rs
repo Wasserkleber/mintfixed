@@ -1,7 +1,11 @@
 //! Common text buttons, description help and bounded status labels.
 use eframe::egui::{self, Button, Color32, RichText, Ui};
 
-pub(in crate::gui) fn description_help_button(ui: &mut Ui, description: &str, group_tint: Option<Color32>) {
+pub(in crate::gui) fn description_help_button(
+    ui: &mut Ui,
+    description: &str,
+    group_tint: Option<Color32>,
+) {
     // Use the supplied group accent directly, not inherited widget text visuals.
     // The same hover-only icon is used by headers and both mod-row paths.
     let (rect, response) = ui.allocate_exact_size(egui::vec2(18.0, 18.0), egui::Sense::hover());
@@ -26,12 +30,11 @@ pub(in crate::gui) fn description_help_button(ui: &mut Ui, description: &str, gr
         .tint(glyph)
         .paint_at(ui, rect.shrink(1.5));
     }
-    response
-        .on_hover_ui_at_pointer(|ui| {
-            ui.set_max_width(320.0);
-            ui.label(RichText::new("Description").strong());
-            ui.label(description);
-        });
+    response.on_hover_ui_at_pointer(|ui| {
+        ui.set_max_width(320.0);
+        ui.label(RichText::new("Description").strong());
+        ui.label(description);
+    });
 }
 
 // A single-line, width-bounded status label. Never let diagnostics reserve toolbar space.

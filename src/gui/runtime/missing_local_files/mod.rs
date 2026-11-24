@@ -4,8 +4,8 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
-use crate::state::{ModData_v0_1_0 as Data, ModOrGroup};
 pub(in crate::gui) use crate::state::local_files::{is_missing_local_path, profile_missing_paths};
+use crate::state::{ModData_v0_1_0 as Data, ModOrGroup};
 #[cfg(test)]
 use crate::state::{ModGroup, local_files::looks_like_local_path};
 
@@ -328,7 +328,11 @@ fn relocate(
 }
 
 /// Returns true only when a saved URL was changed and the caller must save it.
-pub(in crate::gui) fn show(ctx: &egui::Context, data: &mut Data, configured_folder: Option<&Path>) -> bool {
+pub(in crate::gui) fn show(
+    ctx: &egui::Context,
+    data: &mut Data,
+    configured_folder: Option<&Path>,
+) -> bool {
     let key = egui::Id::new(NOTICE_ID);
     let Some(mut notice) = ctx.data(|memory| memory.get_temp::<Notice>(key)) else {
         return false;

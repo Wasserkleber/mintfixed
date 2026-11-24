@@ -9,7 +9,9 @@ pub(in crate::gui) fn controls(
     configured_mod_folder: Option<&std::path::Path>,
 ) -> (bool, Option<String>) {
     let mut changed = false;
-    let button = ui.add(crate::gui::mint_text_button("Group Management")).on_hover_text("Manage groups");
+    let button = ui
+        .add(crate::gui::mint_text_button("Group Management"))
+        .on_hover_text("Manage groups");
     let popup = button.id.with("groups-menu");
     let editor_id = popup.with("rename-editor");
     let duplicate_id = popup.with("duplicate-editor");
@@ -44,7 +46,13 @@ pub(in crate::gui) fn controls(
     let mut requested_import_name: Option<String> = None;
     let mut success_message = None;
 
-    poll_package_jobs(ui, &mut export_editor, &mut import_editor, &mut requested_import_name, &mut success_message);
+    poll_package_jobs(
+        ui,
+        &mut export_editor,
+        &mut import_editor,
+        &mut requested_import_name,
+        &mut success_message,
+    );
     if button.clicked() {
         editor.picker_open = false;
         editor.success = None;
@@ -58,24 +66,40 @@ pub(in crate::gui) fn controls(
         import_editor.success = None;
         ui.memory_mut(|mem| mem.toggle_popup(popup));
     }
-    crate::gui::management_popup::show(
-        ui,
-        popup,
-        &button,
-        |ui| {
-            show_creation_and_attachment(ui, data, name, &mut changed, &mut success_message);
-            ui.separator();
-            show_rename(ui, data, &mut editor, files_pending, &mut requested_rename);
-            ui.separator();
-            show_duplicate(ui, data, &mut duplicate_editor, files_pending, &mut requested_duplicate);
-            ui.separator();
-            show_export(ui, data, &mut export_editor, &mut requested_export);
-            ui.separator();
-            show_import(ui, data, &mut import_editor, files_pending, configured_mod_folder, &mut requested_import, &mut requested_import_name);
-            ui.separator();
-            show_delete(ui, data, &mut delete_editor, files_pending, &mut requested_delete, popup);
-        },
-    );
+    crate::gui::management_popup::show(ui, popup, &button, |ui| {
+        show_creation_and_attachment(ui, data, name, &mut changed, &mut success_message);
+        ui.separator();
+        show_rename(ui, data, &mut editor, files_pending, &mut requested_rename);
+        ui.separator();
+        show_duplicate(
+            ui,
+            data,
+            &mut duplicate_editor,
+            files_pending,
+            &mut requested_duplicate,
+        );
+        ui.separator();
+        show_export(ui, data, &mut export_editor, &mut requested_export);
+        ui.separator();
+        show_import(
+            ui,
+            data,
+            &mut import_editor,
+            files_pending,
+            configured_mod_folder,
+            &mut requested_import,
+            &mut requested_import_name,
+        );
+        ui.separator();
+        show_delete(
+            ui,
+            data,
+            &mut delete_editor,
+            files_pending,
+            &mut requested_delete,
+            popup,
+        );
+    });
     if let Some((old, new)) = requested_rename {
         match rename_group(data, &old, &new) {
             Ok(renamed) => {
@@ -155,9 +179,15 @@ pub(in crate::gui) fn controls(
                 let ctx = ui.ctx().clone();
                 std::thread::spawn(move || {
                     let outcome = crate::gui::group_controls::group_package::export_bundle(
-                        &name, &group, &path, kind == GroupExportKind::Json,
-                    ).map(|()| path);
-                    if let Ok(mut slot) = worker_result.lock() { *slot = Some(outcome); }
+                        &name,
+                        &group,
+                        &path,
+                        kind == GroupExportKind::Json,
+                    )
+                    .map(|()| path);
+                    if let Ok(mut slot) = worker_result.lock() {
+                        *slot = Some(outcome);
+                    }
                     ctx.request_repaint();
                 });
                 export_editor.job = Some(result);
@@ -170,9 +200,13 @@ pub(in crate::gui) fn controls(
             let result = match kind {
                 GroupExportKind::Json => serialize_single_group(data, &name),
                 GroupExportKind::Txt => export_group_mod_list(data, &name),
-            }.and_then(|contents| {
+            }
+            .and_then(|contents| {
                 use std::io::Write as _;
-                std::fs::OpenOptions::new().write(true).create_new(true).open(&path)
+                std::fs::OpenOptions::new()
+                    .write(true)
+                    .create_new(true)
+                    .open(&path)
                     .and_then(|mut file| file.write_all(contents.as_bytes()))
                     .map_err(|e| format!("Failed to save export: {e}"))
                     .map(|()| contents)
@@ -184,7 +218,10 @@ pub(in crate::gui) fn controls(
                         ui.ctx().copy_text(contents);
                     }
                     let message = if copied {
-                        format!("Exported group \"{name}\" to {} and copied TXT to clipboard", path.display())
+                        format!(
+                            "Exported group \"{name}\" to {} and copied TXT to clipboard",
+                            path.display()
+                        )
                     } else {
                         format!("Exported group \"{name}\" to {}", path.display())
                     };
@@ -203,13 +240,16 @@ pub(in crate::gui) fn controls(
     if let Some(path) = requested_import {
         match read_single_group_import(&path) {
             Ok(pending) => {
-                import_editor.bundle_path = (
-                    path.extension().and_then(|ext| ext.to_str())
-                        .is_some_and(|ext| ext.eq_ignore_ascii_case("zip"))
-                        && pending.group.mods.iter().any(|item| {
-                            item.spec.url.starts_with("mintfixed-bundle:")
-                        })
-                ).then(|| path.clone());
+                import_editor.bundle_path = (path
+                    .extension()
+                    .and_then(|ext| ext.to_str())
+                    .is_some_and(|ext| ext.eq_ignore_ascii_case("zip"))
+                    && pending
+                        .group
+                        .mods
+                        .iter()
+                        .any(|item| item.spec.url.starts_with("mintfixed-bundle:")))
+                .then(|| path.clone());
                 import_editor.name = pending.suggested_name.clone().unwrap_or_default();
                 import_editor.pending = Some(pending);
                 import_editor.error = None;
@@ -228,22 +268,31 @@ pub(in crate::gui) fn controls(
     if let Some(name) = requested_import_name {
         if import_editor.pending.as_ref().is_some_and(|pending| {
             crate::gui::group_controls::group_package::group_import_requires_mod_folder(
-                &pending.group, import_editor.bundle_path.is_some(), configured_mod_folder,
+                &pending.group,
+                import_editor.bundle_path.is_some(),
+                configured_mod_folder,
             )
         }) {
             import_editor.error = Some(
-                "Cannot import this group: configure a valid local mods folder in Settings first.".into(),
+                "Cannot import this group: configure a valid local mods folder in Settings first."
+                    .into(),
             );
         } else if let Some(archive) = import_editor.bundle_path.clone() {
             if import_editor.job.is_none() {
-                if let Some(folder) = crate::gui::group_controls::group_package::bundle_destination(configured_mod_folder) {
+                if let Some(folder) = crate::gui::group_controls::group_package::bundle_destination(
+                    configured_mod_folder,
+                ) {
                     let result = std::sync::Arc::new(std::sync::Mutex::new(None));
                     let worker_result = result.clone();
                     let ctx = ui.ctx().clone();
                     std::thread::spawn(move || {
-                        let outcome = crate::gui::group_controls::group_package::extract_bundle(&archive, &folder)
-                            .map(|group| (name, group));
-                        if let Ok(mut slot) = worker_result.lock() { *slot = Some(outcome); }
+                        let outcome = crate::gui::group_controls::group_package::extract_bundle(
+                            &archive, &folder,
+                        )
+                        .map(|group| (name, group));
+                        if let Ok(mut slot) = worker_result.lock() {
+                            *slot = Some(outcome);
+                        }
                         ctx.request_repaint();
                     });
                     import_editor.job = Some(result);
@@ -255,36 +304,38 @@ pub(in crate::gui) fn controls(
                 }
             }
         } else {
-        if let Some(pending) = &import_editor.pending {
-            // Explicit name validation. Never silently rename or overwrite a group.
-            if data.groups.contains_key(&name) {
-                import_editor.error = Some("A group with that name already exists".into());
-            } else {
-                let source =
-                    std::collections::BTreeMap::from([(name.clone(), pending.group.clone())]);
-                match import_groups(data, source) {
-                    Ok(_) => {
-                        changed = true;
-                        let missing = crate::state::local_files::group_missing_paths(&data.groups[&name]);
-                        crate::gui::missing_local_files::notify(
-                            ui.ctx(),
-                            crate::gui::missing_local_files::Origin::Group(name.clone()),
-                            missing,
-                        );
-                        let message = format!("Imported group \"{name}\" into the active profile.");
-                        import_editor.pending = None;
-                        import_editor.name.clear();
-                        import_editor.error = None;
-                        import_editor.success = Some(message.clone());
-                        success_message = Some(message);
-                        egui::DragAndDrop::clear_payload(ui.ctx());
+            if let Some(pending) = &import_editor.pending {
+                // Explicit name validation. Never silently rename or overwrite a group.
+                if data.groups.contains_key(&name) {
+                    import_editor.error = Some("A group with that name already exists".into());
+                } else {
+                    let source =
+                        std::collections::BTreeMap::from([(name.clone(), pending.group.clone())]);
+                    match import_groups(data, source) {
+                        Ok(_) => {
+                            changed = true;
+                            let missing =
+                                crate::state::local_files::group_missing_paths(&data.groups[&name]);
+                            crate::gui::missing_local_files::notify(
+                                ui.ctx(),
+                                crate::gui::missing_local_files::Origin::Group(name.clone()),
+                                missing,
+                            );
+                            let message =
+                                format!("Imported group \"{name}\" into the active profile.");
+                            import_editor.pending = None;
+                            import_editor.name.clear();
+                            import_editor.error = None;
+                            import_editor.success = Some(message.clone());
+                            success_message = Some(message);
+                            egui::DragAndDrop::clear_payload(ui.ctx());
+                        }
+                        Err(error) => import_editor.error = Some(error),
                     }
-                    Err(error) => import_editor.error = Some(error),
                 }
             }
+            ui.ctx().request_repaint();
         }
-        ui.ctx().request_repaint();
-    }
     }
     ui.ctx().data_mut(|d| {
         d.insert_temp(export_id, export_editor);

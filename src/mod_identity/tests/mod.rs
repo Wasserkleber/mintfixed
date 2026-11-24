@@ -73,8 +73,7 @@ fn unknown_versions_are_pending_not_guessed_from_similar_names() {
     assert_eq!(issues.pending.len(), 2);
 }
 #[test]
-fn readding_latest_or_its_pin_promotes_disabled_standalone_but_other_versions_remain_distinct()
-{
+fn readding_latest_or_its_pin_promotes_disabled_standalone_but_other_versions_remain_distinct() {
     let dir = tempfile::tempdir().unwrap();
     // Use the current versioned format so numeric mod IDs are decoded via
     // the cache reader's numeric-key compatibility path.
@@ -111,9 +110,7 @@ fn readding_latest_or_its_pin_promotes_disabled_standalone_but_other_versions_re
     };
     let issues = ProfileIssues::collect(&issues_data, "p", &store);
     assert_eq!(issues.versions.len(), 1);
-    assert!(
-        issues.versions[0].starts_with("Speedometer (mod.io ID 123) has multiple versions:")
-    );
+    assert!(issues.versions[0].starts_with("Speedometer (mod.io ID 123) has multiple versions:"));
     let mut existing = member(latest);
     existing.enabled = false;
     let mut profile = ModProfile_v0_1_0 {
@@ -215,9 +212,7 @@ fn readding_moves_to_top_removes_old_copies_and_preserves_other_versions_and_gro
     assert_eq!(top.spec, spec(alias));
     assert!(top.enabled && top.required);
     assert_eq!(top.priority, 42);
-    assert!(
-        matches!(&profile.mods[1], ModOrGroup::Individual(mc) if mc.spec.url == "unrelated")
-    );
+    assert!(matches!(&profile.mods[1], ModOrGroup::Individual(mc) if mc.spec.url == "unrelated"));
     assert!(
         matches!(&profile.mods[2], ModOrGroup::Group { group_name, .. } if group_name == "Tools")
     );

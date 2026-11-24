@@ -1,9 +1,9 @@
 //! JSON/TXT group documents, import preparation and export paths.
-use std::collections::HashSet;
 use crate::providers::ModSpecification;
-use crate::state::{ModData_v0_1_0 as Data, ModConfig, attach_group as attach};
 #[cfg(test)]
 use crate::state::ModOrGroup;
+use crate::state::{ModConfig, ModData_v0_1_0 as Data, attach_group as attach};
+use std::collections::HashSet;
 
 #[derive(Clone)]
 pub(crate) struct PendingGroupImport {

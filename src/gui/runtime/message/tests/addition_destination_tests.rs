@@ -1,4 +1,4 @@
-use super::{ResolveMods, App, MessageHandle, ModSpecification, ModInfo, HashMap};
+use super::{App, HashMap, MessageHandle, ModInfo, ModSpecification, ResolveMods};
 use crate::{Dirs, providers::ModResolution};
 
 fn app() -> (tempfile::TempDir, App) {
@@ -70,7 +70,10 @@ async fn second_request_does_not_replace_pending_result() {
     let (_dir, mut app) = app();
     let result = result(&mut app);
     ResolveMods::send(&mut app, &egui::Context::default(), vec![], false);
-    assert_eq!(app.resolve_state.resolve_mod_rid.as_ref().unwrap().rid, result.rid);
+    assert_eq!(
+        app.resolve_state.resolve_mod_rid.as_ref().unwrap().rid,
+        result.rid
+    );
     result.receive(&mut app);
     assert_eq!(app.state.mod_data.profiles["default"].mods.len(), 1);
 }

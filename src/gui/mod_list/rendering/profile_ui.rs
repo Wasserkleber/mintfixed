@@ -2,7 +2,11 @@
 use crate::gui::*;
 
 impl App {
-    pub(in crate::gui) fn ui_profile(&mut self, ui: &mut Ui, profile: &str) -> Option<(String, bool)> {
+    pub(in crate::gui) fn ui_profile(
+        &mut self,
+        ui: &mut Ui,
+        profile: &str,
+    ) -> Option<(String, bool)> {
         if egui::DragAndDrop::payload::<Drag>(ui.ctx()).is_some() {
             ui.style_mut().interaction.selectable_labels = false;
         }
@@ -135,7 +139,8 @@ impl App {
         let mut ctx = Ctx {
             needs_save: false,
             show_target: self
-                .status_state.show_mod_target
+                .status_state
+                .show_mod_target
                 .clone()
                 .filter(|target| target.profile == profile_name),
             scroll_to_match: self.search.scroll_to_match,
@@ -402,7 +407,9 @@ impl App {
                         }
                     }
                 }
-                Err(error) => self.status_state.last_action = Some(LastAction::failure(error.into())),
+                Err(error) => {
+                    self.status_state.last_action = Some(LastAction::failure(error.into()))
+                }
             }
         }
 
@@ -413,7 +420,8 @@ impl App {
 
         self.search.scroll_to_match = ctx.scroll_to_match;
         if self
-            .status_state.show_mod_target
+            .status_state
+            .show_mod_target
             .as_ref()
             .is_some_and(|target| target.profile == profile_name)
         {

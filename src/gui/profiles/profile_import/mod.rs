@@ -1,7 +1,10 @@
 //! Import full profiles from "Copy profile with groups (JSON)".
 //! Keep profile restoration independent from the Groups manager.
 
-use crate::packages::{profile as profile_package, profile_document::{MAX_PROFILE_JSON_BYTES, import_profile, parse_profile}};
+use crate::packages::{
+    profile as profile_package,
+    profile_document::{MAX_PROFILE_JSON_BYTES, import_profile, parse_profile},
+};
 use crate::state::ModData_v0_1_0 as Data;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};

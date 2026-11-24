@@ -1,7 +1,6 @@
 use super::*;
 
 impl Drag {
-
     // multi-preview-v3: preview every selected row, not just the grabbed row.
     // Row hitboxes and drop targets stay in their original scroll-list positions.
     pub fn paint_row<R>(
@@ -40,13 +39,10 @@ impl Drag {
             // They are translated after painting, so the clip needs to contain
             // the ORIGINAL row even when it has scrolled outside the viewport.
             // Restrict this to the dedicated Tooltip layer, never the list UI.
-            let painted = ui.scope_builder(
-                egui::UiBuilder::new().layer_id(layer),
-                |preview_ui| {
-                    preview_ui.set_clip_rect(egui::Rect::EVERYTHING);
-                    draw(preview_ui)
-                },
-            );
+            let painted = ui.scope_builder(egui::UiBuilder::new().layer_id(layer), |preview_ui| {
+                preview_ui.set_clip_rect(egui::Rect::EVERYTHING);
+                draw(preview_ui)
+            });
             let rect = painted.response.rect;
             // Pack preview rows at their real height, with only 1 px between them.
             // The row contents
@@ -96,9 +92,10 @@ impl Drag {
         let anchor_id = egui::Id::new(DRAG_PAINT_ANCHOR_ID);
         let initial_row = ui.ctx().data_mut(|data| {
             if let Some(anchor) = data.get_temp::<DragPaintAnchor>(anchor_id)
-                && anchor.press_origin == press_origin {
-                    return anchor.row_origin;
-                }
+                && anchor.press_origin == press_origin
+            {
+                return anchor.row_origin;
+            }
             data.insert_temp(
                 anchor_id,
                 DragPaintAnchor {
@@ -109,13 +106,10 @@ impl Drag {
             current_row
         });
         let delta = drag_paint_translation(pointer, press_origin, initial_row, current_row);
-        ui.ctx().transform_layer_shapes(
-            layer,
-            egui::emath::TSTransform::from_translation(delta),
-        );
+        ui.ctx()
+            .transform_layer_shapes(layer, egui::emath::TSTransform::from_translation(delta));
         painted.inner
     }
-
 
     pub fn handle(
         ui: &mut Ui,
@@ -155,7 +149,8 @@ impl Drag {
             } else {
                 egui::Color32::from_rgb(58, 117, 186)
             };
-            ui.painter().rect_filled(marker, egui::CornerRadius::same(2), accent);
+            ui.painter()
+                .rect_filled(marker, egui::CornerRadius::same(2), accent);
         }
         let response = if is_group {
             response

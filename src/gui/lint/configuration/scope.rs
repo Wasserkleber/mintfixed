@@ -2,7 +2,11 @@
 use super::super::*;
 
 impl App {
-    pub(super) fn show_lint_scope(&mut self, ui: &mut egui::Ui, available_mods: &[ModSpecification]) {
+    pub(super) fn show_lint_scope(
+        &mut self,
+        ui: &mut egui::Ui,
+        available_mods: &[ModSpecification],
+    ) {
         ui.label("What should be scanned?");
         ui.horizontal_wrapped(|ui| {
             ui.selectable_value(
@@ -79,8 +83,7 @@ impl App {
                             {
                                 continue;
                             }
-                            let mut checked =
-                                self.lint_state.lint_selected_mods.contains(spec);
+                            let mut checked = self.lint_state.lint_selected_mods.contains(spec);
                             if ui
                                 .checkbox(&mut checked, label)
                                 .on_hover_text(&spec.url)
@@ -97,7 +100,8 @@ impl App {
             }
             super::LintScope::Focus => {
                 if self
-                    .lint_state.lint_focus
+                    .lint_state
+                    .lint_focus
                     .as_ref()
                     .is_none_or(|f| !available_mods.contains(f))
                 {
@@ -117,7 +121,8 @@ impl App {
                 });
                 let filter = self.lint_state.lint_focus_filter.trim().to_lowercase();
                 let selected_label = self
-                    .lint_state.lint_focus
+                    .lint_state
+                    .lint_focus
                     .as_ref()
                     .map(|spec| {
                         self.state
@@ -181,8 +186,7 @@ impl App {
                                     .get_mod_info(spec)
                                     .map(|info| info.name)
                                     .unwrap_or_else(|| spec.url.clone());
-                                let selected =
-                                    self.lint_state.lint_focus.as_ref() == Some(spec);
+                                let selected = self.lint_state.lint_focus.as_ref() == Some(spec);
                                 if ui
                                     .selectable_label(selected, label)
                                     .on_hover_text(&spec.url)
@@ -195,9 +199,7 @@ impl App {
                         });
                     ui.small(format!("Selected: {selected_label}"));
                 }
-                ui.small(
-                    "Compares shared asset paths against every other enabled mod.",
-                );
+                ui.small("Compares shared asset paths against every other enabled mod.");
             }
             super::LintScope::All => {
                 ui.small(format!(

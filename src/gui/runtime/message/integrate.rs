@@ -1,11 +1,16 @@
-use std::{collections::HashMap, path::PathBuf, sync::Arc};
+use super::{InstallPhase, Message, MessageHandle};
+use crate::gui::{
+    App, LastAction, SpecFetchProgress, WindowProviderParameters,
+    request_counter::{RequestCounter, RequestID},
+};
+use crate::integrate::IntegrationError;
+use crate::providers::{
+    FetchProgress, ModInfo, ModResolution, ModSpecification, ModStore, ProviderError,
+};
 use mint_lib::mod_info::MetaConfig;
+use std::{collections::HashMap, path::PathBuf, sync::Arc};
 use tokio::sync::mpsc::{self, Sender};
 use tracing::error;
-use crate::gui::{App, LastAction, SpecFetchProgress, WindowProviderParameters, request_counter::{RequestCounter, RequestID}};
-use crate::integrate::IntegrationError;
-use crate::providers::{FetchProgress, ModInfo, ModResolution, ModSpecification, ModStore, ProviderError};
-use super::{InstallPhase, Message, MessageHandle};
 
 #[derive(Debug)]
 pub struct Integrate {
@@ -60,7 +65,8 @@ impl Integrate {
                 {
                     app.window_provider_parameters =
                         Some(WindowProviderParameters::new(factory, &app.state));
-                    app.status_state.last_action = Some(LastAction::failure("no provider".to_string()));
+                    app.status_state.last_action =
+                        Some(LastAction::failure("no provider".to_string()));
                 }
                 Err(e) => {
                     error!("{}", e);

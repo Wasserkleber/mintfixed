@@ -25,7 +25,8 @@ pub(super) fn poll_package_jobs(
                 }
             }
         } else {
-            ui.ctx().request_repaint_after(std::time::Duration::from_millis(300));
+            ui.ctx()
+                .request_repaint_after(std::time::Duration::from_millis(300));
         }
     }
     if let Some(job) = &import_editor.job {
@@ -35,7 +36,8 @@ pub(super) fn poll_package_jobs(
             match result {
                 Ok((name, group)) => {
                     import_editor.pending = Some(PendingGroupImport {
-                        suggested_name: Some(name.clone()), group,
+                        suggested_name: Some(name.clone()),
+                        group,
                     });
                     import_editor.bundle_path = None;
                     *requested_import_name = Some(name);
@@ -43,7 +45,8 @@ pub(super) fn poll_package_jobs(
                 Err(error) => import_editor.error = Some(error),
             }
         } else {
-            ui.ctx().request_repaint_after(std::time::Duration::from_millis(300));
+            ui.ctx()
+                .request_repaint_after(std::time::Duration::from_millis(300));
         }
     }
 }

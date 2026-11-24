@@ -72,21 +72,13 @@ pub(super) fn show_rename(
             && !trimmed.is_empty()
             && trimmed != editor.selected
             && !data.groups.contains_key(trimmed);
-        if !trimmed.is_empty()
-            && trimmed != editor.selected
-            && data.groups.contains_key(trimmed)
-        {
+        if !trimmed.is_empty() && trimmed != editor.selected && data.groups.contains_key(trimmed) {
             ui.colored_label(
                 ui.visuals().warn_fg_color,
                 "A group with that name already exists.",
             );
         }
-        if group_action_button(
-            ui,
-            "Rename in all profiles",
-            available && !files_pending,
-        )
-        .clicked()
+        if group_action_button(ui, "Rename in all profiles", available && !files_pending).clicked()
         {
             *requested_rename = Some((editor.selected.clone(), trimmed.to_owned()));
         }

@@ -7,29 +7,31 @@ use mod_list::mod_list_style;
 use mod_list::mod_tags;
 mod bitfix;
 use bitfix::bitfix_menu;
-mod settings;
 mod profiles;
+mod settings;
+use crate::packages::profile as profile_package;
 use profiles::profile_import;
 use profiles::profile_management;
-use crate::packages::profile as profile_package;
 mod imports;
 use imports::folder_import;
-mod dialogs;
 mod crashes;
+mod dialogs;
 use crashes::crash_history;
 use crashes::crash_notice;
 #[cfg(all(feature = "hook", target_os = "windows"))]
 use crashes::crash_reporter_update;
 mod widgets;
 use widgets::icon_buttons;
-use widgets::widget_style;
-use widgets::text_controls;
-use widgets::search_field;
 use widgets::management_popup;
 use widgets::named_combobox;
+use widgets::search_field;
+use widgets::text_controls;
 use widgets::toggle_switch;
+use widgets::widget_style;
 mod app;
-use app::state::{InstallUiState, LintUiState, ResolveUiState, SearchUiState, StatusUiState, UpdateUiState};
+use app::state::{
+    InstallUiState, LintUiState, ResolveUiState, SearchUiState, StatusUiState, UpdateUiState,
+};
 mod runtime;
 use runtime::{message, missing_local_files, request_counter, unavailable_mods};
 mod group_controls;

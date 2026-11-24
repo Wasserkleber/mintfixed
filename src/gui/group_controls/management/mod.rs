@@ -28,7 +28,9 @@ pub(super) use operations::rename_group;
 use creation::show_creation_and_attachment;
 use delete::show_delete;
 use duplicate::show_duplicate;
-use editor_state::{DeleteEditor, DuplicateEditor, ExportEditor, GroupExportKind, ImportEditor, RenameEditor};
+use editor_state::{
+    DeleteEditor, DuplicateEditor, ExportEditor, GroupExportKind, ImportEditor, RenameEditor,
+};
 use export::show_export;
 use import::show_import;
 use jobs::poll_package_jobs;

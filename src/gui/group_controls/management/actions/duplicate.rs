@@ -81,13 +81,7 @@ pub(super) fn show_duplicate(
                 && !trimmed.is_empty()
                 && !data.groups.contains_key(trimmed)
                 && !files_pending;
-            if group_action_button(
-                ui,
-                "Duplicate group",
-                available,
-            )
-            .clicked()
-            {
+            if group_action_button(ui, "Duplicate group", available).clicked() {
                 *requested_duplicate =
                     Some((duplicate_editor.selected.clone(), trimmed.to_owned()));
             }

@@ -1,6 +1,6 @@
 //! Local mod path classification and missing-file diagnostics without UI dependencies.
-use std::{collections::BTreeSet, path::Path};
 use crate::state::{ModData_v0_1_0 as Data, ModGroup, ModOrGroup};
+use std::{collections::BTreeSet, path::Path};
 
 pub(crate) fn looks_like_local_path(value: &str) -> bool {
     let value = value.trim();

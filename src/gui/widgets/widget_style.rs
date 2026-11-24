@@ -29,8 +29,11 @@ pub(in crate::gui) fn paint_picker_arrow(ui: &Ui, rect: egui::Rect, open: bool, 
             egui::pos2(x, y + 2.0),
         ]
     };
-    ui.painter()
-        .add(egui::Shape::convex_polygon(arrow, color, egui::Stroke::NONE));
+    ui.painter().add(egui::Shape::convex_polygon(
+        arrow,
+        color,
+        egui::Stroke::NONE,
+    ));
 }
 
 pub(in crate::gui) fn picker_scroll() -> egui::ScrollArea {

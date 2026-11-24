@@ -80,14 +80,26 @@ impl App {
                         LintId::ASSET_REGISTRY_BIN,
                         self.lint_state.lint_options.asset_register_bin,
                     ),
-                    (LintId::CONFLICTING, self.lint_state.lint_options.conflicting),
-                    (LintId::EMPTY_ARCHIVE, self.lint_state.lint_options.empty_archive),
+                    (
+                        LintId::CONFLICTING,
+                        self.lint_state.lint_options.conflicting,
+                    ),
+                    (
+                        LintId::EMPTY_ARCHIVE,
+                        self.lint_state.lint_options.empty_archive,
+                    ),
                     (
                         LintId::OUTDATED_PAK_VERSION,
                         self.lint_state.lint_options.outdated_pak_version,
                     ),
-                    (LintId::SHADER_FILES, self.lint_state.lint_options.shader_files),
-                    (LintId::NON_ASSET_FILES, self.lint_state.lint_options.non_asset_files),
+                    (
+                        LintId::SHADER_FILES,
+                        self.lint_state.lint_options.shader_files,
+                    ),
+                    (
+                        LintId::NON_ASSET_FILES,
+                        self.lint_state.lint_options.non_asset_files,
+                    ),
                     (
                         LintId::SPLIT_ASSET_PAIRS,
                         self.lint_state.lint_options.split_asset_pairs,
@@ -100,8 +112,7 @@ impl App {
 
                 trace!(?lint_options);
 
-                let (mods, focus) =
-                    valid_scope.expect("disabled button prevents an invalid scope");
+                let (mods, focus) = valid_scope.expect("disabled button prevents an invalid scope");
                 let enabled_lints: BTreeSet<_> = lint_options
                     .into_iter()
                     .filter_map(|(lint, enabled)| enabled.then_some(lint))

@@ -8,7 +8,11 @@ use std::path::{Path, PathBuf};
 use zip::ZipArchive;
 
 use super::group_document::{PendingGroupImport, parse_mod_list_txt, parse_single_group_json};
-use crate::packages::{ArchiveKind, Manifest, MAX_DEFINITION, MAX_FILES, MAX_MANIFEST, MAX_TOTAL, PREFIX, bounded_text, extract_mod_files, local_archive, safe_archive_path, unique_bundle_filename, validate_entries};
+use crate::packages::{
+    ArchiveKind, MAX_DEFINITION, MAX_FILES, MAX_MANIFEST, MAX_TOTAL, Manifest, PREFIX,
+    bounded_text, extract_mod_files, local_archive, safe_archive_path, unique_bundle_filename,
+    validate_entries,
+};
 use crate::state::ModGroup;
 
 const FORMAT: &str = "mintfixed-group-package";
@@ -100,7 +104,6 @@ pub(crate) fn export_bundle(
         ArchiveKind::Group,
     )
 }
-
 
 fn preview(path: &Path) -> Result<Preview, String> {
     let file = File::open(path).map_err(|e| format!("Cannot read package: {e}"))?;
@@ -240,11 +243,7 @@ pub(crate) fn extract_bundle(path: &Path, folder: &Path) -> Result<ModGroup, Str
     let parsed = preview(path)?;
     let file = File::open(path).map_err(|e| format!("Cannot reopen ZIP: {e}"))?;
     let mut archive = ZipArchive::new(file).map_err(|e| format!("Cannot reopen ZIP: {e}"))?;
-    let mut installed = extract_mod_files(
-        &mut archive,
-        &parsed.manifest.files,
-        folder,
-    )?;
+    let mut installed = extract_mod_files(&mut archive, &parsed.manifest.files, folder)?;
     let mut imported_group = parsed.group;
     for item in &mut imported_group.mods {
         if let Some(relative) = item.spec.url.strip_prefix(PREFIX) {

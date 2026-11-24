@@ -1,7 +1,7 @@
-use tracing::{error, info, warn};
+use super::{Message, MessageHandle};
 use crate::gui::{App, LastAction, WindowProviderParameters, request_counter::RequestID};
 use crate::providers::ProviderError;
-use super::{Message, MessageHandle};
+use tracing::{error, info, warn};
 
 #[derive(Debug)]
 pub struct UpdateCache {
@@ -147,7 +147,8 @@ impl UpdateCache {
                 Err(ProviderError::NoProvider { url: _, factory }) => {
                     app.window_provider_parameters =
                         Some(WindowProviderParameters::new(factory, &app.state));
-                    app.status_state.last_action = Some(LastAction::failure("no provider".to_string()));
+                    app.status_state.last_action =
+                        Some(LastAction::failure("no provider".to_string()));
                 }
                 Err(e) => {
                     error!("{}", e);
@@ -161,7 +162,9 @@ impl UpdateCache {
                     location.label.replace('\n', " ")
                 );
             }
-            if let (Some(details), Some(action)) = (unavailable_details, app.status_state.last_action.as_mut()) {
+            if let (Some(details), Some(action)) =
+                (unavailable_details, app.status_state.last_action.as_mut())
+            {
                 let summary = match &action.status {
                     crate::gui::LastActionStatus::Success(message)
                     | crate::gui::LastActionStatus::Failure(message) => message,

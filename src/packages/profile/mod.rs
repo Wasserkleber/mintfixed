@@ -24,7 +24,6 @@ struct ProfileDocument {
     groups: BTreeMap<String, ModGroup>,
 }
 
-
 pub(crate) struct PreparedExport {
     text: Vec<u8>,
     name: String,
@@ -212,7 +211,6 @@ pub(crate) fn export_prepared(prepared: PreparedExport, path: &Path) -> Result<(
     )
 }
 
-
 fn preview(path: &Path) -> Result<Preview, String> {
     let file = File::open(path).map_err(|e| format!("Cannot read profile ZIP: {e}"))?;
     let mut archive = ZipArchive::new(file).map_err(|e| format!("Invalid profile ZIP: {e}"))?;
@@ -350,11 +348,7 @@ pub(crate) fn extract_bundle(
     let file = File::open(path).map_err(|e| format!("Cannot reopen profile ZIP: {e}"))?;
     let mut archive =
         ZipArchive::new(file).map_err(|e| format!("Cannot reopen profile ZIP: {e}"))?;
-    let installed = shared::extract_mod_files(
-        &mut archive,
-        &parsed.manifest.files,
-        folder,
-    )?;
+    let installed = shared::extract_mod_files(&mut archive, &parsed.manifest.files, folder)?;
     let mut document = parsed.document;
     visit_urls_mut(&mut document, |url| {
         if let Some(member) = url.strip_prefix(shared::PREFIX) {

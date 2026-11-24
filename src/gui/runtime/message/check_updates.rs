@@ -1,7 +1,7 @@
-use std::time::SystemTime;
-use mint_lib::{error::GenericError, update::GitHubRelease};
-use crate::gui::{App, request_counter::RequestID};
 use super::{Message, MessageHandle};
+use crate::gui::{App, request_counter::RequestID};
+use mint_lib::{error::GenericError, update::GitHubRelease};
+use std::time::SystemTime;
 
 #[derive(Debug)]
 pub struct CheckUpdates {
