@@ -8,15 +8,28 @@ use crate::state::State;
 use mint_lib::DRGInstallation;
 
 const MAX_REPORT_READ: u64 = 128 * 1024;
+const MAX_ATTRIBUTION_READ: u64 = 32 * 1024 * 1024;
 const MAX_STARTUP_SCAN: usize = 50;
 const SEEN_FILE: &str = "bpcrash-last-acknowledged.txt";
+const ATTRIBUTION_MARKER: &str = "--- mintfixed mod attribution (bpcrash.exe) ---";
+const BLUEPRINT_MARKER: &str = "--- blueprint function compatibility (mintfixed) ---";
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum ModAttribution {
+    Pending,
+    Unavailable,
+    NoMatch,
+    Candidates(Vec<String>),
+}
+
+#[derive(Clone)]
 pub(in crate::gui) struct RecentCrash {
     path: PathBuf,
     seen_file: PathBuf,
     name: String,
     timestamp: String,
     detail: Option<String>,
+    attribution: ModAttribution,
     open_error: Option<String>,
 }
 
@@ -70,11 +83,108 @@ fn find_latest_unseen_report(reports_dir: &Path, seen_file: &Path) -> Option<Rec
     Some(RecentCrash {
         timestamp: format_report_timestamp(&name).unwrap_or_else(|| name.clone()),
         name,
+        attribution: read_mod_attribution(&path),
         path,
         seen_file: seen_file.to_path_buf(),
         detail: (!detail.is_empty()).then_some(detail),
         open_error: None,
     })
+}
+
+fn read_mod_attribution(path: &Path) -> ModAttribution {
+    let Ok(file) = std::fs::File::open(path) else {
+        return ModAttribution::Pending;
+    };
+    let mut bytes = Vec::new();
+    if file
+        .take(MAX_ATTRIBUTION_READ + 1)
+        .read_to_end(&mut bytes)
+        .is_err()
+    {
+        return ModAttribution::Pending;
+    }
+    if bytes.len() as u64 > MAX_ATTRIBUTION_READ {
+        return ModAttribution::Unavailable;
+    }
+    parse_mod_attribution(&String::from_utf8_lossy(&bytes))
+}
+
+// BP-Crash-Reporter 1.3.0 appends this section after the game exits.
+// Only trust its structured attribution fields, never arbitrary stack text.
+fn parse_mod_attribution(body: &str) -> ModAttribution {
+    let mut lines = body.lines();
+    if !lines.any(|line| line.trim() == ATTRIBUTION_MARKER) {
+        return ModAttribution::Pending;
+    }
+    let mut ranked = std::collections::BTreeMap::new();
+    let mut blueprint = std::collections::BTreeMap::new();
+    let mut snapshot_matches = false;
+    let mut in_blueprint = false;
+    for line in lines {
+        let line = line.trim();
+        if line == BLUEPRINT_MARKER {
+            in_blueprint = true;
+            continue;
+        }
+        if line.starts_with("---") {
+            break;
+        }
+        let Some((key, value)) = line.split_once(':') else {
+            continue;
+        };
+        let (key, value) = (key.trim(), value.trim());
+        if value.is_empty() {
+            continue;
+        }
+        if !in_blueprint {
+            match key {
+                "status" => {
+                    return if value == "no_recognized_assets_or_missing_functions" {
+                        ModAttribution::NoMatch
+                    } else {
+                        ModAttribution::Unavailable
+                    };
+                }
+                "result.snapshot_crash_match" => {
+                    snapshot_matches = value == "installed_pak_size_and_mtime_match";
+                }
+                _ => {
+                    if let Some(index) = key
+                        .strip_prefix("rank[")
+                        .and_then(|key| key.strip_suffix("].mod"))
+                        .and_then(|index| index.parse::<usize>().ok())
+                        .filter(|index| (1..=3).contains(index))
+                    {
+                        ranked.insert(index, value.to_owned());
+                    }
+                }
+            }
+        } else if let Some(index) = key
+            .strip_prefix("mod_evidence[")
+            .and_then(|key| key.strip_suffix("].name"))
+            .and_then(|index| index.parse::<usize>().ok())
+            .filter(|index| *index > 0)
+        {
+            blueprint.insert(index, value.to_owned());
+        }
+    }
+    if !snapshot_matches {
+        return ModAttribution::Pending;
+    }
+    let mut names = Vec::new();
+    for name in ranked.into_values().chain(blueprint.into_values()) {
+        if !names.contains(&name) {
+            names.push(name);
+        }
+        if names.len() == 3 {
+            break;
+        }
+    }
+    if names.is_empty() {
+        ModAttribution::NoMatch
+    } else {
+        ModAttribution::Candidates(names)
+    }
 }
 
 fn is_crash_report(text: &str) -> bool {
@@ -153,6 +263,25 @@ pub(in crate::gui) fn show(ctx: &egui::Context, recent: &mut Option<RecentCrash>
                 ui.add(egui::Label::new(detail.as_str()).wrap());
             }
             ui.separator();
+            ui.label(egui::RichText::new("Possible culprit mods").strong());
+            match &crash.attribution {
+                ModAttribution::Candidates(names) => {
+                    for name in names {
+                        ui.add(egui::Label::new(format!("• {name}")).wrap());
+                    }
+                    ui.weak("Based on crash evidence; not a confirmed cause.");
+                }
+                ModAttribution::Pending => {
+                    ui.weak("Attribution not available yet (analysis runs after game exit).");
+                }
+                ModAttribution::Unavailable => {
+                    ui.weak("Mod attribution unavailable for this report.");
+                }
+                ModAttribution::NoMatch => {
+                    ui.weak("No matching mod identified.");
+                }
+            }
+            ui.separator();
             ui.label("Crash report:");
             if ui
                 .link(crash.name.as_str())
@@ -200,9 +329,48 @@ mod tests;
 // the UI thread on filesystem access. The worker is parked between checks.
 const CRASH_POLL_INTERVAL: std::time::Duration = std::time::Duration::from_secs(5);
 
+// Refreshes only update an existing notice; they must never reopen one.
+enum CrashEvent {
+    New(RecentCrash),
+    Attribution(PathBuf, ModAttribution),
+}
+
+type ReportStamp = (u64, std::time::SystemTime);
+
+fn report_stamp(path: &Path) -> Option<ReportStamp> {
+    let meta = std::fs::metadata(path).ok()?;
+    Some((meta.len(), meta.modified().ok()?))
+}
+
+fn refresh_attributions(
+    watched: &mut Vec<(RecentCrash, Option<ReportStamp>)>,
+    mut send: impl FnMut(CrashEvent),
+) {
+    watched.retain_mut(|(crash, stamp)| {
+        if std::fs::read_to_string(&crash.seen_file)
+            .ok()
+            .is_some_and(|seen| seen.trim() == crash.path.to_string_lossy().as_ref() as &str)
+        {
+            return false;
+        }
+        let Some(current) = report_stamp(&crash.path) else {
+            return false;
+        };
+        if *stamp != Some(current) {
+            *stamp = Some(current);
+            let attribution = read_mod_attribution(&crash.path);
+            if crash.attribution != attribution {
+                crash.attribution = attribution.clone();
+                send(CrashEvent::Attribution(crash.path.clone(), attribution));
+            }
+        }
+        true
+    });
+}
+
 pub(in crate::gui) struct CrashMonitor {
     pak_path: Option<PathBuf>,
-    received: std::sync::mpsc::Receiver<RecentCrash>,
+    received: std::sync::mpsc::Receiver<CrashEvent>,
     stop: Option<std::sync::mpsc::Sender<()>>,
     worker: Option<std::thread::JoinHandle<()>>,
     pending: Option<RecentCrash>,
@@ -240,16 +408,37 @@ impl CrashMonitor {
                             known.insert(name);
                         }
                     }
+                    let mut watched: Vec<(RecentCrash, Option<ReportStamp>)> = Vec::new();
+                    if let Some(crash) = find_latest_unseen_report(&reports_dir, &seen_file) {
+                        // The startup notice may have been read before attribution was appended.
+                        // Send the worker's first observation even if the file is already complete.
+                        let _ = send_report.send(CrashEvent::Attribution(
+                            crash.path.clone(),
+                            crash.attribution.clone(),
+                        ));
+                        repaint.request_repaint();
+                        watched.push((crash, None));
+                    }
                     while let Err(std::sync::mpsc::RecvTimeoutError::Timeout) =
                         stop_rx.recv_timeout(CRASH_POLL_INTERVAL)
                     {
                         if let Some(crash) = find_new_report(&reports_dir, &seen_file, &mut known) {
-                            if send_report.send(crash).is_err() {
+                            watched.retain(|(previous, _)| previous.path != crash.path);
+                            // Bound retained reports even if several crashes arrive before dismissal.
+                            if watched.len() >= 8 {
+                                watched.remove(0);
+                            }
+                            watched.push((crash.clone(), None));
+                            if send_report.send(CrashEvent::New(crash)).is_err() {
                                 break;
                             }
-                            // A new report is the ONLY reason to wake the UI.
                             repaint.request_repaint();
                         }
+                        refresh_attributions(&mut watched, |event| {
+                            if send_report.send(event).is_ok() {
+                                repaint.request_repaint();
+                            }
+                        });
                     }
                 }) {
                 Ok(worker) => Some(worker),
@@ -273,11 +462,23 @@ impl CrashMonitor {
     }
 
     pub(in crate::gui) fn poll(&mut self, shown: &mut Option<RecentCrash>) {
-        while let Ok(report) = self.received.try_recv() {
-            if shown
-                .as_ref()
-                .is_some_and(|current| current.path == report.path)
-            {
+        while let Ok(event) = self.received.try_recv() {
+            let report = match event {
+                CrashEvent::New(report) => report,
+                CrashEvent::Attribution(path, attribution) => {
+                    if let Some(current) = shown.as_mut().filter(|report| report.path == path) {
+                        current.attribution = attribution.clone();
+                    }
+                    if let Some(pending) =
+                        self.pending.as_mut().filter(|report| report.path == path)
+                    {
+                        pending.attribution = attribution;
+                    }
+                    continue;
+                }
+            };
+            if let Some(current) = shown.as_mut().filter(|current| current.path == report.path) {
+                current.attribution = report.attribution;
                 continue;
             }
             // If multiple reports arrive together, prefer the newest. Keep
@@ -397,6 +598,7 @@ fn find_new_report(
         let report = RecentCrash {
             timestamp: format_report_timestamp(&name).unwrap_or_else(|| name.clone()),
             name,
+            attribution: read_mod_attribution(&path),
             path,
             seen_file: seen_file.to_path_buf(),
             detail,

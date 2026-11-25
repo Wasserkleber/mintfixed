@@ -1,5 +1,81 @@
 use super::*;
 
+const ATTRIBUTION: &str = "\n--- mintfixed mod attribution (bpcrash.exe) ---\nranked_mods.total : 2\nrank[1].mod : Custom Difficulty\nrank[2].mod : Enemy Variety: Expanded\nresult.snapshot_crash_match: installed_pak_size_and_mtime_match\n";
+
+#[test]
+fn reads_ranked_mods_and_rejects_unverified_attribution() {
+    assert_eq!(
+        parse_mod_attribution("rank[1].mod : Fake"),
+        ModAttribution::Pending
+    );
+    assert_eq!(
+        parse_mod_attribution(ATTRIBUTION),
+        ModAttribution::Candidates(vec![
+            "Custom Difficulty".to_owned(),
+            "Enemy Variety: Expanded".to_owned(),
+        ])
+    );
+    assert_eq!(
+        parse_mod_attribution(&format!(
+            "{ATTRIBUTION_MARKER}\nstatus : stale_context\nrank[1].mod : Old"
+        )),
+        ModAttribution::Unavailable
+    );
+    assert_eq!(
+        parse_mod_attribution(&format!(
+            "{ATTRIBUTION_MARKER}\nstatus : no_recognized_assets_or_missing_functions\n"
+        )),
+        ModAttribution::NoMatch
+    );
+    assert_eq!(
+        parse_mod_attribution(&format!("{ATTRIBUTION_MARKER}\nrank[1].mod : Incomplete\n")),
+        ModAttribution::Pending
+    );
+}
+
+#[test]
+fn reads_blueprint_evidence_when_no_ranked_mods() {
+    let report = format!(
+        "{ATTRIBUTION_MARKER}\nranked_mods.total : 0\nresult.snapshot_crash_match: installed_pak_size_and_mtime_match\n{BLUEPRINT_MARKER}\nmod_evidence[1].name : Blueprint Mod\nmod_evidence[1].caller_package : present\n"
+    );
+    assert_eq!(
+        parse_mod_attribution(&report),
+        ModAttribution::Candidates(vec!["Blueprint Mod".to_owned()])
+    );
+}
+
+#[test]
+fn attribution_appended_after_crash_refreshes_notice_once() {
+    use std::io::Write;
+    let temp = tempfile::tempdir().unwrap();
+    let name = "bpcrash_20261107_090509_1_03_t1.txt";
+    write_report(temp.path(), name, "first-chance exception #1", "error");
+    let seen = temp.path().join("ack.txt");
+    let crash = find_latest_unseen_report(temp.path(), &seen).unwrap();
+    assert_eq!(crash.attribution, ModAttribution::Pending);
+    let path = crash.path.clone();
+    let stamp = report_stamp(&path);
+    let mut watched = vec![(crash, stamp)];
+    let mut events = Vec::new();
+    std::fs::OpenOptions::new()
+        .append(true)
+        .open(&path)
+        .unwrap()
+        .write_all(ATTRIBUTION.as_bytes())
+        .unwrap();
+    refresh_attributions(&mut watched, |event| events.push(event));
+    assert!(
+        matches!(events.as_slice(), [CrashEvent::Attribution(found, ModAttribution::Candidates(names))] if found == &path && names[0] == "Custom Difficulty")
+    );
+    events.clear();
+    refresh_attributions(&mut watched, |event| events.push(event));
+    assert!(events.is_empty());
+    std::fs::write(&seen, path.to_string_lossy().as_bytes()).unwrap();
+    refresh_attributions(&mut watched, |event| events.push(event));
+    assert!(watched.is_empty());
+    assert!(events.is_empty());
+}
+
 fn write_report(dir: &Path, name: &str, reason: &str, detail: &str) {
     std::fs::write(
         dir.join(name),
