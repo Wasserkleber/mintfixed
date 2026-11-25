@@ -43,7 +43,7 @@ pub(in crate::gui) fn render_contents(
     unavailable_group_tooltip: Option<&str>,
     selected_color: Option<&str>,
     group_description: Option<&str>,
-) -> (bool, Option<Option<String>>) {
+) -> (bool, Option<Option<String>>, bool) {
     let title_clicked = ui
         .add(egui::Label::new(group_title).sense(egui::Sense::click()))
         .on_hover_cursor(egui::CursorIcon::PointingHand)
@@ -62,6 +62,7 @@ pub(in crate::gui) fn render_contents(
     }
 
     let mut requested_color: Option<Option<String>> = None;
+    let mut remove_description = false;
     // Right-aligned palette and help icon, preserving the original order.
     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
         ui.scope(|ui| {
@@ -102,8 +103,8 @@ pub(in crate::gui) fn render_contents(
         if let Some(description) = group_description {
             let group_tint = selected_color
                 .map(|color| mod_list_style::swatch_color(Some(color), ui.visuals().dark_mode));
-            description_help_button(ui, description, group_tint);
+            remove_description = description_help_button(ui, description, group_tint);
         }
     });
-    (title_clicked, requested_color)
+    (title_clicked, requested_color, remove_description)
 }

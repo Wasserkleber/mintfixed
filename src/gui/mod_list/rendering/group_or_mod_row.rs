@@ -152,7 +152,7 @@
                                 let selected_color = groups
                                     .get(group_name)
                                     .and_then(|group| group.tint_color.clone());
-                                let (clicked, requested_color) = group_header::render_contents(
+                                let (clicked, requested_color, remove_description) = group_header::render_contents(
                                     ui,
                                     group_title,
                                     group_member_count,
@@ -161,6 +161,12 @@
                                     group_description.as_deref(),
                                 );
                                 title_clicked = clicked;
+                                if remove_description
+                                    && let Some(group) = groups.get_mut(group_name) {
+                                        group.description = None;
+                                        ctx.needs_save = true;
+                                        ui.ctx().request_repaint();
+                                    }
                                 if let Some(color) = requested_color
                                     && let Some(group) = groups.get_mut(group_name) {
                                         group.tint_color = color;

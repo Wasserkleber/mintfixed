@@ -261,8 +261,11 @@
                                 .description
                                 .as_deref()
                                 .filter(|text| !text.trim().is_empty())
+                                && description_help_button(ui, description, group_control_tint)
                             {
-                                description_help_button(ui, description, group_control_tint);
+                                mc.description = None;
+                                ctx.needs_save = true;
+                                ui.ctx().request_repaint();
                             }
                             mod_tags::render_mod_tags(
                                 ui,
@@ -295,8 +298,11 @@
                             .description
                             .as_deref()
                             .filter(|text| !text.trim().is_empty())
+                            && description_help_button(ui, description, group_control_tint)
                         {
-                            description_help_button(ui, description, group_control_tint);
+                            mc.description = None;
+                            ctx.needs_save = true;
+                            ui.ctx().request_repaint();
                         }
                     }
                 }

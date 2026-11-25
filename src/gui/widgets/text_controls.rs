@@ -5,10 +5,10 @@ pub(in crate::gui) fn description_help_button(
     ui: &mut Ui,
     description: &str,
     group_tint: Option<Color32>,
-) {
+) -> bool {
     // Use the supplied group accent directly, not inherited widget text visuals.
-    // The same hover-only icon is used by headers and both mod-row paths.
-    let (rect, response) = ui.allocate_exact_size(egui::vec2(18.0, 18.0), egui::Sense::hover());
+    // The same icon is used by headers and both mod-row paths.
+    let (rect, response) = ui.allocate_exact_size(egui::vec2(18.0, 18.0), egui::Sense::click());
     let glyph = group_tint.unwrap_or_else(|| {
         if response.hovered() {
             ui.visuals().text_color()
@@ -30,11 +30,59 @@ pub(in crate::gui) fn description_help_button(
         .tint(glyph)
         .paint_at(ui, rect.shrink(1.5));
     }
-    response.on_hover_ui_at_pointer(|ui| {
+    let response = response.on_hover_ui_at_pointer(|ui| {
         ui.set_max_width(320.0);
         ui.label(RichText::new("Description").strong());
         ui.label(description);
+        ui.small("Right-click to remove this description");
     });
+    let mut remove = false;
+    let _ = response.context_menu(|ui| {
+        ui.set_min_width(220.0);
+        ui.set_max_width(300.0);
+        ui.add_space(3.0);
+        ui.label(RichText::new("Description").size(14.0).strong());
+        ui.add_space(4.0);
+        ui.label(RichText::new(description).color(ui.visuals().text_color()));
+        ui.add_space(6.0);
+        ui.separator();
+        ui.add_space(3.0);
+        let remove_clicked = ui
+            .with_layout(egui::Layout::top_down(egui::Align::Center), |ui| {
+                let dark = ui.visuals().dark_mode;
+                let (normal, hover, pressed, border, text) = if dark {
+                    (43, 53, 36, 64, egui::Color32::from_rgb(232, 151, 151))
+                } else {
+                    (235, 225, 214, 195, egui::Color32::from_rgb(150, 45, 45))
+                };
+                let widgets = &mut ui.visuals_mut().widgets;
+                for (visuals, shade) in [
+                    (&mut widgets.inactive, normal),
+                    (&mut widgets.hovered, hover),
+                    (&mut widgets.active, pressed),
+                ] {
+                    visuals.weak_bg_fill = egui::Color32::from_gray(shade);
+                    visuals.bg_fill = visuals.weak_bg_fill;
+                    visuals.bg_stroke = egui::Stroke::new(1.0, egui::Color32::from_gray(border));
+                    visuals.expansion = 0.0;
+                }
+                ui.add(
+                    egui::Button::new(RichText::new("Remove description").color(text))
+                        .min_size(egui::vec2(ui.available_width(), 30.0))
+                        .corner_radius(4_u8)
+                        .frame(true),
+                )
+                .on_hover_cursor(egui::CursorIcon::PointingHand)
+                .clicked()
+            })
+            .inner;
+        if remove_clicked {
+            remove = true;
+            ui.close_menu();
+        }
+        ui.add_space(2.0);
+    });
+    remove
 }
 
 // A single-line, width-bounded status label. Never let diagnostics reserve toolbar space.
