@@ -142,7 +142,8 @@ try {
         }
     }
     if (-not $SkipLinux) {
-        Write-Host 'Building Linux x86_64 with the default WSL distribution...'
+        $linuxDistro = 'Ubuntu-22.04'
+        Write-Host "Building Linux x86_64 with $linuxDistro (glibc 2.35 baseline)..."
         if (-not (Get-Command wsl.exe -ErrorAction SilentlyContinue)) {
             throw 'wsl.exe is unavailable. Install WSL, or use .\build.cmd -SkipLinux.'
         }
@@ -150,13 +151,13 @@ try {
         if (-not (Test-Path -LiteralPath $linuxHelper -PathType Leaf)) {
             throw "Linux build helper not found: $linuxHelper"
         }
-        $wslPaths = @(& wsl.exe --exec wslpath -u $linuxHelper)
-        Assert-Success 'Converting Linux build helper path'
+        $wslPaths = @(& wsl.exe -d $linuxDistro --exec wslpath -u $linuxHelper)
+        Assert-Success "Converting Linux build helper path in $linuxDistro (install with wsl --install -d $linuxDistro if missing)"
         if ($wslPaths.Count -ne 1 -or [string]::IsNullOrWhiteSpace([string]$wslPaths[0])) {
             throw 'WSL returned an invalid Linux build helper path.'
         }
         $linuxHelperWslPath = ([string]$wslPaths[0]).Trim()
-        & wsl.exe --exec bash $linuxHelperWslPath $repo $stage $latestTag
+        & wsl.exe -d $linuxDistro --exec bash $linuxHelperWslPath $repo $stage $latestTag
         Assert-Success 'Linux compilation and packaging'
         foreach ($name in @("${latestTag}-linux-x86_64", 'mintfixed_experimental-linux-x86_64')) {
             foreach ($extension in @('', '.tar.gz')) {

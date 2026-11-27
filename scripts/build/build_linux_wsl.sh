@@ -34,6 +34,18 @@ if ! command -v x86_64-w64-mingw32-gcc >/dev/null 2>&1; then
     exit 1
 fi
 
+# Refuse to build with an unintended libc or without the ELF inspection tool.
+max_glibc=2.35
+build_glibc="$(getconf GNU_LIBC_VERSION)"
+if [[ "$build_glibc" != "glibc $max_glibc" ]]; then
+    echo "Expected glibc $max_glibc build environment, found: $build_glibc" >&2
+    exit 1
+fi
+if ! command -v readelf >/dev/null 2>&1; then
+    echo "readelf is missing. Install binutils." >&2
+    exit 1
+fi
+
 # Keep Linux build artifacts on the Linux filesystem rather than mixing them
 # with Windows target/release (also substantially faster under WSL).
 export CARGO_TARGET_DIR="$HOME/mintfixed-target"
@@ -54,6 +66,17 @@ if [[ "$(od -An -tx1 -N4 "$binary" | tr -d '[:space:]')" != '7f454c46' ]]; then
     echo "Build output is not an ELF binary: $binary" >&2
     exit 1
 fi
+
+# Check the actual ELF symbol-version requirements, not just the host libc.
+if ! required_glibc="$(LC_ALL=C readelf --version-info "$binary" | grep -oE 'GLIBC_[0-9]+(\.[0-9]+)+' | sed 's/^GLIBC_//' | sort -Vu | tail -n 1)" || [[ -z "$required_glibc" ]]; then
+    echo "Could not determine required glibc version: $binary" >&2
+    exit 1
+fi
+if [[ "$(printf '%s\n' "$max_glibc" "$required_glibc" | sort -V | tail -n 1)" != "$max_glibc" ]]; then
+    echo "Linux binary requires glibc $required_glibc, exceeding $max_glibc." >&2
+    exit 1
+fi
+echo "Verified Linux binary: requires glibc $required_glibc (maximum allowed: $max_glibc)"
 
 package_linux() {
     local name="$1"
