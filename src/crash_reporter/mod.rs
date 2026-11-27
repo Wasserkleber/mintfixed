@@ -263,6 +263,11 @@ fn install_inner(bin_dir: &Path, installation_type: &DRGInstallationType) -> Res
             license.display()
         );
     }
+    #[cfg(target_os = "linux")]
+    fs::write(
+        dir.join("bpcrash-proton.sh"),
+        include_str!("../../assets/bpcrash/bpcrash-proton.sh"),
+    )?;
     symbols::spawn_fetch(dir.clone(), bin_dir.join(process));
     info!("BP-Crash-Reporter: installation ready at {}", dir.display());
     Ok(())

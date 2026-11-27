@@ -153,6 +153,30 @@ fn try_autolaunch() -> Result<()> {
         return Ok(());
     }
 
+    // The native Steam wrapper provides a unique, pre-created session file.
+    // Write the Windows PID (not the host PID) and the Windows game path so
+    // the post-exit helper never guesses Wine drive mappings or report IDs.
+    if running_under_wine()
+        && let Some(token) = std::env::var_os("MINTFIXED_BPCRASH_SESSION")
+        && let Some(token) = token.to_str()
+        && token.starts_with("mintfixed-session.")
+        && token.len() <= 96
+        && token
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'.' || b == b'-')
+    {
+        let session = dir.join(token);
+        if session.is_file() {
+            let game_path = game_exe.to_string_lossy();
+            if !game_path.contains(['\r', '\n']) {
+                let record = format!("{}\n{}\n", std::process::id(), game_path);
+                if let Err(err) = fs::write(&session, record) {
+                    warn!("BP-Crash-Reporter: could not write Proton session: {err}");
+                }
+            }
+        }
+    }
+
     // A running manual watcher can both inject and perform post-exit triage.
     // Do not spawn another watcher regardless of its installation location.
     if reporter_process_running()? {

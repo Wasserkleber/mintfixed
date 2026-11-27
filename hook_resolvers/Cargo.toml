@@ -7,7 +7,7 @@ version.workspace = true
 edition.workspace = true
 
 [dependencies]
-patternsleuth.workspace = true
+patternsleuth = { workspace = true, features = ["image-pe"] }
 serde = { workspace = true, optional = true }
 
 [features]

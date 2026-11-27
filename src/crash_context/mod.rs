@@ -26,6 +26,8 @@ const CONTEXT_FILENAME: &str = "crash_context.json";
 #[derive(Serialize)]
 struct FileFingerprint {
     path: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    relative_path: Option<&'static str>,
     exists: bool,
     byte_size: Option<u64>,
     modified_unix_ms: Option<u128>,
@@ -35,6 +37,7 @@ fn metadata_for(path: &Path) -> FileFingerprint {
     let meta = fs::metadata(path).ok().filter(|value| value.is_file());
     FileFingerprint {
         path: path.to_string_lossy().into_owned(),
+        relative_path: None,
         exists: meta.is_some(),
         byte_size: meta.as_ref().map(std::fs::Metadata::len),
         modified_unix_ms: meta
@@ -43,6 +46,17 @@ fn metadata_for(path: &Path) -> FileFingerprint {
             .and_then(|value| value.duration_since(UNIX_EPOCH).ok())
             .map(|duration| duration.as_millis()),
     }
+}
+
+// Only the merged game PAK receives a portable locator. Other archive paths
+// remain diagnostic data, and Windows keeps the existing path identity check.
+fn installed_pak_metadata(path: &Path) -> FileFingerprint {
+    let mut fingerprint = metadata_for(path);
+    if cfg!(target_os = "linux") && path.is_absolute() && path.ends_with("Content/Paks/mods_P.pak")
+    {
+        fingerprint.relative_path = Some("Content/Paks/mods_P.pak");
+    }
+    fingerprint
 }
 
 #[derive(Serialize)]
@@ -218,7 +232,11 @@ fn can_reuse_installed_context(
     {
         return false;
     }
-    if serde_json::to_value(metadata_for(merged_pak)).ok().as_ref() != json.get("installed_pak") {
+    if serde_json::to_value(installed_pak_metadata(merged_pak))
+        .ok()
+        .as_ref()
+        != json.get("installed_pak")
+    {
         return false;
     }
     let Some(entries) = json["installed_mods"].as_array() else {
@@ -308,7 +326,7 @@ pub(crate) fn write_installed_context(
         pid: std::process::id(),
         captured_after_successful_install: true,
         vanilla_pak: metadata_for(vanilla_pak),
-        installed_pak: metadata_for(merged_pak),
+        installed_pak: installed_pak_metadata(merged_pak),
         sdk_snapshot: snapshot_path
             .is_file()
             .then(|| snapshot_path.to_string_lossy().into_owned()),
