@@ -181,18 +181,54 @@ impl Drag {
         manual: bool,
     ) -> egui::Response {
         let modifiers = ui.input(|i| i.modifiers);
-        if manual && (Self::selection_mode(ui.ctx(), profile) || modifiers.ctrl || modifiers.shift)
-        {
-            let response = ui
-                .add(egui::Label::new(job).sense(egui::Sense::click()))
-                .on_hover_cursor(egui::CursorIcon::PointingHand)
-                .on_hover_text("Click to select; Shift+click for a range");
-            if response.clicked() {
-                Self::selection_click(ui.ctx(), profile, key);
-            }
+        let selecting = manual
+            && (Self::selection_mode(ui.ctx(), profile) || modifiers.ctrl || modifiers.shift);
+        let local = Self::is_local_mod_path(url);
+        let response = if !selecting && !local {
+            // Keep normal browser and middle-click behavior, but replace egui's
+            // plain URL tooltip with the same structured tooltip as local mods.
+            let previous = ui.style().url_in_tooltip;
+            ui.style_mut().url_in_tooltip = false;
+            let response = ui.hyperlink_to(job, url);
+            ui.style_mut().url_in_tooltip = previous;
             response
         } else {
-            ui.hyperlink_to(job, url)
+            let response = if selecting {
+                ui.add(egui::Label::new(job).sense(egui::Sense::click()))
+                    .on_hover_cursor(egui::CursorIcon::PointingHand)
+            } else {
+                // Link provides the exact same hover underline as Hyperlink,
+                // without sending the local file path to the browser.
+                ui.add(egui::Link::new(job))
+            };
+            if response.clicked() {
+                if selecting {
+                    Self::selection_click(ui.ctx(), profile, key);
+                } else {
+                    super::local_file::reveal(url);
+                }
+            }
+            response
+        };
+        if local {
+            super::local_file::decorate_name(response, url, selecting)
+        } else {
+            response.on_hover_ui(|ui| {
+                let is_modio = url::Url::parse(url).is_ok_and(|parsed| {
+                    parsed
+                        .host_str()
+                        .is_some_and(|host| host == "mod.io" || host.ends_with(".mod.io"))
+                });
+                ui.weak(if is_modio { "mod.io mod" } else { "Online mod" });
+                ui.label(url);
+                ui.weak(if selecting {
+                    "Click to select; Shift+click for a range"
+                } else if is_modio {
+                    "Click to open mod.io page"
+                } else {
+                    "Click to open link"
+                });
+            })
         }
     }
 

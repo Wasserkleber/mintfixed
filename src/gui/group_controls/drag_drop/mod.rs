@@ -3,6 +3,7 @@ use super::*;
 
 mod auto_scroll;
 mod file_drop;
+mod local_file;
 mod model;
 mod movement;
 mod multi_select;

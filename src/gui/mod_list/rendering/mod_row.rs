@@ -168,7 +168,11 @@
                     });
 
                         if icon_buttons::copy_url_button(ui, group_control_tint)
-                            .on_hover_text_at_pointer("copy URL")
+                            .on_hover_text_at_pointer(if Drag::is_local_mod_path(&mc.spec.url) {
+                                "Copy file path"
+                            } else {
+                                "Copy URL"
+                            })
                             .clicked()
                         {
                             ui.ctx().copy_text(mc.spec.url.to_string());
@@ -276,7 +280,11 @@
                         });
                     } else {
                         if icon_buttons::copy_url_button(ui, group_control_tint)
-                            .on_hover_text_at_pointer("Copy URL")
+                            .on_hover_text_at_pointer(if Drag::is_local_mod_path(&mc.spec.url) {
+                                "Copy file path"
+                            } else {
+                                "Copy URL"
+                            })
                             .clicked()
                         {
                             ui.ctx().copy_text(mc.spec.url.to_string());
