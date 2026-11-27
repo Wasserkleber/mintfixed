@@ -25,6 +25,9 @@ and respects the disabled marker. A missing local helper falls back to normal
 launch. The GUI does not need to be open.
 
 After updating Mintfixed, reinstall mods to refresh the manifest and hook.
+The session marker now has three lines: Wine PID, Windows game executable,
+and Windows report directory. Use the matching patched native watcher; the
+old experimental two-line marker is no longer accepted by the new watcher.
 Only Linux-produced merged PAK fingerprints receive the optional relative path.
 Old reporters continue to parse the v2 manifest but may reject Linux paths.
 

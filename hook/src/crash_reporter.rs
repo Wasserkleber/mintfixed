@@ -154,7 +154,7 @@ fn try_autolaunch() -> Result<()> {
     }
 
     // The native Steam wrapper provides a unique, pre-created session file.
-    // Write the Windows PID (not the host PID) and the Windows game path so
+    // Write the Windows PID (not the host PID) and both Windows paths so
     // the post-exit helper never guesses Wine drive mappings or report IDs.
     if running_under_wine()
         && let Some(token) = std::env::var_os("MINTFIXED_BPCRASH_SESSION")
@@ -168,8 +168,9 @@ fn try_autolaunch() -> Result<()> {
         let session = dir.join(token);
         if session.is_file() {
             let game_path = game_exe.to_string_lossy();
-            if !game_path.contains(['\r', '\n']) {
-                let record = format!("{}\n{}\n", std::process::id(), game_path);
+            let report_dir = dir.to_string_lossy();
+            if !game_path.contains(['\r', '\n']) && !report_dir.contains(['\r', '\n']) {
+                let record = format!("{}\n{}\n{}\n", std::process::id(), game_path, report_dir);
                 if let Err(err) = fs::write(&session, record) {
                     warn!("BP-Crash-Reporter: could not write Proton session: {err}");
                 }
