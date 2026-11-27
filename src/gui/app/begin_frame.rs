@@ -3,9 +3,9 @@ use crate::gui::*;
 
 impl App {
     pub(in crate::gui) fn frame_begin(&mut self, ctx: &egui::Context) {
-        // VSync limits frames to the monitor's refresh rate, which may exceed 60 Hz.
+        // VSync limits frames to the monitor's refresh rate, up to our 240 FPS cap.
         // Pace updates during rapid input without requesting any frames when idle.
-        const MIN_FRAME_INTERVAL: Duration = Duration::from_nanos(16_666_667);
+        const MIN_FRAME_INTERVAL: Duration = Duration::from_nanos(4_166_667);
         if let Some(previous) = self.last_ui_frame_start
             && let Some(remaining) = MIN_FRAME_INTERVAL.checked_sub(previous.elapsed())
         {
